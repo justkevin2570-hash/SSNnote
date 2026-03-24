@@ -41,6 +41,14 @@ def init_db():
                 strikethrough INTEGER NOT NULL DEFAULT 0,
                 cleared_at    TEXT NOT NULL DEFAULT (datetime('now','localtime'))
             );
+
+            CREATE TABLE IF NOT EXISTS documents (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                window_id  INTEGER NOT NULL,
+                title      TEXT NOT NULL DEFAULT '',
+                doc_number TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
         """)
 
         # tasks 테이블에 window_id 컬럼 없으면 추가 (기존 DB 마이그레이션)
@@ -107,6 +115,7 @@ def delete_window(window_id):
         conn.execute('DELETE FROM windows WHERE id=?', (window_id,))
         conn.execute('DELETE FROM tasks WHERE window_id=?', (window_id,))
         conn.execute('DELETE FROM task_history WHERE window_id=?', (window_id,))
+        conn.execute('DELETE FROM documents WHERE window_id=?', (window_id,))
 
 
 def get_tasks(window_id):
@@ -156,3 +165,34 @@ def get_task_history(window_id):
 def delete_task_history(history_id):
     with _connect() as conn:
         conn.execute('DELETE FROM task_history WHERE id=?', (history_id,))
+
+
+def get_documents(window_id):
+    with _connect() as conn:
+        rows = conn.execute(
+            'SELECT * FROM documents WHERE window_id=? ORDER BY created_at ASC',
+            (window_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_document(window_id, title='', doc_number=''):
+    with _connect() as conn:
+        cur = conn.execute(
+            'INSERT INTO documents (window_id, title, doc_number) VALUES (?, ?, ?)',
+            (window_id, title, doc_number)
+        )
+        return cur.lastrowid
+
+
+def update_document(doc_id, title, doc_number):
+    with _connect() as conn:
+        conn.execute(
+            'UPDATE documents SET title=?, doc_number=? WHERE id=?',
+            (title, doc_number, doc_id)
+        )
+
+
+def delete_document(doc_id):
+    with _connect() as conn:
+        conn.execute('DELETE FROM documents WHERE id=?', (doc_id,))

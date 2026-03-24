@@ -1,15 +1,19 @@
+import os
 from datetime import date
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QApplication,
     QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QMenu, QAction, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
-    QPlainTextEdit, QSizePolicy
+    QPlainTextEdit, QSizePolicy, QSplitter, QGraphicsColorizeEffect
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint
-from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption
-from db import update_window, delete_window, get_tasks, add_task, delete_task, update_task, add_task_history, get_task_history, delete_task_history
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize
+from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap
+from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
+                add_task_history, get_task_history, delete_task_history,
+                get_documents, add_document, update_document, delete_document)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
+from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
 
 TITLE_BAR_HEIGHT = 40
 TITLE_COLOR      = '#f7c948'
@@ -146,7 +150,7 @@ class TitleBar(QWidget):
         self.setStyleSheet(f"""
             QWidget {{
                 background: {TITLE_COLOR};
-                border-radius: 8px 8px 0 0;
+                border-radius: 0;
             }}
             QPushButton {{
                 background: transparent;
@@ -155,14 +159,15 @@ class TitleBar(QWidget):
                 padding: 4px 6px 0px 6px;
                 border-radius: 4px;
             }}
-            QPushButton:hover {{ background: rgba(0,0,0,0.12); }}
+            QPushButton:hover {{ background: rgba(0,0,0,0.12); border-radius: 3px; }}
+            QPushButton:pressed {{ background: rgba(0,0,0,0.22); border-radius: 3px; padding: 2px 0 0 2px; }}
         """)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(2)
 
-        self.label = QLabel('서서니 메모')
+        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:normal;">v1.2</span>')
         self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         self.label.setStyleSheet('color: #5a4000; background: transparent;')
 
@@ -171,9 +176,21 @@ class TitleBar(QWidget):
         btn_menu.setStyleSheet('font-size: 19px; letter-spacing: 0px; padding: 4px 6px 0px 6px;')
         self.btn_pin   = QPushButton('📌')
         self.btn_pin.setToolTip('항상 위 꺼짐')
-        self.btn_close = QPushButton('×')
-        self.btn_close.setStyleSheet('font-size: 20px; padding: 4px 6px 0px 6px;')
+        _gray = QGraphicsColorizeEffect()
+        _gray.setColor(QColor('#888888'))
+        _gray.setStrength(1.0)
+        self.btn_pin.setGraphicsEffect(_gray)
+        _x_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '엑스아이콘.png')
+        self.btn_close = QPushButton()
+        self.btn_close.setIcon(QIcon(QPixmap(_x_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+        self.btn_close.setIconSize(QSize(18, 18))
+        self.btn_close.setFixedSize(26, 26)
         self.btn_close.setToolTip('닫기')
+        self.btn_close.setStyleSheet("""
+            QPushButton { background: transparent; border: none; }
+            QPushButton:hover { background: rgba(0,0,0,0.12); border-radius: 3px; }
+            QPushButton:pressed { background: rgba(0,0,0,0.22); border-radius: 3px; padding: 2px 0 0 2px; }
+        """)
 
         layout.addWidget(self.label)
         layout.addStretch()
@@ -239,6 +256,51 @@ class RotatedMenuButton(QPushButton):
         p.end()
 
 
+class _AutoHeightEdit(QPlainTextEdit):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        opt = QTextOption()
+        opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.document().setDefaultTextOption(opt)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.document().contentsChanged.connect(self._update_height)
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.clearFocus()
+        else:
+            super().keyPressEvent(e)
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._update_height()
+
+    def _update_height(self):
+        width = self.viewport().width()
+        if width <= 0:
+            return
+        text = self.toPlainText() or ' '
+        layout = QTextLayout(text, self.font())
+        opt = QTextOption()
+        opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        layout.setTextOption(opt)
+        layout.beginLayout()
+        y = 0.0
+        while True:
+            line = layout.createLine()
+            if not line.isValid():
+                break
+            line.setLineWidth(width)
+            line.setPosition(QPointF(0, y))
+            y += line.height()
+        layout.endLayout()
+        doc_margin = self.document().documentMargin()
+        h = int(y + 2 * doc_margin) + 4
+        self.setFixedHeight(max(h, 28))
+
+
 class TaskRow(QWidget):
     def __init__(self, task, on_delete, on_update):
         super().__init__()
@@ -272,16 +334,16 @@ class TaskRow(QWidget):
         self._strikethrough = bool(task.get('strikethrough', 0))
         name_color = '#aaa' if overdue else '#333'
 
-        self.name_edit = QLineEdit(task['name'])
+        self.name_edit = _AutoHeightEdit(task['name'])
         self.name_edit.setFont(QFont('Malgun Gothic', 12))
         self.name_edit.setStyleSheet(f"""
-            QLineEdit {{
+            QPlainTextEdit {{
                 background: transparent;
                 border: none;
                 color: {name_color};
                 padding: 0px;
             }}
-            QLineEdit:focus {{
+            QPlainTextEdit:focus {{
                 background: rgba(255,255,255,0.6);
                 border-bottom: 1px solid #d4b800;
             }}
@@ -290,9 +352,7 @@ class TaskRow(QWidget):
             font = self.name_edit.font()
             font.setStrikeOut(True)
             self.name_edit.setFont(font)
-        self.name_edit.editingFinished.connect(self._save)
-        self.name_edit.textChanged.connect(self._adjust_width)
-        self._adjust_width(task['name'])
+        self.name_edit.installEventFilter(self)
 
         if suffix:
             dday_lbl = QLabel(suffix)
@@ -308,21 +368,20 @@ class TaskRow(QWidget):
         btn_menu.setStyleSheet('background: transparent; border: none; padding: 4px 6px; border-radius: 4px;')
         btn_menu.clicked.connect(lambda: self._open_task_menu(btn_menu, task, on_delete))
 
-        layout.addWidget(self.name_edit)
+        layout.addWidget(self.name_edit, 1)
         if dday_lbl:
-            layout.addWidget(dday_lbl)
-        layout.addWidget(btn_menu)
-        layout.addStretch()
+            layout.addWidget(dday_lbl, 0, Qt.AlignTop)
+        layout.addWidget(btn_menu, 0, Qt.AlignTop)
 
-    def _adjust_width(self, text):
-        fm = QFontMetrics(self.name_edit.font())
-        w  = fm.horizontalAdvance(text) + 4
-        self.name_edit.setFixedWidth(max(w, 40))
+    def eventFilter(self, watched, event):
+        if watched is self.name_edit and event.type() == QEvent.FocusOut:
+            self._save()
+        return super().eventFilter(watched, event)
 
     def _save(self):
-        name = self.name_edit.text().strip()
+        name = self.name_edit.toPlainText().strip()
         if not name:
-            self.name_edit.setText(self.task['name'])
+            self.name_edit.setPlainText(self.task['name'])
             return
         if name != self.task['name']:
             self.task['name'] = name
@@ -373,8 +432,32 @@ class TaskRow(QWidget):
         font = self.name_edit.font()
         font.setStrikeOut(self._strikethrough)
         self.name_edit.setFont(font)
-        self._adjust_width(self.name_edit.text())
+        self.name_edit._update_height()
         update_task(self.task['id'], self.task['name'], self.task['deadline'], strikethrough=int(self._strikethrough))
+
+
+from PyQt5.QtWidgets import QSplitterHandle
+
+class DragHandleSplitter(QSplitter):
+    """가운데에 드래그 핸들 점을 그리는 커스텀 스플리터."""
+    def createHandle(self):
+        return _DotHandle(self.orientation(), self)
+
+class _DotHandle(QSplitterHandle):
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        dot_color = QColor('#a07000')
+        painter.setBrush(dot_color)
+        painter.setPen(Qt.NoPen)
+        cx = self.width() // 2
+        cy = self.height() // 2
+        r = 2  # 점 반지름
+        gap = 6  # 점 간격
+        for i in (-2, -1, 0, 1, 2):
+            painter.drawEllipse(cx + i * gap - r, cy - r, r * 2, r * 2)
+        painter.end()
 
 
 class CustomCalendarWidget(QCalendarWidget):
@@ -390,11 +473,134 @@ class CustomCalendarWidget(QCalendarWidget):
             painter.restore()
 
 
+class ClickToCopyLineEdit(QLineEdit):
+    """클릭하면 텍스트를 클립보드에 복사하고 '복사됨!' 툴팁을 표시하는 읽기전용 필드."""
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.text():
+            QApplication.clipboard().setText(self.text())
+            self._show_copied_popup(event.globalPos())
+        super().mousePressEvent(event)
+
+    def _show_copied_popup(self, global_pos):
+        popup = QLabel('복사됨!', self, Qt.ToolTip | Qt.FramelessWindowHint)
+        popup.setStyleSheet("""
+            QLabel {
+                background: #5a4000;
+                color: white;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-family: 'Malgun Gothic';
+                font-size: 10pt;
+            }
+        """)
+        popup.adjustSize()
+        popup.move(global_pos + QPoint(4, -popup.height() - 8))
+        popup.show()
+        QTimer.singleShot(500, popup.deleteLater)
+
+
+class DocumentRow(QWidget):
+    """공문번호 한 항목 행: [공문제목 입력] [공문번호(읽기전용)] [삭제메뉴]"""
+
+    def __init__(self, doc: dict, on_delete):
+        super().__init__()
+        self._doc = doc
+        self._on_delete = on_delete
+        self.setStyleSheet('background: transparent;')
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(8, 2, 8, 2)
+        lay.setSpacing(4)
+
+        field_style = """
+            QLineEdit {
+                background: rgba(255,255,255,0.5);
+                border: 1px solid #d4b800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #333;
+                font-family: 'Malgun Gothic';
+                font-size: 10pt;
+            }
+        """
+        readonly_style = """
+            QLineEdit {
+                background: rgba(255,255,255,0.25);
+                border: 1px solid #c0a800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #5a4000;
+                font-family: 'Malgun Gothic';
+                font-size: 10pt;
+            }
+        """
+
+        self.title_edit = QLineEdit(doc.get('title', ''))
+        self.title_edit.setPlaceholderText('공문 제목')
+        self.title_edit.setStyleSheet(field_style)
+        self.title_edit.editingFinished.connect(self._save)
+        lay.addWidget(self.title_edit, 3)
+
+        self.num_edit = ClickToCopyLineEdit(doc.get('doc_number', ''))
+        self.num_edit.setReadOnly(True)
+        self.num_edit.setStyleSheet(readonly_style)
+        self.num_edit.setCursor(Qt.PointingHandCursor)
+        lay.addWidget(self.num_edit, 5)
+
+        import os
+        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '정리 아이콘.png')
+        from PyQt5.QtGui import QIcon, QPixmap
+        btn_fmt = QPushButton()
+        btn_fmt.setIcon(QIcon(QPixmap(_icon_path).scaled(27, 27, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+        from PyQt5.QtCore import QSize
+        btn_fmt.setIconSize(QSize(27, 27))
+        btn_fmt.setFixedSize(31, 31)
+        btn_fmt.setToolTip('형식 정리')
+        btn_fmt.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                padding: 0;
+            }
+            QPushButton:hover { background: rgba(0,0,0,0.08); border-radius: 3px; }
+            QPushButton:pressed { background: rgba(0,0,0,0.18); border-radius: 3px; padding: 2px 0 0 2px; }
+        """)
+        btn_fmt.clicked.connect(self._format_number)
+        lay.addWidget(btn_fmt)
+
+        _del_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '엑스아이콘.png')
+        btn_del = QPushButton()
+        btn_del.setIcon(QIcon(QPixmap(_del_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+        btn_del.setIconSize(QSize(18, 18))
+        btn_del.setFixedSize(22, 26)
+        btn_del.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                padding: 0;
+            }
+            QPushButton:hover { background: rgba(0,0,0,0.08); border-radius: 3px; }
+            QPushButton:pressed { background: rgba(0,0,0,0.18); border-radius: 3px; padding: 2px 0 0 2px; }
+        """)
+        btn_del.clicked.connect(lambda: self._on_delete(self._doc['id']))
+        lay.addWidget(btn_del)
+
+    def _format_number(self):
+        cleaned = _normalize_doc_number(self.num_edit.text())
+        self.num_edit.setText(cleaned)
+        update_document(self._doc['id'], self.title_edit.text(), cleaned)
+
+    def _save(self):
+        update_document(self._doc['id'], self.title_edit.text(), self.num_edit.text())
+
+
 class MemoWindow(QMainWindow):
-    def __init__(self, window_id, on_new=None):
+    def __init__(self, window_id, on_new=None, open_windows=None):
         super().__init__()
         self.window_id       = window_id
         self.on_new          = on_new or (lambda **kw: None)
+        self._open_windows   = open_windows if open_windows is not None else []
         self.collapsed       = False
         self.expanded_height = 400
         self.pin_active      = False
@@ -422,7 +628,7 @@ class MemoWindow(QMainWindow):
         central.setStyleSheet("""
             QWidget#central {
                 background: #fffacd;
-                border-radius: 8px;
+                border-radius: 0;
                 border: 1px solid rgba(0,0,0,0.4);
             }
         """)
@@ -437,7 +643,23 @@ class MemoWindow(QMainWindow):
 
         self.content = QWidget()
         self.content.setStyleSheet('background: transparent;')
-        content_layout = QVBoxLayout(self.content)
+        _outer_layout = QVBoxLayout(self.content)
+        _outer_layout.setContentsMargins(0, 0, 8, 0)
+        _outer_layout.setSpacing(0)
+
+        _splitter = DragHandleSplitter(Qt.Vertical)
+        _splitter.setStyleSheet("""
+            QSplitter::handle {
+                background: #d4b800;
+                height: 10px;
+            }
+        """)
+        _splitter.setChildrenCollapsible(False)
+        _outer_layout.addWidget(_splitter)
+
+        _top_panel = QWidget()
+        _top_panel.setStyleSheet('background: transparent;')
+        content_layout = QVBoxLayout(_top_panel)
         content_layout.setContentsMargins(0, 6, 0, 0)
         content_layout.setSpacing(4)
 
@@ -581,6 +803,7 @@ class MemoWindow(QMainWindow):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setWidget(self.task_list_widget)
         scroll.setStyleSheet("""
             QScrollArea { border: none; background: transparent; }
@@ -589,10 +812,72 @@ class MemoWindow(QMainWindow):
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
         content_layout.addWidget(scroll)
+        _splitter.addWidget(_top_panel)
+
+        # ── 하단 패널: 공문번호 섹션 ──────────────────────────────
+        _bottom_panel = QWidget()
+        _bottom_panel.setStyleSheet('background: transparent;')
+        bottom_layout = QVBoxLayout(_bottom_panel)
+        bottom_layout.setContentsMargins(0, 4, 0, 4)
+        bottom_layout.setSpacing(2)
+
+        # 헤더: "공문번호" 레이블 + 캡처 버튼
+        doc_header = QHBoxLayout()
+        doc_header.setContentsMargins(8, 0, 8, 0)
+        lbl_doc = QLabel('공문번호 따기  (단축키 ctrl+shift+x)')
+        lbl_doc.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
+        lbl_doc.setStyleSheet('color: #5a4000; background: transparent;')
+        btn_capture = QPushButton('캡처')
+        btn_capture.setFont(QFont('Malgun Gothic', 10))
+        btn_capture.setFixedWidth(50)
+        btn_capture.setStyleSheet("""
+            QPushButton {
+                background: rgba(255,255,255,0.5);
+                border: 1px solid #d4b800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #5a4000;
+            }
+            QPushButton:hover { background: rgba(212,184,0,0.25); }
+        """)
+        btn_capture.clicked.connect(self._start_capture)
+        doc_header.addWidget(lbl_doc)
+        doc_header.addStretch()
+        doc_header.addWidget(btn_capture)
+        bottom_layout.addLayout(doc_header)
+
+        doc_line = QFrame()
+        doc_line.setFrameShape(QFrame.HLine)
+        doc_line.setStyleSheet('color: #d4b800; background: #d4b800; max-height: 1px; margin: 0 8px;')
+        bottom_layout.addWidget(doc_line)
+
+        # 공문 목록 스크롤 영역
+        self.doc_list_widget = QWidget()
+        self.doc_list_widget.setStyleSheet('background: transparent;')
+        self.doc_list_layout = QVBoxLayout(self.doc_list_widget)
+        self.doc_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.doc_list_layout.setSpacing(0)
+        self.doc_list_layout.addStretch()
+
+        doc_scroll = QScrollArea()
+        doc_scroll.setWidgetResizable(True)
+        doc_scroll.setWidget(self.doc_list_widget)
+        doc_scroll.setStyleSheet("""
+            QScrollArea { border: none; background: transparent; }
+            QScrollBar:vertical { width: 6px; background: transparent; }
+            QScrollBar::handle:vertical { background: #d4b800; border-radius: 3px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        """)
+        bottom_layout.addWidget(doc_scroll)
+
+        _splitter.addWidget(_bottom_panel)
+        _splitter.setStretchFactor(0, 2)
+        _splitter.setStretchFactor(1, 1)
 
         root.addWidget(self.content)
         self._apply_color(self._bg_color)
         self._refresh_tasks()
+        self._refresh_documents()
         self.input_name.setFocus()
         self._schedule_midnight_refresh()
         self._setup_resize_handles()
@@ -663,6 +948,51 @@ class MemoWindow(QMainWindow):
         for task in get_tasks(self.window_id):
             row = TaskRow(task, self._delete_task, self._refresh_tasks)
             self.task_list_layout.insertWidget(self.task_list_layout.count() - 1, row)
+
+    def _refresh_documents(self):
+        while self.doc_list_layout.count() > 1:
+            item = self.doc_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for doc in get_documents(self.window_id):
+            row = DocumentRow(doc, self._delete_document)
+            self.doc_list_layout.insertWidget(self.doc_list_layout.count() - 1, row)
+
+    def _delete_document(self, doc_id):
+        delete_document(doc_id)
+        self._refresh_documents()
+
+    def _start_capture(self):
+        # 모든 메모 창 숨기고 화면 캡처 후 오버레이 표시
+        for win in self._open_windows:
+            win.hide()
+        QTimer.singleShot(150, self._show_capture_overlay)
+
+    def _show_capture_overlay(self):
+        screenshot = grab_fullscreen()
+        self._overlay = ScreenCaptureOverlay(screenshot)
+        self._overlay.region_captured.connect(self._on_capture_complete)
+        self._overlay.cancelled.connect(self._restore_windows)
+        self._overlay.showFullScreen()
+
+    def _restore_windows(self):
+        for win in self._open_windows:
+            win.show()
+
+    def _on_capture_complete(self, pixmap):
+        self._restore_windows()
+
+        def _after_ocr(text):
+            if text:
+                add_document(self.window_id, '', text)
+                self._refresh_documents()
+            else:
+                QMessageBox.information(self, '알림', 'OCR 텍스트를 인식하지 못했습니다.')
+
+        def _on_error(msg):
+            QMessageBox.warning(self, 'OCR 오류', msg)
+
+        self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
 
     def _make_menu_style(self):
         return """
@@ -739,14 +1069,14 @@ class MemoWindow(QMainWindow):
         self.centralWidget().setStyleSheet(f"""
             QWidget#central {{
                 background: {hex_color};
-                border-radius: 8px;
+                border-radius: 0;
                 border: 1px solid rgba(0,0,0,0.4);
             }}
         """)
         self.title_bar.setStyleSheet(f"""
             QWidget {{
                 background: {title_color};
-                border-radius: 8px 8px 0 0;
+                border-radius: 0;
             }}
             QPushButton {{
                 background: transparent;
@@ -1051,7 +1381,7 @@ class MemoWindow(QMainWindow):
 
     def toggle_always_on_top(self):
         self.pin_active = not self.pin_active
-        flags = Qt.FramelessWindowHint
+        flags = Qt.FramelessWindowHint | Qt.Tool
         if self.pin_active:
             flags |= Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
@@ -1062,10 +1392,15 @@ class MemoWindow(QMainWindow):
             btn.setText('📍')
             btn.setToolTip('항상 위 켜짐')
             btn.setStyleSheet('background: rgba(0,0,0,0.18); border-radius: 4px;')
+            btn.setGraphicsEffect(None)
         else:
             btn.setText('📌')
             btn.setToolTip('항상 위 꺼짐')
             btn.setStyleSheet('')
+            _gray = QGraphicsColorizeEffect()
+            _gray.setColor(QColor('#888888'))
+            _gray.setStrength(1.0)
+            btn.setGraphicsEffect(_gray)
 
     def _snap_to_screen(self, pos):
         screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
