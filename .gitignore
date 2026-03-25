@@ -15,6 +15,12 @@ venv/
 *.db
 *.sqlite3
 
+# Secrets
+.env
+*.env
+credentials.json
+service_account.json
+
 # IDE
 .vscode/
 .idea/
