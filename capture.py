@@ -1,8 +1,55 @@
 import io
+import asyncio
 
 from PyQt5.QtCore import Qt, QRect, QPoint, pyqtSignal, QThread
 from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap
 from PyQt5.QtWidgets import QApplication, QWidget
+
+
+async def _winrt_ocr(png_bytes: bytes) -> str:
+    """Windows 내장 OCR로 텍스트 인식."""
+    from PIL import Image
+    from winrt.windows.media.ocr import OcrEngine
+    from winrt.windows.globalization import Language
+    from winrt.windows.graphics.imaging import BitmapDecoder
+    from winrt.windows.storage.streams import InMemoryRandomAccessStream, DataWriter
+
+    # WinRT OCR은 Bgra8/Gray8만 지원. Qt PNG는 Rgba8 → BMP로 변환하면 BGRA8로 디코딩됨.
+    from PIL import ImageFilter
+    img = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
+    w, h = img.size
+    TARGET_H = 300
+    MAX_DIM  = 4800
+    if h < TARGET_H:
+        scale = max(2, TARGET_H // h)
+        scale = min(scale, MAX_DIM // max(w, h))
+        if scale > 1:
+            img = img.resize((w * scale, h * scale), Image.LANCZOS)
+    img = img.filter(ImageFilter.SHARPEN)
+    bmp_io = io.BytesIO()
+    img.save(bmp_io, format='BMP')
+    image_bytes = bmp_io.getvalue()
+
+    stream = InMemoryRandomAccessStream()
+    writer = DataWriter(stream)
+    writer.write_bytes(bytearray(image_bytes))
+    await writer.store_async()
+    writer.detach_stream()
+    stream.seek(0)
+
+    decoder = await BitmapDecoder.create_async(stream)
+    bitmap = await decoder.get_software_bitmap_async()
+
+    engine = OcrEngine.try_create_from_language(Language('ko'))
+    if engine is None:
+        engine = OcrEngine.try_create_from_user_profile_languages()
+    if engine is None:
+        raise RuntimeError('한국어 OCR 언어팩이 없습니다. Windows 설정 → 시간 및 언어 → 언어에서 한국어를 추가하세요.')
+
+    result = await engine.recognize_async(bitmap)
+    # result.text가 일부 winrt 버전에서 빈 문자열 반환 → lines에서 직접 추출
+    line_texts = [line.text for line in result.lines]
+    return ' '.join(line_texts) if line_texts else result.text
 
 
 class ScreenCaptureOverlay(QWidget):
@@ -80,27 +127,10 @@ class OcrWorker(QThread):
         text = ''
         error_msg = ''
         try:
-            import winocr
-            from PIL import Image, ImageEnhance, ImageFilter
-            img = Image.open(io.BytesIO(self._png_bytes))
-
-            # OCR 정확도 향상을 위한 전처리
-            img = img.convert('L')                              # 그레이스케일
-            img = img.resize((img.width * 3, img.height * 3),  # 3배 확대
-                             Image.LANCZOS)
-            img = ImageEnhance.Contrast(img).enhance(2.0)      # 대비 강화
-            img = img.filter(ImageFilter.SHARPEN)               # 선명화
-
-            result = winocr.recognize_pil_sync(img, 'ko')
-            if isinstance(result, dict):
-                raw = result.get('text', '').strip()
-                text = _normalize_doc_number(raw)
-            else:
-                error_msg = f'예상치 못한 OCR 반환 형식: {type(result)}'
-        except AssertionError:
-            error_msg = ('한국어 OCR 언어 팩이 설치되어 있지 않습니다.\n'
-                         'Windows 설정 → 시간 및 언어 → 언어 → 한국어 추가 후\n'
-                         '선택적 기능에서 "기본 입력" 항목을 설치해 주세요.')
+            raw = asyncio.run(_winrt_ocr(self._png_bytes))
+            text = raw.strip()
+            if not text:
+                error_msg = f'OCR 원문: [{raw}]'
         except Exception as e:
             error_msg = f'OCR 오류: {e}'
         self.finished.emit(text, error_msg)
@@ -138,49 +168,76 @@ def _pixmap_to_png_bytes(pixmap: QPixmap) -> bytes:
 
 def _normalize_doc_number(text: str) -> str:
     """
-    공문번호를 규칙에 맞게 정규화한다.
+    공문번호 정규화: 부서명-번호(YYYY. MM. DD.)
 
-    목표 형식: 부서명-번호(YYYY. MM. DD.)
-      - 부서명: 한글+영숫자, 사이 공백 제거
-      - 번호:   숫자, 부서명과 '-'로 연결, 공백 없음
-      - 날짜:   4자리년도. 2자리월. 2자리일.  (점 뒤 한 칸 띄어쓰기)
-      - 닫는 괄호 이후 문자는 모두 삭제
+    패턴: 한글부서명 + '-' + 숫자번호 + '(' + YYYY. MM. DD. + ')'
+    OCR 오인식 보정(O→0, l→1 등) 및 유연한 구분자 인식 포함.
     """
     import re
 
-    # 0) 줄바꿈·탭 → 공백
-    text = text.replace('\n', ' ').replace('\t', ' ')
+    # 0) 공백 정규화
+    text = re.sub(r'[\n\t\r]+', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
 
-    # 1) 닫는 괄호 이후 모두 삭제
-    if ')' in text:
-        text = text[:text.index(')') + 1]
+    # WinRT OCR이 한글 자모 사이에 공백 삽입 → 제거 (예: '중 등 교 육 과' → '중등교육과')
+    text = re.sub(r'(?<=[가-힣]) (?=[가-힣])', '', text)
 
-    # 2) '(' 기준으로 앞부분(부서명-번호)과 뒷부분(날짜) 분리
-    if '(' not in text:
-        # 괄호가 없으면 부서명-번호 부분만 정리 후 반환
-        prefix = _clean_prefix(text)
-        return prefix
+    # 숫자 오인식: 두 자리 숫자가 한자/특수문자로 오인식될 때 보정
+    text = text.replace('田', '99')  # '99' → 한자 '田'으로 오인식
 
-    paren_idx = text.index('(')
-    prefix_raw = text[:paren_idx]
-    date_raw   = text[paren_idx + 1:].rstrip(')')  # 괄호 안 내용만
+    # 전각 괄호 → 반각
+    text = text.translate(str.maketrans('（）【】〔〕', '()()()'))
+    # 대시 변형 → 하이픈
+    for ch in '—–‑−_':
+        text = text.replace(ch, '-')
+    # 쉼표/중간점 → 온점 (날짜 구분자 오인식 대비)
+    for ch in '·。,、':
+        text = text.replace(ch, '.')
 
-    # 3) 부서명-번호 정리
-    prefix = _clean_prefix(prefix_raw)
+    # OCR 숫자 오인식 보정 (숫자 위치에 알파벳이 올 때)
+    _digit_fix = str.maketrans({'O': '0', 'o': '0', 'I': '1', 'l': '1',
+                                 '|': '1', 'S': '5', 'B': '8', 'Z': '2'})
 
-    # 4) 날짜 숫자 추출 → YYYY. MM. DD. 형식
-    # 공백 제거 후 파싱 ('1 1' → '11' 처리)
-    date_raw = date_raw.replace(' ', '')
-    nums = re.findall(r'\d+', date_raw)
+    # 1) 한글 부서명 추출
+    m = re.match(r'([가-힣]+)', text)
+    if not m:
+        return text.strip()
+    dept = m.group(1)
+    rest = text[m.end():].lstrip()
+
+    # 2) 하이픈
+    hm = re.match(r'-\s*', rest)
+    if not hm:
+        return dept
+    rest = rest[hm.end():]
+
+    # 3) 번호(숫자) — OCR 보정 후 추출 (WinRT OCR이 숫자 사이에 공백 삽입 가능)
+    # '(' 이전까지의 모든 숫자를 수집 (공백 무시)
+    rest_fixed = rest.translate(_digit_fix)
+    m_paren = re.search(r'[\(\[\{（]', rest_fixed)
+    num_end = m_paren.start() if m_paren else len(rest_fixed)
+    number = ''.join(re.findall(r'\d', rest_fixed[:num_end]))
+    if not number:
+        return dept
+    rest = rest_fixed[num_end:].strip()
+
+    # 4) 여는 괄호 (없어도 진행, 전각·대괄호 허용)
+    rest = re.sub(r'^[\(\[\{（]\s*', '', rest)
+
+    # 5) 날짜 숫자 3개 추출 (년·월·일)
+    nums = re.findall(r'\d+', rest.translate(_digit_fix))
     if len(nums) >= 3:
         y  = nums[0].zfill(4)
         mo = nums[1].zfill(2)
         d  = nums[2].zfill(2)
-        date_part = f'{y}. {mo}. {d}.'
-    else:
-        date_part = date_raw.strip()
+        # 연도 보정: OCR이 '2'를 'O'→'0'으로 오인식하면 20xx 범위 벗어남
+        y_int = int(y)
+        if y_int < 1990 or y_int > 2099:
+            y = '20' + y[2:]
+        return f'{dept}-{number}({y}. {mo}. {d}.)'
 
-    return f'{prefix}({date_part})'
+    # 날짜 없으면 부서명-번호만 반환
+    return f'{dept}-{number}'
 
 
 def _clean_prefix(text: str) -> str:

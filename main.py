@@ -1,7 +1,9 @@
 import sys
+import os
 import socket
 import ctypes
 import ctypes.wintypes
+
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
 from PyQt5.QtCore import Qt, QAbstractNativeEventFilter

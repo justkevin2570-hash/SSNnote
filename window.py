@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
     QPlainTextEdit, QSizePolicy, QSplitter, QGraphicsColorizeEffect
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
@@ -167,7 +167,7 @@ class TitleBar(QWidget):
         layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(2)
 
-        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:normal;">v1.3</span>')
+        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:normal;">v1.4</span>')
         self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         self.label.setStyleSheet('color: #5a4000; background: transparent;')
 
@@ -473,6 +473,80 @@ class CustomCalendarWidget(QCalendarWidget):
             painter.restore()
 
 
+class ClickToCopyLabel(QLabel):
+    """클릭하면 텍스트를 클립보드에 복사하고 '복사됨!' 툴팁을 표시하는 레이블."""
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.text():
+            QApplication.clipboard().setText(self.text())
+            self._show_copied_popup(event.globalPos())
+        super().mousePressEvent(event)
+
+    def _show_copied_popup(self, global_pos):
+        popup = QLabel('복사됨!', self, Qt.ToolTip | Qt.FramelessWindowHint)
+        popup.setStyleSheet("""
+            QLabel {
+                background: #5a4000;
+                color: white;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-family: 'Malgun Gothic';
+                font-size: 10pt;
+            }
+        """)
+        popup.adjustSize()
+        popup.move(global_pos + QPoint(4, -popup.height() - 8))
+        popup.show()
+        QTimer.singleShot(500, popup.deleteLater)
+
+
+class SmartDocLineEdit(QLineEdit):
+    """텍스트가 있으면 클릭 시 복사, 비어있으면 _on_empty_click 호출."""
+
+    def __init__(self, text=''):
+        super().__init__(text)
+        self._on_empty_click = None
+        self._editing = False
+        self._cancel_edit = None
+        self.setCursorPosition(0)
+
+    def mousePressEvent(self, event):
+        if self._editing:
+            super().mousePressEvent(event)
+            return
+        if event.button() == Qt.LeftButton:
+            if self.text():
+                QApplication.clipboard().setText(self.text())
+                self._show_popup(event.globalPos())
+            elif self._on_empty_click:
+                self._on_empty_click()
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, e):
+        if self._editing and e.key() == Qt.Key_Escape:
+            if self._cancel_edit:
+                self._cancel_edit()
+            return
+        super().keyPressEvent(e)
+
+    def _show_popup(self, global_pos):
+        popup = QLabel('복사됨!', self, Qt.ToolTip | Qt.FramelessWindowHint)
+        popup.setStyleSheet("""
+            QLabel {
+                background: #5a4000;
+                color: white;
+                border-radius: 4px;
+                padding: 3px 8px;
+                font-family: 'Malgun Gothic';
+                font-size: 10pt;
+            }
+        """)
+        popup.adjustSize()
+        popup.move(global_pos + QPoint(4, -popup.height() - 8))
+        popup.show()
+        QTimer.singleShot(500, popup.deleteLater)
+
+
 class ClickToCopyLineEdit(QLineEdit):
     """클릭하면 텍스트를 클립보드에 복사하고 '복사됨!' 툴팁을 표시하는 읽기전용 필드."""
 
@@ -500,10 +574,11 @@ class ClickToCopyLineEdit(QLineEdit):
         QTimer.singleShot(500, popup.deleteLater)
 
 
+
 class DocumentRow(QWidget):
     """공문번호 한 항목 행: [공문제목 입력] [공문번호(읽기전용)] [삭제메뉴]"""
 
-    def __init__(self, doc: dict, on_delete):
+    def __init__(self, doc: dict, on_delete, on_paste=None):
         super().__init__()
         self._doc = doc
         self._on_delete = on_delete
@@ -511,7 +586,7 @@ class DocumentRow(QWidget):
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(8, 2, 8, 2)
-        lay.setSpacing(4)
+        lay.setSpacing(0)
 
         field_style = """
             QLineEdit {
@@ -536,39 +611,129 @@ class DocumentRow(QWidget):
             }
         """
 
-        self.title_edit = QLineEdit(doc.get('title', ''))
-        self.title_edit.setPlaceholderText('공문 제목')
-        self.title_edit.setStyleSheet(field_style)
-        self.title_edit.editingFinished.connect(self._save)
-        lay.addWidget(self.title_edit, 3)
+        editing_style = """
+            QLineEdit {
+                background: rgba(255,255,255,0.9);
+                border: 1px solid #a08800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #111;
+                font-family: 'Malgun Gothic';
+                font-size: 10pt;
+            }
+        """
 
-        self.num_edit = ClickToCopyLineEdit(doc.get('doc_number', ''))
-        self.num_edit.setReadOnly(True)
-        self.num_edit.setStyleSheet(readonly_style)
-        self.num_edit.setCursor(Qt.PointingHandCursor)
-        lay.addWidget(self.num_edit, 5)
+        self.title_edit = SmartDocLineEdit(doc.get('title', ''))
+        self.title_edit.setPlaceholderText('공문 제목 붙여넣는 곳')
+        self.title_edit.setReadOnly(True)
+        self.title_edit.setStyleSheet(field_style)
+        self.title_edit.setCursor(Qt.PointingHandCursor)
+        lay.addWidget(self.title_edit, 11)
+        lay.addSpacing(0)
 
         import os
-        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '정리 아이콘.png')
         from PyQt5.QtGui import QIcon, QPixmap
-        btn_fmt = QPushButton()
-        btn_fmt.setIcon(QIcon(QPixmap(_icon_path).scaled(27, 27, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         from PyQt5.QtCore import QSize
-        btn_fmt.setIconSize(QSize(27, 27))
-        btn_fmt.setFixedSize(31, 31)
-        btn_fmt.setToolTip('형식 정리')
-        btn_fmt.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                border: none;
-                padding: 0;
-            }
+        _edit_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '수정 아이콘.png')
+        btn_edit = QPushButton()
+        btn_edit.setIcon(QIcon(QPixmap(_edit_icon_path).scaled(15, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)))
+        btn_edit.setIconSize(QSize(15, 16))
+        btn_edit.setFixedSize(17, 18)
+        btn_edit.setToolTip('')
+        btn_edit.setCursor(Qt.PointingHandCursor)
+        btn_edit.setStyleSheet("""
+            QPushButton { background: transparent; border: none; padding: 0; }
             QPushButton:hover { background: rgba(0,0,0,0.08); border-radius: 3px; }
-            QPushButton:pressed { background: rgba(0,0,0,0.18); border-radius: 3px; padding: 2px 0 0 2px; }
+            QPushButton:pressed { background: rgba(0,0,0,0.18); border-radius: 3px; }
         """)
-        btn_fmt.clicked.connect(self._format_number)
-        lay.addWidget(btn_fmt)
+        lay.addWidget(btn_edit)
+        lay.addSpacing(1)
 
+        self.num_edit = SmartDocLineEdit(doc.get('doc_number', ''))
+        self.num_edit.setReadOnly(True)
+        self.num_edit.setPlaceholderText('공문 번호 붙여넣는 곳')
+        self.num_edit.setStyleSheet(readonly_style)
+        self.num_edit.setCursor(Qt.PointingHandCursor)
+        lay.addWidget(self.num_edit, 11)
+
+        btn_edit_num = QPushButton()
+        btn_edit_num.setIcon(QIcon(QPixmap(_edit_icon_path).scaled(15, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)))
+        btn_edit_num.setIconSize(QSize(15, 16))
+        btn_edit_num.setFixedSize(17, 18)
+        btn_edit_num.setToolTip('')
+        btn_edit_num.setCursor(Qt.PointingHandCursor)
+        btn_edit_num.setStyleSheet("""
+            QPushButton { background: transparent; border: none; padding: 0; }
+            QPushButton:hover { background: rgba(0,0,0,0.08); border-radius: 3px; }
+            QPushButton:pressed { background: rgba(0,0,0,0.18); border-radius: 3px; }
+        """)
+        lay.addWidget(btn_edit_num)
+        lay.addSpacing(4)
+
+        def _enter_edit():
+            self.title_edit._editing = True
+            self.title_edit.setReadOnly(False)
+            self.title_edit.setStyleSheet(editing_style)
+            self.title_edit.setCursor(Qt.IBeamCursor)
+            self.title_edit.setFocus()
+            self.title_edit.setCursorPosition(0)
+
+        def _commit_edit():
+            self.title_edit._editing = False
+            self.title_edit.setReadOnly(True)
+            self.title_edit.setStyleSheet(field_style)
+            self.title_edit.setCursor(Qt.PointingHandCursor)
+            self.title_edit.setCursorPosition(0)
+            if doc.get('id') is not None:
+                self._save()
+
+        _original_title = doc.get('title', '')
+
+        def _cancel_edit():
+            self.title_edit.setText(_original_title)
+            _commit_edit()
+
+        self.title_edit._cancel_edit = _cancel_edit
+        self.title_edit.returnPressed.connect(_commit_edit)
+        btn_edit.clicked.connect(lambda: _commit_edit() if self.title_edit._editing else _enter_edit())
+
+        def _enter_edit_num():
+            self.num_edit._editing = True
+            self.num_edit.setReadOnly(False)
+            self.num_edit.setStyleSheet(editing_style)
+            self.num_edit.setCursor(Qt.IBeamCursor)
+            self.num_edit.setFocus()
+            self.num_edit.setCursorPosition(0)
+
+        def _commit_edit_num():
+            self.num_edit._editing = False
+            self.num_edit.setReadOnly(True)
+            self.num_edit.setStyleSheet(readonly_style)
+            self.num_edit.setCursor(Qt.PointingHandCursor)
+            self.num_edit.setCursorPosition(0)
+            if doc.get('id') is not None:
+                self._save()
+
+        _original_num = doc.get('doc_number', '')
+
+        def _cancel_edit_num():
+            self.num_edit.setText(_original_num)
+            _commit_edit_num()
+
+        self.num_edit._cancel_edit = _cancel_edit_num
+        self.num_edit.returnPressed.connect(_commit_edit_num)
+        btn_edit_num.clicked.connect(lambda: _commit_edit_num() if self.num_edit._editing else _enter_edit_num())
+
+        if on_paste:
+            self.title_edit._on_empty_click = lambda: on_paste('title', self.title_edit, self.num_edit)
+            self.num_edit._on_empty_click = lambda: on_paste('number', self.title_edit, self.num_edit)
+
+        if doc.get('id') is None:
+            return
+
+        import os
+        from PyQt5.QtGui import QIcon, QPixmap
+        from PyQt5.QtCore import QSize
         _del_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '엑스아이콘.png')
         btn_del = QPushButton()
         btn_del.setIcon(QIcon(QPixmap(_del_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
@@ -585,11 +750,6 @@ class DocumentRow(QWidget):
         """)
         btn_del.clicked.connect(lambda: self._on_delete(self._doc['id']))
         lay.addWidget(btn_del)
-
-    def _format_number(self):
-        cleaned = _normalize_doc_number(self.num_edit.text())
-        self.num_edit.setText(cleaned)
-        update_document(self._doc['id'], self.title_edit.text(), cleaned)
 
     def _save(self):
         update_document(self._doc['id'], self.title_edit.text(), self.num_edit.text())
@@ -610,6 +770,13 @@ class MemoWindow(QMainWindow):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose)
         self._build_ui()
+        from PyQt5.QtWidgets import QShortcut
+        from PyQt5.QtGui import QKeySequence
+        self._pin_shortcut = QShortcut(QKeySequence('Ctrl+Shift+F'), self)
+        self._pin_shortcut.activated.connect(self.toggle_always_on_top)
+        self._shade_shortcut = QShortcut(QKeySequence('Ctrl+Shift+R'), self)
+        self._shade_shortcut.activated.connect(self.toggle_shade)
+        self._shortcuts = [self._pin_shortcut, self._shade_shortcut]
 
     def apply_state(self, x, y, width, height, collapsed, color=''):
         self.expanded_height = height
@@ -824,9 +991,23 @@ class MemoWindow(QMainWindow):
         # 헤더: "공문번호" 레이블 + 캡처 버튼
         doc_header = QHBoxLayout()
         doc_header.setContentsMargins(8, 0, 8, 0)
-        lbl_doc = QLabel('공문번호 따기  (단축키 ctrl+shift+x)')
+        lbl_doc = QLabel('공문 캡쳐')
         lbl_doc.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         lbl_doc.setStyleSheet('color: #5a4000; background: transparent;')
+        self.lbl_capture_result = ClickToCopyLabel('')
+        self.lbl_capture_result.setFont(QFont('Malgun Gothic', 10))
+        self.lbl_capture_result.setStyleSheet("""
+            QLabel {
+                background: rgba(255,255,255,0.25);
+                border: 1px solid #c0a800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #5a4000;
+                font-family: 'Malgun Gothic';
+                font-size: 10pt;
+            }
+        """)
+        self.lbl_capture_result.setCursor(Qt.PointingHandCursor)
         btn_capture = QPushButton('캡처')
         btn_capture.setFont(QFont('Malgun Gothic', 10))
         btn_capture.setFixedWidth(50)
@@ -841,8 +1022,45 @@ class MemoWindow(QMainWindow):
             QPushButton:hover { background: rgba(212,184,0,0.25); }
         """)
         btn_capture.clicked.connect(self._start_capture)
+        btn_shortcut = QPushButton('단축키 ON')
+        btn_shortcut.setFont(QFont('Malgun Gothic', 9, QFont.Bold))
+        btn_shortcut.setFixedWidth(70)
+        btn_shortcut.setCheckable(True)
+        btn_shortcut.setChecked(True)
+        btn_shortcut.setStyleSheet("""
+            QPushButton {
+                background: rgba(255,255,255,0.5);
+                border: 1px solid #d4b800;
+                border-radius: 4px;
+                padding: 2px 4px;
+                color: #999999;
+                font-weight: normal;
+            }
+            QPushButton:hover { background: rgba(212,184,0,0.25); }
+            QPushButton:checked {
+                background: rgba(212,184,0,0.35);
+                border: 1px solid #a08800;
+                color: #3a2800;
+                font-weight: bold;
+            }
+        """)
+        def _toggle_shortcut(checked):
+            for sc in self._shortcuts:
+                sc.setEnabled(checked)
+            btn_shortcut.setText('단축키 ON' if checked else '단축키 OFF')
+        btn_shortcut.toggled.connect(_toggle_shortcut)
+        self._btn_shortcut = btn_shortcut
+
+        self.lbl_capture_status = QLabel('')
+        self.lbl_capture_status.setFont(QFont('Malgun Gothic', 10))
+        self.lbl_capture_status.setStyleSheet('color: #1a56cc; background: transparent;')
+        self.lbl_capture_status.hide()
         doc_header.addWidget(lbl_doc)
+        doc_header.addSpacing(6)
+        doc_header.addWidget(self.lbl_capture_status)
         doc_header.addStretch()
+        doc_header.addWidget(btn_shortcut)
+        doc_header.addSpacing(4)
         doc_header.addWidget(btn_capture)
         bottom_layout.addLayout(doc_header)
 
@@ -878,7 +1096,6 @@ class MemoWindow(QMainWindow):
         self._apply_color(self._bg_color)
         self._refresh_tasks()
         self._refresh_documents()
-        self.input_name.setFocus()
         self._schedule_midnight_refresh()
         self._setup_resize_handles()
 
@@ -955,8 +1172,28 @@ class MemoWindow(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
         for doc in get_documents(self.window_id):
-            row = DocumentRow(doc, self._delete_document)
+            row = DocumentRow(doc, self._delete_document, on_paste=self._make_paste_cb(doc['id']))
             self.doc_list_layout.insertWidget(self.doc_list_layout.count() - 1, row)
+        blank = DocumentRow({'id': None, 'title': '', 'doc_number': ''}, self._delete_document, on_paste=self._make_paste_cb(None))
+        self.doc_list_layout.insertWidget(self.doc_list_layout.count() - 1, blank)
+
+    def _make_paste_cb(self, doc_id):
+        def cb(field, title_edit, num_edit):
+            text = self.lbl_capture_result.text()
+            if not text:
+                return
+            if doc_id is None:
+                if field == 'title':
+                    add_document(self.window_id, text, '')
+                else:
+                    add_document(self.window_id, '', _normalize_doc_number(text))
+            else:
+                if field == 'title':
+                    update_document(doc_id, text, num_edit.text())
+                else:
+                    update_document(doc_id, title_edit.text(), _normalize_doc_number(text))
+            self._refresh_documents()
+        return cb
 
     def _delete_document(self, doc_id):
         delete_document(doc_id)
@@ -973,20 +1210,26 @@ class MemoWindow(QMainWindow):
         self._overlay = ScreenCaptureOverlay(screenshot)
         self._overlay.region_captured.connect(self._on_capture_complete)
         self._overlay.cancelled.connect(self._restore_windows)
-        self._overlay.showFullScreen()
+        self._overlay.show()
+        self._overlay.activateWindow()
+        self._overlay.setFocus()
 
     def _restore_windows(self):
         for win in self._open_windows:
             win.show()
 
     def _on_capture_complete(self, pixmap):
+        self._overlay.region_captured.disconnect()  # 중복 호출 방지
         self._restore_windows()
 
         def _after_ocr(text):
             if text:
-                add_document(self.window_id, '', text)
-                self._refresh_documents()
+                self.lbl_capture_result.setText(text)
+                self.lbl_capture_status.setText('캡쳐 완료! 아래 빈 칸을 클릭하세요.')
+                self.lbl_capture_status.show()
+                QTimer.singleShot(3000, self.lbl_capture_status.hide)
             else:
+                self.lbl_capture_result.setText('')
                 QMessageBox.information(self, '알림', 'OCR 텍스트를 인식하지 못했습니다.')
 
         def _on_error(msg):
@@ -1096,7 +1339,7 @@ class MemoWindow(QMainWindow):
         dlg = QDialog(self)
         dlg.setWindowTitle('지난 기록')
         dlg.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
-        dlg.setMinimumWidth(396)
+        dlg.setMinimumWidth(480)
         dlg.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 11pt; background: #fffef0;")
 
         layout = QVBoxLayout(dlg)
@@ -1163,13 +1406,26 @@ class MemoWindow(QMainWindow):
                 rh.setContentsMargins(20, 4, 8, 4)
                 rh.setSpacing(6)
 
-                lbl_task = QLabel(line)
-                lbl_task.setStyleSheet('color: #333; background: transparent;')
+                lbl_task = QLineEdit(line)
+                lbl_task.setReadOnly(True)
+                lbl_task.setFrame(False)
+                lbl_task.setStyleSheet("""
+                    QLineEdit {
+                        color: #333;
+                        background: transparent;
+                        border: none;
+                        padding: 0;
+                        font-family: 'Malgun Gothic';
+                        font-size: 11pt;
+                    }
+                """)
+                lbl_task.setCursorPosition(0)
                 lbl_cleared = QLabel(f'삭제: {cleared}')
                 lbl_cleared.setStyleSheet('color: #999; font-size: 9pt; background: transparent;')
                 lbl_cleared.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
                 rh.addWidget(lbl_task, 1)
+                rh.addSpacing(11)
                 rh.addWidget(lbl_cleared)
 
                 if not overdue:
@@ -1340,8 +1596,14 @@ class MemoWindow(QMainWindow):
         msg.setText(
             '<p style="line-height: 195%; font-family: Malgun Gothic; font-size: 11pt;">'
             '① Tab키, Enter키만 잘 쓰면 편하게 쓰실 수 있습니다.<br>'
-            '② 제목표시줄 더블클릭하면 롤업<br>'
-            '③ 업무텍스트 오른쪽에 세로로 점3개 누르면 가운데 선 및 삭제 가능(단축키 가능)'
+            '② 단축키: <b>Ctrl + Shift</b> 를 누른 후<br>'
+            '&nbsp;&nbsp;&nbsp;&nbsp;- <b>X</b> : 화면 캡처<br>'
+            '&nbsp;&nbsp;&nbsp;&nbsp;- <b>S</b> : 포커싱<br>'
+            '&nbsp;&nbsp;&nbsp;&nbsp;- <b>R</b> : 롤업<br>'
+            '&nbsp;&nbsp;&nbsp;&nbsp;- <b>F</b> : 항상 위<br>'
+            '③ 캡처는 공문을 전체화면으로 키워야 정확합니다.<br>'
+            '④ 캡처하고 공문 제목과 공문 번호란 클릭하시면 붙여넣기 됩니다.<br>'
+            '⑤ 공문 제목과 공문 번호란을 클릭하시면 복사가 됩니다.'
             '</p>'
         )
         msg.setStyleSheet(
@@ -1387,6 +1649,8 @@ class MemoWindow(QMainWindow):
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.show()
+        self.raise_()
+        self.activateWindow()
         btn = self.title_bar.btn_pin
         if self.pin_active:
             btn.setText('📍')
@@ -1482,6 +1746,12 @@ class MemoWindow(QMainWindow):
             collapsed=self.collapsed,
             color=self._bg_color,
         )
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        if not getattr(self, '_first_shown', False):
+            self._first_shown = True
+            QTimer.singleShot(0, lambda: (self.activateWindow(), self.input_name.setFocus()))
 
     def closeEvent(self, e):
         if not getattr(self, '_deleted', False):
