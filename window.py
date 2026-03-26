@@ -27,6 +27,21 @@ PALETTE = [
 
 
 
+class DdayLabel(QLabel):
+    def __init__(self, dday_text, date_text, *args, **kwargs):
+        super().__init__(dday_text, *args, **kwargs)
+        self._dday_text = dday_text
+        self._date_text = date_text
+
+    def enterEvent(self, event):
+        self.setText(self._date_text)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.setText(self._dday_text)
+        super().leaveEvent(event)
+
+
 def calc_dday(deadline_str):
     try:
         deadline = date.fromisoformat(deadline_str)
@@ -34,7 +49,7 @@ def calc_dday(deadline_str):
         return '날짜오류'
     diff = (deadline - date.today()).days
     if diff == 0:
-        return 'Dday!'
+        return 'D-day'
     elif diff > 0:
         return f'D-{diff}'
     else:
@@ -167,7 +182,7 @@ class TitleBar(QWidget):
         layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(2)
 
-        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:bold; font-family:Consolas; font-style:italic;">v1.5</span>')
+        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:bold; font-family:Consolas; font-style:italic;">v1.6</span>')
         self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         self.label.setStyleSheet('color: #5a4000; background: transparent;')
 
@@ -320,7 +335,7 @@ class TaskRow(QWidget):
             if dday.startswith('D+'):
                 overdue = True
                 dday_color = '#aaa'
-            elif dday == 'Dday!':
+            elif dday == 'D-day':
                 dday_color = '#e74c3c'
             elif dday == '날짜오류':
                 dday_color = '#aaa'
@@ -356,7 +371,16 @@ class TaskRow(QWidget):
         self.name_edit.installEventFilter(self)
 
         if suffix:
-            dday_lbl = QLabel(suffix)
+            try:
+                d = date.fromisoformat(deadline)
+                if suffix == '(D-day)':
+                    date_text = '언능 하소!'
+                else:
+                    weekday = ['월','화','수','목','금','토','일'][d.weekday()]
+                    date_text = f'{d.year}. {d.month}. {d.day}.({weekday})'
+            except ValueError:
+                date_text = suffix
+            dday_lbl = DdayLabel(suffix, date_text)
             dday_lbl.setFont(QFont('Malgun Gothic', 12, QFont.Bold))
             dday_lbl.setStyleSheet(f'color: {dday_color}; background: transparent; margin-bottom: 3px;')
         else:

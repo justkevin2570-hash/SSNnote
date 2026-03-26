@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='SSNnote_v1.5',
+    name='SSNnote_v1.6',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
