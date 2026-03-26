@@ -167,7 +167,7 @@ class TitleBar(QWidget):
         layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(2)
 
-        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:normal;">v1.5</span>')
+        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:normal;">v1.4</span>')
         self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         self.label.setStyleSheet('color: #5a4000; background: transparent;')
 
@@ -259,6 +259,7 @@ class RotatedMenuButton(QPushButton):
 class _AutoHeightEdit(QPlainTextEdit):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
+        self.document().setDocumentMargin(0)
         opt = QTextOption()
         opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         self.document().setDefaultTextOption(opt)
@@ -309,7 +310,7 @@ class TaskRow(QWidget):
         self.setStyleSheet('background: transparent;')
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 2, 8, 2)
+        layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(4)
 
         deadline = task['deadline']
@@ -647,7 +648,7 @@ class DocumentRow(QWidget):
             QPushButton:pressed { background: rgba(0,0,0,0.18); border-radius: 3px; }
         """)
         lay.addWidget(btn_edit)
-        lay.addSpacing(5)
+        lay.addSpacing(1)
 
         self.num_edit = SmartDocLineEdit(doc.get('doc_number', ''))
         self.num_edit.setReadOnly(True)
@@ -765,6 +766,7 @@ class MemoWindow(QMainWindow):
         self.expanded_height = 400
         self.pin_active      = False
         self._bg_color       = '#FEFFA7'  # 기본값
+        self._capture_hint_shown = False
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -814,15 +816,15 @@ class MemoWindow(QMainWindow):
         _outer_layout.setContentsMargins(0, 0, 8, 0)
         _outer_layout.setSpacing(0)
 
-        self._splitter = DragHandleSplitter(Qt.Vertical)
-        self._splitter.setStyleSheet("""
+        _splitter = DragHandleSplitter(Qt.Vertical)
+        _splitter.setStyleSheet("""
             QSplitter::handle {
                 background: #d4b800;
                 height: 10px;
             }
         """)
-        self._splitter.setChildrenCollapsible(False)
-        _outer_layout.addWidget(self._splitter)
+        _splitter.setChildrenCollapsible(False)
+        _outer_layout.addWidget(_splitter)
 
         _top_panel = QWidget()
         _top_panel.setStyleSheet('background: transparent;')
@@ -979,7 +981,7 @@ class MemoWindow(QMainWindow):
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
         content_layout.addWidget(scroll)
-        self._splitter.addWidget(_top_panel)
+        _splitter.addWidget(_top_panel)
 
         # ── 하단 패널: 공문번호 섹션 ──────────────────────────────
         _bottom_panel = QWidget()
@@ -1024,7 +1026,7 @@ class MemoWindow(QMainWindow):
         btn_capture.clicked.connect(self._start_capture)
         btn_shortcut = QPushButton('단축키 ON')
         btn_shortcut.setFont(QFont('Malgun Gothic', 9, QFont.Bold))
-        btn_shortcut.setMinimumWidth(75)
+        btn_shortcut.setFixedWidth(70)
         btn_shortcut.setCheckable(True)
         btn_shortcut.setChecked(True)
         btn_shortcut.setStyleSheet("""
@@ -1052,27 +1054,10 @@ class MemoWindow(QMainWindow):
         self._btn_shortcut = btn_shortcut
 
         self.lbl_capture_status = QLabel('')
-        self.lbl_capture_status.setFont(QFont('Malgun Gothic', 10))
+        self.lbl_capture_status.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         self.lbl_capture_status.setStyleSheet('color: #1a56cc; background: transparent;')
         self.lbl_capture_status.hide()
-        import os as _os
-        _down_icon_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '아래방향 아이콘.png')
-        _up_icon_path   = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '윗방향 아이콘.png')
-        self._doc_down_icon = QIcon(QPixmap(_down_icon_path).scaled(11, 10, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
-        self._doc_up_icon   = QIcon(QPixmap(_up_icon_path).scaled(11, 10, Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
-        self._btn_doc_toggle = QPushButton()
-        self._btn_doc_toggle.setIcon(self._doc_down_icon)
-        self._btn_doc_toggle.setIconSize(QSize(11, 10))
-        self._btn_doc_toggle.setFixedSize(15, 16)
-        self._btn_doc_toggle.setCursor(Qt.PointingHandCursor)
-        self._btn_doc_toggle.setStyleSheet("""
-            QPushButton { background: transparent; border: none; padding: 4px 0 0 0; }
-            QPushButton:hover { background: rgba(0,0,0,0.08); border-radius: 3px; }
-        """)
-        self._btn_doc_toggle.clicked.connect(self._toggle_doc_section)
         doc_header.addWidget(lbl_doc)
-        doc_header.addSpacing(4)
-        doc_header.addWidget(self._btn_doc_toggle, 0, Qt.AlignVCenter)
         doc_header.addSpacing(6)
         doc_header.addWidget(self.lbl_capture_status)
         doc_header.addStretch()
@@ -1081,16 +1066,10 @@ class MemoWindow(QMainWindow):
         doc_header.addWidget(btn_capture)
         bottom_layout.addLayout(doc_header)
 
-        self._doc_body = QWidget()
-        self._doc_body.setStyleSheet('background: transparent;')
-        _doc_body_layout = QVBoxLayout(self._doc_body)
-        _doc_body_layout.setContentsMargins(0, 0, 0, 0)
-        _doc_body_layout.setSpacing(2)
-
-        self._doc_line = QFrame()
-        self._doc_line.setFrameShape(QFrame.HLine)
-        self._doc_line.setStyleSheet('color: #d4b800; background: #d4b800; max-height: 1px; margin: 0 8px;')
-        _doc_body_layout.addWidget(self._doc_line)
+        doc_line = QFrame()
+        doc_line.setFrameShape(QFrame.HLine)
+        doc_line.setStyleSheet('color: #d4b800; background: #d4b800; max-height: 1px; margin: 0 8px;')
+        bottom_layout.addWidget(doc_line)
 
         # 공문 목록 스크롤 영역
         self.doc_list_widget = QWidget()
@@ -1100,22 +1079,20 @@ class MemoWindow(QMainWindow):
         self.doc_list_layout.setSpacing(0)
         self.doc_list_layout.addStretch()
 
-        self._doc_scroll = QScrollArea()
-        self._doc_scroll.setWidgetResizable(True)
-        self._doc_scroll.setWidget(self.doc_list_widget)
-        self._doc_scroll.setStyleSheet("""
+        doc_scroll = QScrollArea()
+        doc_scroll.setWidgetResizable(True)
+        doc_scroll.setWidget(self.doc_list_widget)
+        doc_scroll.setStyleSheet("""
             QScrollArea { border: none; background: transparent; }
             QScrollBar:vertical { width: 6px; background: transparent; }
             QScrollBar::handle:vertical { background: #d4b800; border-radius: 3px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
-        _doc_body_layout.addWidget(self._doc_scroll)
-        _doc_body_layout.addStretch()
-        bottom_layout.addWidget(self._doc_body)
+        bottom_layout.addWidget(doc_scroll)
 
-        self._splitter.addWidget(_bottom_panel)
-        self._splitter.setStretchFactor(0, 2)
-        self._splitter.setStretchFactor(1, 1)
+        _splitter.addWidget(_bottom_panel)
+        _splitter.setStretchFactor(0, 2)
+        _splitter.setStretchFactor(1, 1)
 
         root.addWidget(self.content)
         self._apply_color(self._bg_color)
@@ -1220,20 +1197,6 @@ class MemoWindow(QMainWindow):
             self._refresh_documents()
         return cb
 
-    def _toggle_doc_section(self):
-        visible = self._doc_body.isVisible()
-        if visible:
-            self._saved_splitter_sizes = self._splitter.sizes()
-            self._doc_body.setVisible(False)
-            total = sum(self._saved_splitter_sizes)
-            self._splitter.setSizes([total - 40, 40])
-            self._btn_doc_toggle.setIcon(self._doc_up_icon)
-        else:
-            self._doc_body.setVisible(True)
-            if hasattr(self, '_saved_splitter_sizes'):
-                self._splitter.setSizes(self._saved_splitter_sizes)
-            self._btn_doc_toggle.setIcon(self._doc_down_icon)
-
     def _delete_document(self, doc_id):
         delete_document(doc_id)
         self._refresh_documents()
@@ -1264,9 +1227,11 @@ class MemoWindow(QMainWindow):
         def _after_ocr(text):
             if text:
                 self.lbl_capture_result.setText(text)
-                self.lbl_capture_status.setText('캡쳐 완료! 아래 빈 칸을 클릭하세요.')
-                self.lbl_capture_status.show()
-                QTimer.singleShot(3000, self.lbl_capture_status.hide)
+                if not self._capture_hint_shown:
+                    self._capture_hint_shown = True
+                    self.lbl_capture_status.setText('캡쳐 완료! 아래 빈 칸을 클릭하세요.')
+                    self.lbl_capture_status.show()
+                    QTimer.singleShot(3000, self.lbl_capture_status.hide)
             else:
                 self.lbl_capture_result.setText('')
                 QMessageBox.information(self, '알림', 'OCR 텍스트를 인식하지 못했습니다.')
