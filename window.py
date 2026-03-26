@@ -1050,7 +1050,7 @@ class MemoWindow(QMainWindow):
         btn_capture.clicked.connect(self._start_capture)
         btn_shortcut = QPushButton('단축키 ON')
         btn_shortcut.setFont(QFont('Malgun Gothic', 9, QFont.Bold))
-        btn_shortcut.setFixedWidth(70)
+        btn_shortcut.setFixedWidth(85)
         btn_shortcut.setCheckable(True)
         btn_shortcut.setChecked(True)
         btn_shortcut.setStyleSheet("""
@@ -1256,6 +1256,8 @@ class MemoWindow(QMainWindow):
                     self.lbl_capture_status.setText('캡쳐 완료! 아래 빈 칸을 클릭하세요.')
                     self.lbl_capture_status.show()
                     QTimer.singleShot(3000, self.lbl_capture_status.hide)
+                self.raise_()
+                self.activateWindow()
             else:
                 self.lbl_capture_result.setText('')
                 QMessageBox.information(self, '알림', 'OCR 텍스트를 인식하지 못했습니다.')
