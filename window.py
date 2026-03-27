@@ -27,6 +27,41 @@ PALETTE = [
 
 
 
+class AddDateButton(QLabel):
+    """deadline이 없는 태스크에서 날짜 자리에 표시되는 클릭 가능한 레이블."""
+    clicked = pyqtSignal()
+
+    _STYLE_NORMAL = (
+        'color: #bbb; background: transparent;'
+        'border: 1px dashed #ccc; border-radius: 3px;'
+        'padding: 1px 5px; margin-bottom: 3px;'
+    )
+    _STYLE_HOVER = (
+        'color: #888; background: rgba(212,184,0,0.1);'
+        'border: 1px dashed #d4b800; border-radius: 3px;'
+        'padding: 1px 5px; margin-bottom: 3px;'
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__('＋날짜', *args, **kwargs)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFont(QFont('Malgun Gothic', 9))
+        self.setStyleSheet(self._STYLE_NORMAL)
+
+    def enterEvent(self, event):
+        self.setStyleSheet(self._STYLE_HOVER)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.setStyleSheet(self._STYLE_NORMAL)
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class DdayLabel(QLabel):
     def __init__(self, dday_text, date_text, *args, **kwargs):
         super().__init__(dday_text, *args, **kwargs)
@@ -348,10 +383,15 @@ class TaskRow(QWidget):
             suffix = ''
 
         self._strikethrough = bool(task.get('strikethrough', 0))
-        name_color = '#aaa' if overdue else '#333'
+        name_color = '#aaa' if overdue else '#111'
 
         self.name_edit = _AutoHeightEdit(task['name'])
-        self.name_edit.setFont(QFont('Malgun Gothic', 12))
+        name_font = QFont('Malgun Gothic', 12)
+        name_font.setPointSizeF(10.5 if overdue else 12)
+        if overdue:
+            name_font.setItalic(True)
+            name_font.setBold(True)
+        self.name_edit.setFont(name_font)
         self.name_edit.setStyleSheet(f"""
             QPlainTextEdit {{
                 background: transparent;
@@ -381,10 +421,16 @@ class TaskRow(QWidget):
             except ValueError:
                 date_text = suffix
             dday_lbl = DdayLabel(suffix, date_text)
-            dday_lbl.setFont(QFont('Malgun Gothic', 12, QFont.Bold))
+            dday_font = QFont('Malgun Gothic', 12, QFont.Bold)
+            dday_font.setPointSizeF(10.5 if overdue else 12)
+            if overdue:
+                dday_font.setItalic(True)
+            dday_lbl.setFont(dday_font)
             dday_lbl.setStyleSheet(f'color: {dday_color}; background: transparent; margin-bottom: 3px;')
         else:
             dday_lbl = None
+            self._add_date_btn = AddDateButton()
+            self._add_date_btn.clicked.connect(self._show_date_picker)
 
         btn_menu = RotatedMenuButton()
         _f = btn_menu.font()
@@ -396,6 +442,8 @@ class TaskRow(QWidget):
         layout.addWidget(self.name_edit, 1)
         if dday_lbl:
             layout.addWidget(dday_lbl, 0, Qt.AlignTop)
+        elif hasattr(self, '_add_date_btn'):
+            layout.addWidget(self._add_date_btn, 0, Qt.AlignTop)
         layout.addWidget(btn_menu, 0, Qt.AlignTop)
 
     def eventFilter(self, watched, event):
@@ -459,6 +507,60 @@ class TaskRow(QWidget):
         self.name_edit.setFont(font)
         self.name_edit._update_height()
         update_task(self.task['id'], self.task['name'], self.task['deadline'], strikethrough=int(self._strikethrough))
+
+    def _show_date_picker(self):
+        if not hasattr(self, '_cal_popup'):
+            self._cal_popup = CustomCalendarWidget()
+            self._cal_popup.setWindowFlags(Qt.Popup)
+            self._cal_popup.setStyleSheet("""
+                QCalendarWidget { background-color: white; }
+                QCalendarWidget QAbstractItemView {
+                    background-color: white; color: black;
+                    font-family: 'Malgun Gothic'; font-size: 10pt;
+                    selection-background-color: #d4b800; selection-color: white;
+                }
+                QCalendarWidget QWidget { background-color: white; }
+                QCalendarWidget QToolButton {
+                    background-color: white; color: black;
+                    font-family: 'Malgun Gothic'; font-size: 10pt;
+                }
+                QCalendarWidget QWidget#qt_calendar_navigationbar { background-color: white; }
+                QCalendarWidget QSpinBox { background-color: white; color: black; }
+            """)
+            fmt_sat = QTextCharFormat()
+            fmt_sat.setForeground(QColor('#0055cc'))
+            self._cal_popup.setWeekdayTextFormat(Qt.Saturday, fmt_sat)
+            fmt_sun = QTextCharFormat()
+            fmt_sun.setForeground(QColor('#cc0000'))
+            self._cal_popup.setWeekdayTextFormat(Qt.Sunday, fmt_sun)
+            self._cal_popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+            self._cal_popup.clicked.connect(self._on_date_selected)
+
+        today = QDate.currentDate()
+        self._cal_popup.setCurrentPage(today.year(), today.month())
+        self._cal_popup.setSelectedDate(today)
+
+        btn = self._add_date_btn
+        cal_size = self._cal_popup.sizeHint()
+        pos = btn.mapToGlobal(QPoint(0, btn.height()))
+
+        screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
+        screen_rect = screen.availableGeometry()
+        if pos.x() + cal_size.width() > screen_rect.right():
+            pos.setX(screen_rect.right() - cal_size.width())
+        if pos.y() + cal_size.height() > screen_rect.bottom():
+            pos = btn.mapToGlobal(QPoint(0, -cal_size.height()))
+
+        self._cal_popup.move(pos)
+        self._cal_popup.show()
+
+    def _on_date_selected(self, qdate):
+        self._cal_popup.hide()
+        deadline_str = qdate.toString('yyyy-MM-dd')
+        self.task['deadline'] = deadline_str
+        update_task(self.task['id'], self.task['name'], deadline_str,
+                    strikethrough=int(self._strikethrough))
+        self.on_update()
 
 
 from PyQt5.QtWidgets import QSplitterHandle
