@@ -20,6 +20,7 @@ venv/
 *.env
 credentials.json
 service_account.json
+supabase_secret.py
 
 # IDE
 .vscode/

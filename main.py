@@ -3,12 +3,15 @@ import os
 import socket
 import ctypes
 import ctypes.wintypes
+import threading
 
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
 from PyQt5.QtCore import Qt, QAbstractNativeEventFilter
-from db import init_db, get_all_windows, create_window
+from db import init_db, get_all_windows, get_tasks, create_window
 from window import MemoWindow
+import auth
+import sync
 
 _HOTKEY_CAPTURE = 1
 _HOTKEY_RESTORE = 2
@@ -150,5 +153,16 @@ if __name__ == '__main__':
 
     for w in get_all_windows():
         _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''))
+
+    def _cloud_init():
+        """백그라운드: 익명 인증 후 전체 데이터 Supabase 동기화."""
+        session = auth.init()
+        if not session:
+            return
+        windows = get_all_windows()
+        tasks_by_window = {w['id']: get_tasks(w['id']) for w in windows}
+        sync.push_all(windows, tasks_by_window)
+
+    threading.Thread(target=_cloud_init, daemon=True).start()
 
     sys.exit(app.exec_())
