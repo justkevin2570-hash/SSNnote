@@ -143,16 +143,8 @@ if __name__ == '__main__':
     tray.setToolTip('서서니 메모')
 
     menu = QMenu()
-    act_new    = QAction('새 메모')
-    act_update = QAction('업데이트 확인')
-    act_quit   = QAction('종료')
-    act_new.triggered.connect(lambda: new_window(on_toggle_hotkey=_hotkey_filter.set_enabled))
-    act_update.triggered.connect(lambda: updater.check_for_update_manual())
+    act_quit = QAction('종료')
     act_quit.triggered.connect(app.quit)
-    menu.addAction(act_new)
-    menu.addSeparator()
-    menu.addAction(act_update)
-    menu.addSeparator()
     menu.addAction(act_quit)
     def _restore_all_windows():
         for w in get_all_windows():
