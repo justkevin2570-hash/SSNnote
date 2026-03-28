@@ -12,6 +12,7 @@ from db import init_db, get_all_windows, get_tasks, create_window
 from window import MemoWindow
 import auth
 import sync
+import updater
 
 _HOTKEY_CAPTURE = 1
 _HOTKEY_RESTORE = 2
@@ -142,11 +143,15 @@ if __name__ == '__main__':
     tray.setToolTip('서서니 메모')
 
     menu = QMenu()
-    act_new  = QAction('새 메모')
-    act_quit = QAction('종료')
+    act_new    = QAction('새 메모')
+    act_update = QAction('업데이트 확인')
+    act_quit   = QAction('종료')
     act_new.triggered.connect(lambda: new_window(on_toggle_hotkey=_hotkey_filter.set_enabled))
+    act_update.triggered.connect(lambda: updater.check_for_update_manual())
     act_quit.triggered.connect(app.quit)
     menu.addAction(act_new)
+    menu.addSeparator()
+    menu.addAction(act_update)
     menu.addSeparator()
     menu.addAction(act_quit)
     def _restore_all_windows():
@@ -176,5 +181,12 @@ if __name__ == '__main__':
         sync.push_all(windows, tasks_by_window)
 
     threading.Thread(target=_cloud_init, daemon=True).start()
+
+    _update_notifier = updater.UpdateNotifier()
+    threading.Thread(
+        target=updater.check_for_update_on_startup,
+        args=(_update_notifier,),
+        daemon=True,
+    ).start()
 
     sys.exit(app.exec_())
