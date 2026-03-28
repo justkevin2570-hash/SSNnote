@@ -18,7 +18,7 @@ import urllib.error
 from PyQt5.QtCore import QObject, pyqtSignal, Qt, QTimer
 from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
 
-APP_VERSION = 'v0.1'  # 테스트용으로 낮게 설정
+APP_VERSION = 'v0.2'
 
 _GITHUB_API_URL = 'https://api.github.com/repos/justkevin2570-hash/SSNnote/releases/latest'
 _APPDATA_DIR = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')

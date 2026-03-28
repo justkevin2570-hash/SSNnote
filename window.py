@@ -218,7 +218,8 @@ class TitleBar(QWidget):
         layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(2)
 
-        self.label = QLabel('서서니 노트')
+        version_text = f'서서니 노트 {updater.APP_VERSION}'
+        self.label = QLabel(version_text)
         self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         self.label.setStyleSheet('color: #5a4000; background: transparent;')
 
