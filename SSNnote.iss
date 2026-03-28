@@ -13,9 +13,7 @@ AppId={{12345678-1234-1234-1234-123456789012}}
 VersionInfoVersion=0.2.0.0
 VersionInfoProductName=SSNnote
 VersionInfoCompany=justkevin2570
-VersionInfoFileDescription=SSNnote - 스티커 메모 앱
 VersionInfoProductVersion=0.2
-VersionInfoOriginalFileName=SSNnote_Setup.exe
 
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
