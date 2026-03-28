@@ -883,11 +883,12 @@ class DocumentRow(QWidget):
 
 
 class MemoWindow(QMainWindow):
-    def __init__(self, window_id, on_new=None, open_windows=None):
+    def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None):
         super().__init__()
         self.window_id       = window_id
         self.on_new          = on_new or (lambda **kw: None)
         self._open_windows   = open_windows if open_windows is not None else []
+        self._on_toggle_hotkey = on_toggle_hotkey
         self.collapsed       = False
         self.expanded_height = 400
         self.pin_active      = False
@@ -1175,6 +1176,8 @@ class MemoWindow(QMainWindow):
         def _toggle_shortcut(checked):
             for sc in self._shortcuts:
                 sc.setEnabled(checked)
+            if self._on_toggle_hotkey:
+                self._on_toggle_hotkey(checked)
             btn_shortcut.setText('단축키 ON' if checked else '단축키 OFF')
         btn_shortcut.toggled.connect(_toggle_shortcut)
         self._btn_shortcut = btn_shortcut
@@ -1430,7 +1433,7 @@ class MemoWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(act_delete)
 
-        act_new.triggered.connect(lambda: self.on_new(offset_from=self))
+        act_new.triggered.connect(lambda: self.on_new(offset_from=self, on_toggle_hotkey=self._on_toggle_hotkey))
         act_auto.triggered.connect(lambda: autostart_set(not autostart_on))
         act_help.triggered.connect(self.show_help)
         act_delete.triggered.connect(self.delete_memo)
