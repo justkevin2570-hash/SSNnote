@@ -1,5 +1,5 @@
 {
-  "version": "v1.65",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.65/SSNnote_Setup.exe",
-  "changelog": "- 바탕화면 바로가기 아이콘 추가\n- 업데이트 CDN statically.io로 변경"
+  "version": "v1.66",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.66/SSNnote_Setup.exe",
+  "changelog": "- '지난 기록2' 텍스트 변경 테스트"
 }
