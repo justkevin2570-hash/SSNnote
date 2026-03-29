@@ -219,8 +219,7 @@ class TitleBar(QWidget):
         layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(2)
 
-        version_text = f'서서니 노트 {updater.APP_VERSION}'
-        self.label = QLabel(version_text)
+        self.label = QLabel('서서니 노트')
         self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         self.label.setStyleSheet('color: #5a4000; background: transparent;')
 
@@ -1066,7 +1065,7 @@ class MemoWindow(QMainWindow):
         self._cal_popup.setWeekdayTextFormat(Qt.Sunday, fmt_sun)
         self._cal_popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self._cal_popup.clicked.connect(self._on_cal_date_selected)
-        btn_history = QPushButton('업무 목록')
+        btn_history = QPushButton('지난 기록')
         btn_history.setFont(QFont('Malgun Gothic', 10))
         btn_history.setStyleSheet("""
             QPushButton {

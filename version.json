@@ -1,5 +1,5 @@
 {
-  "version": "v0.5",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v0.5/SSNnote_Setup.exe",
-  "changelog": "- OCR 엔진 개선 (WinRT → PowerShell 기반)\n- UI 텍스트 개선 (업무 목록)\n- 안정성 개선"
+  "version": "v1.62",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.62/SSNnote_Setup.exe",
+  "changelog": "- 업데이트 서버 연결 문제 수정\n- 제목표시줄 버전 표기 제거\n- '업무 목록' → '지난 기록' 텍스트 변경"
 }

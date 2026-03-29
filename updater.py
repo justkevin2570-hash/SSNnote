@@ -9,6 +9,8 @@
 import os
 import sys
 import json
+import ssl
+import subprocess
 import threading
 import tempfile
 import urllib.request
@@ -17,9 +19,9 @@ import urllib.error
 from PyQt5.QtCore import QObject, pyqtSignal, Qt, QTimer
 from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
 
-APP_VERSION = 'v0.5'
+APP_VERSION = 'v1.62'
 
-_VERSION_JSON_URL = 'https://raw.githubusercontent.com/justkevin2570-hash/SSNnote/master/version.json'
+_VERSION_JSON_URL = 'https://cdn.jsdelivr.net/gh/justkevin2570-hash/SSNnote@master/version.json'
 _APPDATA_DIR = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
 _NOTIFIED_FILE = os.path.join(_APPDATA_DIR, 'last_notified_version.txt')
 _REQUEST_TIMEOUT = 10
@@ -28,13 +30,18 @@ _REQUEST_TIMEOUT = 10
 def fetch_version_info() -> dict | None:
     """version.json에서 버전 정보를 가져온다. 실패 시 None 반환."""
     try:
-        req = urllib.request.Request(
-            _VERSION_JSON_URL,
-            headers={'User-Agent': f'SSNnote/{APP_VERSION}'},
+        result = subprocess.run(
+            ['powershell', '-NoProfile', '-Command',
+             f'(Invoke-WebRequest -Uri "{_VERSION_JSON_URL}" -UseBasicParsing).Content'],
+            capture_output=True, text=True, timeout=_REQUEST_TIMEOUT,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
         )
-        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as r:
-            return json.loads(r.read())
-    except Exception:
+        if result.returncode != 0 or not result.stdout.strip():
+            print(f'[UPDATE] PowerShell fetch 실패: {result.stderr.strip()}')
+            return None
+        return json.loads(result.stdout)
+    except Exception as e:
+        print(f'[UPDATE] fetch 실패: {e}')
         return None
 
 
