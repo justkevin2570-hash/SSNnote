@@ -1,4 +1,5 @@
 import os
+import ctypes
 from datetime import date
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -1358,6 +1359,9 @@ class MemoWindow(QMainWindow):
                     self.lbl_capture_status.setText('캡쳐 완료! 아래 빈 칸을 클릭하세요.')
                     self.lbl_capture_status.show()
                     QTimer.singleShot(3000, self.lbl_capture_status.hide)
+                hwnd = int(self.winId())
+                ctypes.windll.user32.ShowWindow(hwnd, 9)
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
                 self.raise_()
                 self.activateWindow()
             else:
