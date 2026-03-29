@@ -1,55 +1,76 @@
 import io
-import asyncio
+import tempfile
+import subprocess
+import os
 
 from PyQt5.QtCore import Qt, QRect, QPoint, pyqtSignal, QThread
 from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap
 from PyQt5.QtWidgets import QApplication, QWidget
 
 
-async def _winrt_ocr(png_bytes: bytes) -> str:
-    """Windows 내장 OCR로 텍스트 인식."""
-    from PIL import Image
-    from winrt.windows.media.ocr import OcrEngine
-    from winrt.windows.globalization import Language
-    from winrt.windows.graphics.imaging import BitmapDecoder
-    from winrt.windows.storage.streams import InMemoryRandomAccessStream, DataWriter
+def _powershell_ocr(png_bytes: bytes) -> str:
+    """PowerShell을 통해 Windows 내장 OCR로 텍스트 인식."""
+    # 임시 PNG 파일 저장 (시스템 임시 폴더에 영문명으로)
+    import random, string
+    tmp_name = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+    tmp_path = os.path.join(tempfile.gettempdir(), f'{tmp_name}.png')
 
-    # WinRT OCR은 Bgra8/Gray8만 지원. Qt PNG는 Rgba8 → BMP로 변환하면 BGRA8로 디코딩됨.
-    from PIL import ImageFilter
-    img = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
-    w, h = img.size
-    TARGET_H = 300
-    MAX_DIM  = 4800
-    if h < TARGET_H:
-        scale = max(2, TARGET_H // h)
-        scale = min(scale, MAX_DIM // max(w, h))
-        if scale > 1:
-            img = img.resize((w * scale, h * scale), Image.LANCZOS)
-    img = img.filter(ImageFilter.SHARPEN)
-    bmp_io = io.BytesIO()
-    img.save(bmp_io, format='BMP')
-    image_bytes = bmp_io.getvalue()
+    with open(tmp_path, 'wb') as f:
+        f.write(png_bytes)
 
-    stream = InMemoryRandomAccessStream()
-    writer = DataWriter(stream)
-    writer.write_bytes(bytearray(image_bytes))
-    await writer.store_async()
-    writer.detach_stream()
-    stream.seek(0)
+    try:
+        # PowerShell WinRT API 직접 호출 (winrt 패키지 불필요)
+        # 변수를 직접 전달하는 방식 사용
+        ps_script = f"""
+$ProgressPreference='SilentlyContinue'
+$imagePath='{tmp_path}'
+[Windows.Foundation.IAsyncOperation`1,Windows.Foundation,ContentType=WindowsRuntime]|Out-Null
+[Windows.Media.Ocr.OcrEngine,Windows.Foundation,ContentType=WindowsRuntime]|Out-Null
+[Windows.Globalization.Language,Windows.Foundation,ContentType=WindowsRuntime]|Out-Null
+[Windows.Graphics.Imaging.BitmapDecoder,Windows.Foundation,ContentType=WindowsRuntime]|Out-Null
+[Windows.Storage.Streams.InMemoryRandomAccessStream,Windows.Foundation,ContentType=WindowsRuntime]|Out-Null
+[Windows.Storage.Streams.DataWriter,Windows.Foundation,ContentType=WindowsRuntime]|Out-Null
+$bytes=[System.IO.File]::ReadAllBytes($imagePath)
+$stream=New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
+$writer=New-Object Windows.Storage.Streams.DataWriter($stream)
+$writer.WriteBytes($bytes)
+$task=$writer.StoreAsync()
+$task.GetAwaiter().GetResult()|Out-Null
+$writer.DetachStream()|Out-Null
+$stream.Seek(0)|Out-Null
+$dec=[Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)
+$bmp=$dec.GetAwaiter().GetResult().GetSoftwareBitmapAsync().GetAwaiter().GetResult()
+$eng=[Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage([Windows.Globalization.Language]::new('ko'))
+if($null -eq $eng){{$eng=[Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()}}
+if($null -eq $eng){{throw 'OCR 언어팩이 없습니다.'}}
+$res=$eng.RecognizeAsync($bmp).GetAwaiter().GetResult()
+[Console]::OutputEncoding=[Text.UTF8Encoding]::UTF8
+$res.Lines|%{{$_.Text}}
+"""
+        result = subprocess.run(
+            ['powershell', '-ExecutionPolicy', 'Bypass', '-NoProfile', '-Command', ps_script],
+            capture_output=True, timeout=15
+        )
 
-    decoder = await BitmapDecoder.create_async(stream)
-    bitmap = await decoder.get_software_bitmap_async()
+        if result.returncode != 0:
+            try:
+                stderr = result.stderr.decode('utf-8', errors='replace')
+            except:
+                stderr = result.stderr.decode('cp949', errors='replace')
+            raise RuntimeError(f'PowerShell 오류: {stderr}')
 
-    engine = OcrEngine.try_create_from_language(Language('ko'))
-    if engine is None:
-        engine = OcrEngine.try_create_from_user_profile_languages()
-    if engine is None:
-        raise RuntimeError('한국어 OCR 언어팩이 없습니다. Windows 설정 → 시간 및 언어 → 언어에서 한국어를 추가하세요.')
+        # stdout 디코딩
+        try:
+            output = result.stdout.decode('utf-8')
+        except UnicodeDecodeError:
+            output = result.stdout.decode('cp949', errors='replace')
 
-    result = await engine.recognize_async(bitmap)
-    # result.text가 일부 winrt 버전에서 빈 문자열 반환 → lines에서 직접 추출
-    line_texts = [line.text for line in result.lines]
-    return ' '.join(line_texts) if line_texts else result.text
+        return output.strip()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
 
 
 class ScreenCaptureOverlay(QWidget):
@@ -127,10 +148,10 @@ class OcrWorker(QThread):
         text = ''
         error_msg = ''
         try:
-            raw = asyncio.run(_winrt_ocr(self._png_bytes))
+            raw = _powershell_ocr(self._png_bytes)
             text = raw.strip()
             if not text:
-                error_msg = f'OCR 원문: [{raw}]'
+                error_msg = 'OCR 텍스트를 인식하지 못했습니다.'
         except Exception as e:
             error_msg = f'OCR 오류: {e}'
         self.finished.emit(text, error_msg)

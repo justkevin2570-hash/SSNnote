@@ -16,7 +16,7 @@ except ImportError:
     SUPABASE_URL = ''
     SUPABASE_ANON_KEY = ''
 
-_AUTH_FILE = os.path.join(os.environ.get('APPDATA', '.'), 'Tmemo', 'auth.json')
+_AUTH_FILE = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'auth.json')
 _session = None
 
 

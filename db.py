@@ -1,8 +1,8 @@
 import sqlite3
 import os
 
-DB_DIR  = os.path.join(os.environ.get('APPDATA', '.'), 'Tmemo')
-DB_PATH = os.path.join(DB_DIR, 'tmemo.db')
+DB_DIR  = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
+DB_PATH = os.path.join(DB_DIR, 'ssnnote.db')
 
 
 def _connect():

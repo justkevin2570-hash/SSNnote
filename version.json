@@ -1,0 +1,5 @@
+{
+  "version": "v0.5",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v0.5/SSNnote_Setup.exe",
+  "changelog": "- OCR 엔진 개선 (WinRT → PowerShell 기반)\n- UI 텍스트 개선 (업무 목록)\n- 안정성 개선"
+}

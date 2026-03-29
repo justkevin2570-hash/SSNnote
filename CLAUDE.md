@@ -1,4 +1,4 @@
-# Project Context: Tmemo (Python + PyQt5)
+# Project Context: SSNnote (Python + PyQt5)
 
 ## 1. Core Concept
 - Windows 전용 경량 스티커 메모 앱 ("서서니 메모").
@@ -11,8 +11,8 @@
 | **언어** | Python |
 | **GUI 프레임워크** | PyQt5 |
 | **데이터베이스** | SQLite (Python 내장 `sqlite3` 모듈) |
-| **DB 저장 경로** | `%APPDATA%/Tmemo/tmemo.db` |
-| **패키징** | PyInstaller (`Tmemo.spec`) |
+| **DB 저장 경로** | `%APPDATA%/SSNnote/ssnnote.db` |
+| **패키징** | PyInstaller (`SSNnote.spec`) |
 | **가상환경** | `.venv` (Python venv) |
 
 ## 3. 파일 구조
@@ -22,7 +22,7 @@ main.py       - 진입점: QApplication, 시스템 트레이, 창 관리, 단일
 window.py     - MemoWindow(QMainWindow), EdgeHandle(리사이즈), UI 전체
 db.py         - SQLite CRUD (windows / tasks / task_history 테이블)
 autostart.py  - Windows 레지스트리 자동 시작 관리 (HKCU\...\Run)
-Tmemo.spec    - PyInstaller 빌드 설정
+SSNnote.spec    - PyInstaller 빌드 설정
 ```
 
 ## 4. DB 스키마
@@ -56,9 +56,9 @@ Tmemo.spec    - PyInstaller 빌드 설정
 ## 7. 빌드
 
 ```bash
-pyinstaller Tmemo.spec
+pyinstaller SSNnote.spec
 ```
-결과물: `dist/Tmemo.exe` (단일 실행 파일, 콘솔 없음)
+결과물: `dist/SSNnote.exe` (단일 실행 파일, 콘솔 없음)
 
 ## 8. 향후 로드맵
 

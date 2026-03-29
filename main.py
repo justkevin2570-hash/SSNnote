@@ -12,6 +12,7 @@ from db import init_db, get_all_windows, get_tasks, create_window
 from window import MemoWindow
 import auth
 import sync
+import updater
 
 _HOTKEY_CAPTURE = 1
 _HOTKEY_RESTORE = 2
@@ -27,19 +28,31 @@ class _GlobalHotkeyFilter(QAbstractNativeEventFilter):
     def __init__(self, hotkeys):
         super().__init__()
         self._hotkeys = hotkeys
+        self._enabled = True
         for hid, (mod, vk, _) in hotkeys.items():
             ctypes.windll.user32.RegisterHotKey(None, hid, mod, vk)
 
     def nativeEventFilter(self, eventType, message):
         if eventType == b'windows_generic_MSG':
             msg = ctypes.wintypes.MSG.from_address(int(message))
-            if msg.message == _WM_HOTKEY and msg.wParam in self._hotkeys:
+            if msg.message == _WM_HOTKEY and msg.wParam in self._hotkeys and self._enabled:
                 self._hotkeys[msg.wParam][2]()
         return False, 0
 
     def unregister(self):
         for hid in self._hotkeys:
             ctypes.windll.user32.UnregisterHotKey(None, hid)
+
+    def set_enabled(self, enabled: bool):
+        if enabled == self._enabled:
+            return
+        self._enabled = enabled
+        if enabled:
+            for hid, (mod, vk, _) in self._hotkeys.items():
+                ctypes.windll.user32.RegisterHotKey(None, hid, mod, vk)
+        else:
+            for hid in self._hotkeys:
+                ctypes.windll.user32.UnregisterHotKey(None, hid)
 
 _SINGLE_INSTANCE_PORT = 47391  # 임의의 고정 포트
 
@@ -63,17 +76,17 @@ def _make_tray_icon():
     return QIcon(pix)
 
 
-def new_window(offset_from=None):
+def new_window(offset_from=None, on_toggle_hotkey=None):
     x, y = 130, 130
     if offset_from:
         pos = offset_from.pos()
         x, y = pos.x() + 30, pos.y() + 30
     wid = create_window(x=x, y=y)
-    _launch_window(wid, x, y, 320, 400, collapsed=False)
+    _launch_window(wid, x, y, 320, 400, collapsed=False, on_toggle_hotkey=on_toggle_hotkey)
 
 
-def _launch_window(wid, x, y, width, height, collapsed, color=''):
-    win = MemoWindow(window_id=wid, on_new=new_window, open_windows=_open_windows)
+def _launch_window(wid, x, y, width, height, collapsed, color='', on_toggle_hotkey=None):
+    win = MemoWindow(window_id=wid, on_new=new_window, open_windows=_open_windows, on_toggle_hotkey=on_toggle_hotkey)
     win.apply_state(x, y, width, height, collapsed, color)
     win.show()
     _open_windows.append(win)
@@ -130,18 +143,14 @@ if __name__ == '__main__':
     tray.setToolTip('서서니 메모')
 
     menu = QMenu()
-    act_new  = QAction('새 메모')
     act_quit = QAction('종료')
-    act_new.triggered.connect(lambda: new_window())
     act_quit.triggered.connect(app.quit)
-    menu.addAction(act_new)
-    menu.addSeparator()
     menu.addAction(act_quit)
     def _restore_all_windows():
         for w in get_all_windows():
-            _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''))
+            _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''), on_toggle_hotkey=_hotkey_filter.set_enabled)
         if not _open_windows:
-            new_window()
+            new_window(on_toggle_hotkey=_hotkey_filter.set_enabled)
 
     def on_tray_activated(reason):
         if reason == QSystemTrayIcon.Trigger:  # 좌클릭
@@ -152,7 +161,7 @@ if __name__ == '__main__':
     tray.show()
 
     for w in get_all_windows():
-        _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''))
+        _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''), on_toggle_hotkey=_hotkey_filter.set_enabled)
 
     def _cloud_init():
         """백그라운드: 익명 인증 후 전체 데이터 Supabase 동기화."""
@@ -164,5 +173,12 @@ if __name__ == '__main__':
         sync.push_all(windows, tasks_by_window)
 
     threading.Thread(target=_cloud_init, daemon=True).start()
+
+    _update_notifier = updater.UpdateNotifier()
+    threading.Thread(
+        target=updater.check_for_update_on_startup,
+        args=(_update_notifier,),
+        daemon=True,
+    ).start()
 
     sys.exit(app.exec_())

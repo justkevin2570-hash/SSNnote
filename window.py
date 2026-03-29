@@ -15,6 +15,7 @@ from db import (update_window, delete_window, get_tasks, add_task, delete_task, 
                 get_documents, add_document, update_document, delete_document)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
+import updater
 
 TITLE_BAR_HEIGHT = 40
 TITLE_COLOR      = '#f7c948'
@@ -218,7 +219,8 @@ class TitleBar(QWidget):
         layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(2)
 
-        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:bold; font-family:Consolas; font-style:italic;">v1.6</span>')
+        version_text = f'서서니 노트 {updater.APP_VERSION}'
+        self.label = QLabel(version_text)
         self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         self.label.setStyleSheet('color: #5a4000; background: transparent;')
 
@@ -884,11 +886,12 @@ class DocumentRow(QWidget):
 
 
 class MemoWindow(QMainWindow):
-    def __init__(self, window_id, on_new=None, open_windows=None):
+    def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None):
         super().__init__()
         self.window_id       = window_id
         self.on_new          = on_new or (lambda **kw: None)
         self._open_windows   = open_windows if open_windows is not None else []
+        self._on_toggle_hotkey = on_toggle_hotkey
         self.collapsed       = False
         self.expanded_height = 400
         self.pin_active      = False
@@ -1063,7 +1066,7 @@ class MemoWindow(QMainWindow):
         self._cal_popup.setWeekdayTextFormat(Qt.Sunday, fmt_sun)
         self._cal_popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self._cal_popup.clicked.connect(self._on_cal_date_selected)
-        btn_history = QPushButton('지난 기록')
+        btn_history = QPushButton('업무 목록')
         btn_history.setFont(QFont('Malgun Gothic', 10))
         btn_history.setStyleSheet("""
             QPushButton {
@@ -1176,6 +1179,8 @@ class MemoWindow(QMainWindow):
         def _toggle_shortcut(checked):
             for sc in self._shortcuts:
                 sc.setEnabled(checked)
+            if self._on_toggle_hotkey:
+                self._on_toggle_hotkey(checked)
             btn_shortcut.setText('단축키 ON' if checked else '단축키 OFF')
         btn_shortcut.toggled.connect(_toggle_shortcut)
         self._btn_shortcut = btn_shortcut
@@ -1397,6 +1402,7 @@ class MemoWindow(QMainWindow):
         autostart_on = autostart_is_enabled()
         act_auto   = QAction(('✅' if autostart_on else '☐') + ' 시작 시 자동실행', self)
         act_help   = QAction('💡 도움말', self)
+        act_update = QAction('⬇️ 업데이트 확인', self)
         act_delete = QAction('🗑️ 메모장 삭제', self)
 
         # 배경색 서브메뉴
@@ -1431,12 +1437,14 @@ class MemoWindow(QMainWindow):
         menu.addMenu(color_menu)
         menu.addAction(act_auto)
         menu.addAction(act_help)
+        menu.addAction(act_update)
         menu.addSeparator()
         menu.addAction(act_delete)
 
-        act_new.triggered.connect(lambda: self.on_new(offset_from=self))
+        act_new.triggered.connect(lambda: self.on_new(offset_from=self, on_toggle_hotkey=self._on_toggle_hotkey))
         act_auto.triggered.connect(lambda: autostart_set(not autostart_on))
         act_help.triggered.connect(self.show_help)
+        act_update.triggered.connect(lambda: updater.check_for_update_manual(self))
         act_delete.triggered.connect(self.delete_memo)
 
         pos = btn.mapToGlobal(btn.rect().bottomLeft())
