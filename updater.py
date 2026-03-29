@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
 
 APP_VERSION = 'v1.63'
 
-_VERSION_JSON_URL = 'https://api.github.com/repos/justkevin2570-hash/SSNnote/contents/version.json'
+_VERSION_JSON_URL = 'https://cdn.statically.io/gh/justkevin2570-hash/SSNnote/master/version.json'
 _VERSION_JSON_FALLBACK_URL = 'https://cdn.jsdelivr.net/gh/justkevin2570-hash/SSNnote@master/version.json'
 _APPDATA_DIR = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
 _NOTIFIED_FILE = os.path.join(_APPDATA_DIR, 'last_notified_version.txt')
