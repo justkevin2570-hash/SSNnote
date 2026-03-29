@@ -1,0 +1,5 @@
+{
+  "version": "v1.55",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.55/SSNnote_Setup.exe",
+  "changelog": "- 설치형 패키지로 전환\n- 자동 업데이트 시스템 구현"
+}

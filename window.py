@@ -167,7 +167,7 @@ class TitleBar(QWidget):
         layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(2)
 
-        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:normal;">v1.5</span>')
+        self.label = QLabel('서서니 노트 &nbsp;&nbsp;<span style="font-size:10pt; font-weight:normal;">v1.55</span>')
         self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         self.label.setStyleSheet('color: #5a4000; background: transparent;')
 
@@ -297,8 +297,8 @@ class _AutoHeightEdit(QPlainTextEdit):
             y += line.height()
         layout.endLayout()
         doc_margin = self.document().documentMargin()
-        h = int(y + 2 * doc_margin) + 4
-        self.setFixedHeight(max(h, 28))
+        h = int(y + 2 * doc_margin)
+        self.setFixedHeight(max(h, 24))
 
 
 class TaskRow(QWidget):
@@ -309,7 +309,7 @@ class TaskRow(QWidget):
         self.setStyleSheet('background: transparent;')
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 2, 8, 2)
+        layout.setContentsMargins(16, 0, 8, 0)
         layout.setSpacing(4)
 
         deadline = task['deadline']
@@ -1071,8 +1071,6 @@ class MemoWindow(QMainWindow):
         """)
         self._btn_doc_toggle.clicked.connect(self._toggle_doc_section)
         doc_header.addWidget(lbl_doc)
-        doc_header.addSpacing(4)
-        doc_header.addWidget(self._btn_doc_toggle, 0, Qt.AlignVCenter)
         doc_header.addSpacing(6)
         doc_header.addWidget(self.lbl_capture_status)
         doc_header.addStretch()
@@ -1260,6 +1258,7 @@ class MemoWindow(QMainWindow):
     def _on_capture_complete(self, pixmap):
         self._overlay.region_captured.disconnect()  # 중복 호출 방지
         self._restore_windows()
+        QTimer.singleShot(100, lambda: (self.raise_(), self.activateWindow()))
 
         def _after_ocr(text):
             if text:
