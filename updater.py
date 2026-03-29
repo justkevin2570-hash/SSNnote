@@ -19,7 +19,7 @@ import urllib.error
 from PyQt5.QtCore import QObject, pyqtSignal, Qt, QTimer
 from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
 
-APP_VERSION = 'v1.64'
+APP_VERSION = 'v1.66'
 
 _VERSION_JSON_URL = 'https://gist.githubusercontent.com/justkevin2570-hash/57ec4979c5373758f658ee957fd80386/raw/version.json'
 _APPDATA_DIR = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
