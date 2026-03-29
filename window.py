@@ -1065,7 +1065,7 @@ class MemoWindow(QMainWindow):
         self._cal_popup.setWeekdayTextFormat(Qt.Sunday, fmt_sun)
         self._cal_popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self._cal_popup.clicked.connect(self._on_cal_date_selected)
-        btn_history = QPushButton('지난 기록')
+        btn_history = QPushButton('업무 목록')
         btn_history.setFont(QFont('Malgun Gothic', 10))
         btn_history.setStyleSheet("""
             QPushButton {

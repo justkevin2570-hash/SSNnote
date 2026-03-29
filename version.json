@@ -1,5 +1,5 @@
 {
-  "version": "v0.3",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v0.3/SSNnote_Setup.exe",
-  "changelog": "- 설치형 패키지로 전환\n- Python DLL 로딩 오류 해결\n- 자동 업데이트 안정성 개선"
+  "version": "v0.5",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v0.5/SSNnote_Setup.exe",
+  "changelog": "- OCR 엔진 개선 (WinRT → PowerShell 기반)\n- UI 텍스트 개선 (업무 목록)\n- 안정성 개선"
 }
