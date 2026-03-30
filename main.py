@@ -200,9 +200,23 @@ if __name__ == '__main__':
     QTimer.singleShot(300, _show_welcome_if_first_run)
 
     _update_notifier = updater.UpdateNotifier()
+    _banner_notifier = updater.StatusBannerNotifier()
+
+    def _on_update_status(has_update: bool):
+        msg = '새로운 업데이트가 준비되었습니다.' if has_update else '최신버젼입니다.'
+        for win in _open_windows:
+            win.title_bar.label.setText(msg)
+        QTimer.singleShot(10000, _restore_titles)
+
+    def _restore_titles():
+        for win in _open_windows:
+            win.title_bar.label.setText('서서니 노트')
+
+    _banner_notifier.status_signal.connect(_on_update_status, Qt.QueuedConnection)
+
     threading.Thread(
         target=updater.check_for_update_on_startup,
-        args=(_update_notifier,),
+        args=(_update_notifier, _banner_notifier),
         daemon=True,
     ).start()
 

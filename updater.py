@@ -96,6 +96,14 @@ def _save_notified_version(tag: str):
         pass
 
 
+class StatusBannerNotifier(QObject):
+    """버전 확인 완료 후 타이틀 배너 표시용 신호."""
+    status_signal = pyqtSignal(bool)  # True = 업데이트 있음
+
+    def __init__(self):
+        super().__init__()
+
+
 class UpdateNotifier(QObject):
     """백그라운드 스레드 → Qt 메인 스레드로 안전하게 신호 전달."""
     notify_signal = pyqtSignal(str, str, str)  # (version, download_url, changelog)
@@ -138,17 +146,25 @@ class ManualUpdateSignal(QObject):
 _manual_signal = ManualUpdateSignal()
 
 
-def check_for_update_on_startup(notifier: UpdateNotifier):
+def check_for_update_on_startup(notifier: UpdateNotifier, banner_notifier=None):
     """
     백그라운드 스레드 타깃. 앱 시작 시 호출.
     새 버전 있음 + 미알림 → 팝업 표시.
+    banner_notifier가 있으면 확인 결과(업데이트 있음 여부)를 메인 스레드로 전달.
     """
     version_info = fetch_version_info()
     if not version_info:
+        if banner_notifier:
+            banner_notifier.status_signal.emit(False)
         return
 
     remote_version = version_info.get('version', '')
-    if not is_newer_version(remote_version, APP_VERSION):
+    update_available = is_newer_version(remote_version, APP_VERSION)
+
+    if banner_notifier:
+        banner_notifier.status_signal.emit(update_available)
+
+    if not update_available:
         return
 
     if _get_last_notified_version() == remote_version:
