@@ -203,14 +203,14 @@ if __name__ == '__main__':
     _banner_notifier = updater.StatusBannerNotifier()
 
     def _on_update_status(has_update: bool):
-        msg = '새로운 업데이트가 준비되었습니다.' if has_update else '최신버젼입니다.'
+        msg = '새로운 업데이트가 준비되었습니다.' if has_update else '최신 버전입니다.'
         for win in _open_windows:
-            win.title_bar.label.setText(msg)
+            win.title_bar.status_label.setText(msg)
         QTimer.singleShot(10000, _restore_titles)
 
     def _restore_titles():
         for win in _open_windows:
-            win.title_bar.label.setText('서서니 노트')
+            win.title_bar.status_label.setText('')
 
     _banner_notifier.status_signal.connect(_on_update_status, Qt.QueuedConnection)
 

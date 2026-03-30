@@ -1,5 +1,5 @@
 {
-  "version": "v1.70",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.70/SSNnote_Setup.exe",
-  "changelog": "- 설치 파일 아이콘 기본 설치 마법사 아이콘으로 변경"
+  "version": "v1.71",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.71/SSNnote_Setup.exe",
+  "changelog": "- 앱 시작 시 타이틀바 가운데에 버전 상태 10초 표시\n- 타이틀바 높이 축소 (40 → 32)"
 }

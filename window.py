@@ -17,7 +17,7 @@ from autostart import is_enabled as autostart_is_enabled, set_enabled as autosta
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
 import updater
 
-TITLE_BAR_HEIGHT = 40
+TITLE_BAR_HEIGHT = 32
 TITLE_COLOR      = '#f7c948'
 SNAP_THRESHOLD   = 20  # 완전히 붙는 거리(px)
 SNAP_ZONE        = 50  # 당기기 시작하는 거리(px)
@@ -250,10 +250,22 @@ class TitleBar(QWidget):
         layout.addWidget(self.btn_pin)
         layout.addWidget(self.btn_close)
 
+        # 가운데 오버레이 상태 메시지 (전체 너비, 마우스 이벤트 통과)
+        self.status_label = QLabel('', self)
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setFont(QFont('Malgun Gothic', 9))
+        self.status_label.setStyleSheet('color: #5a4000; background: transparent;')
+        self.status_label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.status_label.setGeometry(0, 0, self.width(), TITLE_BAR_HEIGHT)
+
         btn_menu.clicked.connect(lambda: parent.show_menu(btn_menu))
 
         self.btn_pin.clicked.connect(parent.toggle_always_on_top)
         self.btn_close.clicked.connect(parent.close)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.status_label.setGeometry(0, 0, self.width(), self.height())
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
