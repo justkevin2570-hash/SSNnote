@@ -208,7 +208,7 @@ if __name__ == '__main__':
         msg = '새로운 업데이트가 준비되었습니다.' if has_update else '최신 버전입니다.'
         for win in _open_windows:
             win.title_bar.status_label.setText(msg)
-        QTimer.singleShot(10000, _restore_titles)
+        QTimer.singleShot(5000, _restore_titles)
 
     def _restore_titles():
         for win in _open_windows:
