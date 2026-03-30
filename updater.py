@@ -19,7 +19,20 @@ import urllib.error
 from PyQt5.QtCore import QObject, pyqtSignal, Qt, QTimer
 from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
 
-APP_VERSION = 'v1.68'
+def _read_app_version() -> str:
+    """번들된 version.json에서 현재 버전을 읽는다. 실패 시 'v0.0' 반환."""
+    try:
+        if getattr(sys, 'frozen', False):
+            base = sys._MEIPASS
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(base, 'version.json')
+        with open(path, encoding='utf-8') as f:
+            return json.load(f).get('version', 'v0.0')
+    except Exception:
+        return 'v0.0'
+
+APP_VERSION = _read_app_version()
 
 _VERSION_JSON_URL = 'https://gist.githubusercontent.com/justkevin2570-hash/57ec4979c5373758f658ee957fd80386/raw/version.json'
 _APPDATA_DIR = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')

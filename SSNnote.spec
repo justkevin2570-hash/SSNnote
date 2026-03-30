@@ -7,6 +7,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
+        ('version.json', '.'),
         ('엑스아이콘.png', '.'),
         ('정리 아이콘.png', '.'),
         ('수정 아이콘.png', '.'),
