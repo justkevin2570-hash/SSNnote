@@ -24,6 +24,12 @@ def is_enabled():
         return False
 
 
+def refresh_if_enabled():
+    """자동 시작이 등록되어 있으면 현재 실행 경로로 갱신한다."""
+    if is_enabled():
+        set_enabled(True)
+
+
 def set_enabled(enable: bool):
     k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_KEY, 0, winreg.KEY_SET_VALUE)
     if enable:

@@ -105,6 +105,8 @@ if __name__ == '__main__':
         sys.exit(0)
 
     init_db()
+    import autostart
+    autostart.refresh_if_enabled()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 

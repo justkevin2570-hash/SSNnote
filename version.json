@@ -1,5 +1,5 @@
 {
-  "version": "v1.67",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.67/SSNnote_Setup.exe",
-  "changelog": "- 설치 시 바탕화면 바로가기 아이콘 제거"
+  "version": "v1.68",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.68/SSNnote_Setup.exe",
+  "changelog": "- 자동 시작 경로 갱신 버그 수정\n- OCR 캡처 기능 수정"
 }
