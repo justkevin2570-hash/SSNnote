@@ -107,6 +107,8 @@ if __name__ == '__main__':
     init_db()
     import autostart
     autostart.refresh_if_enabled()
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 

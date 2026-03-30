@@ -84,6 +84,9 @@ class ScreenCaptureOverlay(QWidget):
             self._end = event.pos()
             sel = QRect(self._start, self._end).normalized()
             if sel.width() > 5 and sel.height() > 5:
+                padding = 15
+                sel = sel.adjusted(-padding, -padding, padding, padding)
+                sel = sel.intersected(QRect(0, 0, self._screenshot.width(), self._screenshot.height()))
                 cropped = self._screenshot.copy(sel)
                 self._captured = True
                 self.region_captured.emit(cropped)  # emit 먼저, close 나중
@@ -123,7 +126,12 @@ class OcrWorker(QThread):
 
 def run_ocr(pixmap: QPixmap, callback, error_callback=None):
     """pixmap을 OCR하여 결과를 callback(text)으로 전달. 에러 시 error_callback(msg) 호출."""
-    # QPixmap → PNG bytes (메인 스레드에서 미리 변환)
+    # OCR 인식률 향상: 2배 확대 후 전달 (Windows OCR은 글자 높이 40px 이상에서 정확도 극대화)
+    pixmap = pixmap.scaled(
+        min(pixmap.width() * 3, 4000),
+        min(pixmap.height() * 3, 4000),
+        Qt.KeepAspectRatio, Qt.SmoothTransformation
+    )
     png_bytes = _pixmap_to_png_bytes(pixmap)
 
     worker = OcrWorker(png_bytes)
