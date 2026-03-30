@@ -1,5 +1,5 @@
 {
-  "version": "v1.72",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.72/SSNnote_Setup.exe",
-  "changelog": "- OCR 인식률 개선: High DPI 지원, 캡처 영역 패딩 추가, 이미지 3배 확대 처리"
+  "version": "v1.73",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.73/SSNnote_Setup.exe",
+  "changelog": "- OCR 빌드 수정: winrt 패키지 누락으로 인한 빌드 환경 OCR 오류 수정"
 }
