@@ -6,7 +6,8 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QApplication,
     QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QMenu, QAction, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
-    QPlainTextEdit, QSizePolicy, QSplitter, QGraphicsColorizeEffect, QTimeEdit
+    QPlainTextEdit, QSizePolicy, QSplitter, QGraphicsColorizeEffect, QTimeEdit,
+    QListWidget, QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap
@@ -72,10 +73,21 @@ class DdayLabel(QLabel):
 
     def enterEvent(self, event):
         self.setText(self._date_text)
+        f = self.font()
+        f.setPointSizeF(f.pointSizeF() - 0.3)
+        self.setFont(f)
+        self._original_style = self.styleSheet()
+        if '#e74c3c' in self._original_style:
+            self.setStyleSheet(self._original_style.replace('#e74c3c', '#e96060'))
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         self.setText(self._dday_text)
+        f = self.font()
+        f.setPointSizeF(f.pointSizeF() + 0.3)
+        self.setFont(f)
+        if hasattr(self, '_original_style'):
+            self.setStyleSheet(self._original_style)
         super().leaveEvent(event)
 
 
@@ -437,7 +449,7 @@ class TaskRow(QWidget):
                 base_date_text = f'{d.year}. {d.month}. {d.day}.({weekday})'
                 time_suffix = f' {deadline[11:]}' if len(deadline) > 10 else ''
                 if dday == 'D-day':
-                    date_text = deadline[11:] if len(deadline) > 10 else '언능 하소!'
+                    date_text = f'{deadline[11:]} 까지' if len(deadline) > 10 else '언능 하소!'
                 else:
                     date_text = f'{base_date_text}{time_suffix}'
             except ValueError:
@@ -620,6 +632,67 @@ class CustomCalendarWidget(QCalendarWidget):
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(rect.adjusted(1, 1, -2, -2))
             painter.restore()
+
+
+class TimePickerPopup(QFrame):
+    time_selected = pyqtSignal(QTime)
+
+    def __init__(self, parent=None):
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setStyleSheet("""
+            QFrame {
+                background: #fffbe6;
+                border: 1px solid #d4b800;
+                border-radius: 6px;
+            }
+            QListWidget {
+                background: transparent;
+                border: none;
+                font-family: 'Malgun Gothic';
+                font-size: 11pt;
+                color: #333;
+                outline: 0;
+            }
+            QListWidget::item { padding: 3px 10px; border-radius: 3px; }
+            QListWidget::item:selected { background: #d4b800; color: white; }
+            QListWidget::item:hover { background: #fff3a0; }
+        """)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+
+        self._hour_list = QListWidget()
+        self._hour_list.setFixedWidth(52)
+        self._hour_list.setFixedHeight(180)
+        for h in range(24):
+            self._hour_list.addItem(f'{h:02d}')
+
+        self._min_list = QListWidget()
+        self._min_list.setFixedWidth(52)
+        self._min_list.setFixedHeight(180)
+        for m in range(0, 60, 5):
+            self._min_list.addItem(f'{m:02d}')
+
+        layout.addWidget(self._hour_list)
+        layout.addWidget(self._min_list)
+
+        self._selected_hour = 9
+        self._hour_list.itemClicked.connect(self._on_hour_clicked)
+        self._min_list.itemClicked.connect(self._on_min_clicked)
+
+    def set_current_time(self, qtime):
+        self._selected_hour = qtime.hour()
+        self._hour_list.setCurrentRow(qtime.hour())
+        self._min_list.setCurrentRow(qtime.minute() // 5)
+        self._hour_list.scrollToItem(self._hour_list.currentItem(), QAbstractItemView.PositionAtCenter)
+        self._min_list.scrollToItem(self._min_list.currentItem(), QAbstractItemView.PositionAtCenter)
+
+    def _on_hour_clicked(self, item):
+        self._selected_hour = int(item.text())
+
+    def _on_min_clicked(self, item):
+        self.time_selected.emit(QTime(self._selected_hour, int(item.text())))
+        self.hide()
 
 
 class ClickToCopyLabel(QLabel):
@@ -991,18 +1064,32 @@ class MemoWindow(QMainWindow):
                 color: #333;
             }
         """
-        field_style_date = """
+        _date_base = """
+            QDateEdit::drop-down { width: 0px; border: none; background: transparent; }
+            QDateEdit::up-button { width: 0px; }
+            QDateEdit::down-button { width: 0px; }
+        """
+        self._field_style_date_empty = """
+            QDateEdit {
+                background: rgba(255,255,255,0.5);
+                border: 1px solid #d4b800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #aaa;
+                qproperty-alignment: AlignCenter;
+            }
+        """ + _date_base
+        self._field_style_date_filled = """
             QDateEdit {
                 background: rgba(255,255,255,0.5);
                 border: 1px solid #d4b800;
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: #333;
+                qproperty-alignment: AlignCenter;
             }
-            QDateEdit::drop-down { width: 0px; border: none; background: transparent; }
-            QDateEdit::up-button { width: 0px; }
-            QDateEdit::down-button { width: 0px; }
-        """
+        """ + _date_base
+        field_style_date = self._field_style_date_empty
         lbl_font = QFont('Malgun Gothic', 11)
         lbl_css  = 'color: #5a4000; background: transparent;'
 
@@ -1041,7 +1128,7 @@ class MemoWindow(QMainWindow):
         self.input_date.setMinimumDate(QDate(1900, 1, 1))
         self.input_date.setSpecialValueText(' ')
         self.input_date.setDate(QDate(1900, 1, 1))  # 빈 칸으로 표시
-        self.input_date.setFixedWidth(145)
+        self.input_date.setFixedWidth(98)
         self.input_date.setFont(QFont('Malgun Gothic', 11))
         self.input_date.setStyleSheet(field_style_date)
         self.input_date.dateChanged.connect(self._on_date_changed)
@@ -1050,7 +1137,7 @@ class MemoWindow(QMainWindow):
             child.installEventFilter(self)
         self.input_time = QTimeEdit(QTime(9, 0))
         self.input_time.setDisplayFormat('HH:mm')
-        self.input_time.setFixedWidth(72)
+        self.input_time.setFixedWidth(58)
         self.input_time.setFont(QFont('Malgun Gothic', 11))
         self.input_time.setEnabled(False)
         self.input_time.setStyleSheet("""
@@ -1060,6 +1147,7 @@ class MemoWindow(QMainWindow):
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: #333;
+                qproperty-alignment: AlignCenter;
             }
             QTimeEdit:disabled {
                 background: rgba(255,255,255,0.2);
@@ -1073,6 +1161,8 @@ class MemoWindow(QMainWindow):
         self.input_time.installEventFilter(self)
         for child in self.input_time.findChildren(QWidget):
             child.installEventFilter(self)
+        self._time_popup = TimePickerPopup()
+        self._time_popup.time_selected.connect(self._on_time_popup_selected)
         self._cal_popup = CustomCalendarWidget()
         self._cal_popup.setWindowFlags(Qt.Popup)
         self._cal_popup.setStyleSheet("""
@@ -1284,6 +1374,9 @@ class MemoWindow(QMainWindow):
         if hasattr(self, '_cal_popup') and (obj is self.input_date or self.input_date.isAncestorOf(obj)) and event.type() == QEvent.MouseButtonPress:
             self._toggle_cal_popup()
             return True
+        if hasattr(self, '_time_popup') and (obj is self.input_time or self.input_time.isAncestorOf(obj)) and event.type() == QEvent.MouseButtonPress and self.input_time.isEnabled():
+            self._toggle_time_popup()
+            return True
         if event.type() == QEvent.KeyPress:
             if obj is self.input_name and event.key() == Qt.Key_Tab:
                 if self.input_date.date() == QDate(1900, 1, 1):
@@ -1323,11 +1416,13 @@ class MemoWindow(QMainWindow):
         if qdate != QDate(1900, 1, 1):
             self._date_touched = True
             self.input_time.setEnabled(True)
+            self.input_date.setStyleSheet(self._field_style_date_filled)
         else:
             self._date_touched = False
             self.input_time.setEnabled(False)
             self.input_time.setTime(QTime(9, 0))
             self._time_touched = False
+            self.input_date.setStyleSheet(self._field_style_date_empty)
 
     def _on_name_cleared(self, text):
         if not text:
@@ -1821,6 +1916,27 @@ class MemoWindow(QMainWindow):
     def _on_cal_date_selected(self, date):
         self.input_date.setDate(date)
         self._cal_popup.hide()
+
+    def _toggle_time_popup(self):
+        if self._time_popup.isVisible():
+            self._time_popup.hide()
+        else:
+            self._time_popup.set_current_time(self.input_time.time())
+            pos = self.input_time.mapToGlobal(QPoint(0, self.input_time.height()))
+            self._time_popup.adjustSize()
+            screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
+            screen_rect = screen.availableGeometry()
+            popup_size = self._time_popup.sizeHint()
+            if pos.x() + popup_size.width() > screen_rect.right():
+                pos.setX(screen_rect.right() - popup_size.width())
+            if pos.y() + popup_size.height() > screen_rect.bottom():
+                pos = self.input_time.mapToGlobal(QPoint(0, -popup_size.height()))
+            self._time_popup.move(pos)
+            self._time_popup.show()
+
+    def _on_time_popup_selected(self, qtime):
+        self.input_time.setTime(qtime)
+        self._time_touched = True
 
     def show_help(self):
         msg = QMessageBox(self)

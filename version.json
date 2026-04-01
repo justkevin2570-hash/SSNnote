@@ -1,5 +1,5 @@
 {
-  "version": "v1.74",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.74/SSNnote_Setup.exe",
-  "changelog": "- 공문 예비줄 폭 통일 (위 행과 동일하게 정렬)\n- 시작 배너 표시 시간 10초 → 5초로 단축"
+  "version": "v1.75",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.75/SSNnote_Setup.exe",
+  "changelog": "- 마감일 시간 선택 팝업 추가 (시간 칸 클릭 시)\n- 날짜/시간 칸 크기 및 정렬 개선\n- D-day 호버 시 연분홍 색상 및 폰트 크기 축소"
 }
