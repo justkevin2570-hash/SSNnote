@@ -1,12 +1,12 @@
 import os
 import ctypes
-from datetime import date
+from datetime import date, datetime
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QApplication,
     QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QMenu, QAction, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
-    QPlainTextEdit, QSizePolicy, QSplitter, QGraphicsColorizeEffect
+    QPlainTextEdit, QSizePolicy, QSplitter, QGraphicsColorizeEffect, QTimeEdit
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap
@@ -81,16 +81,22 @@ class DdayLabel(QLabel):
 
 def calc_dday(deadline_str):
     try:
-        deadline = date.fromisoformat(deadline_str)
+        if len(deadline_str) > 10:  # 'yyyy-MM-dd HH:MM'
+            deadline_dt = datetime.strptime(deadline_str, '%Y-%m-%d %H:%M')
+            diff_days = (deadline_dt.date() - date.today()).days
+            diff_seconds = (deadline_dt - datetime.now()).total_seconds()
+        else:  # 'yyyy-MM-dd'
+            diff_days = (date.fromisoformat(deadline_str) - date.today()).days
+            diff_seconds = None
     except ValueError:
         return '날짜오류'
-    diff = (deadline - date.today()).days
-    if diff == 0:
-        return 'D-day'
-    elif diff > 0:
-        return f'D-{diff}'
+
+    if diff_days > 0:
+        return f'D-{diff_days}'
+    elif diff_days < 0:
+        return f'D+{abs(diff_days)}'
     else:
-        return f'D+{abs(diff)}'
+        return 'D-day'
 
 
 class EdgeHandle(QWidget):
@@ -384,7 +390,7 @@ class TaskRow(QWidget):
             if dday.startswith('D+'):
                 overdue = True
                 dday_color = '#aaa'
-            elif dday == 'D-day':
+            elif dday == 'D-day' or '시간' in dday:
                 dday_color = '#e74c3c'
             elif dday == '날짜오류':
                 dday_color = '#aaa'
@@ -426,12 +432,14 @@ class TaskRow(QWidget):
 
         if suffix:
             try:
-                d = date.fromisoformat(deadline)
-                if suffix == '(D-day)':
-                    date_text = '언능 하소!'
+                d = date.fromisoformat(deadline[:10])
+                weekday = ['월','화','수','목','금','토','일'][d.weekday()]
+                base_date_text = f'{d.year}. {d.month}. {d.day}.({weekday})'
+                time_suffix = f' {deadline[11:]}' if len(deadline) > 10 else ''
+                if dday == 'D-day':
+                    date_text = deadline[11:] if len(deadline) > 10 else '언능 하소!'
                 else:
-                    weekday = ['월','화','수','목','금','토','일'][d.weekday()]
-                    date_text = f'{d.year}. {d.month}. {d.day}.({weekday})'
+                    date_text = f'{base_date_text}{time_suffix}'
             except ValueError:
                 date_text = suffix
             dday_lbl = DdayLabel(suffix, date_text)
@@ -1009,9 +1017,10 @@ class MemoWindow(QMainWindow):
         self.input_name.setFont(QFont('Malgun Gothic', 11))
         self.input_name.setStyleSheet(field_style_line)
         self._date_touched = False
+        self._time_touched = False
         self.input_name.installEventFilter(self)
         self.input_name.returnPressed.connect(self._add_task)
-        self.input_name.textChanged.connect(lambda t: self.input_date.setDate(QDate(1900, 1, 1)) or setattr(self, '_date_touched', False) if not t else None)
+        self.input_name.textChanged.connect(self._on_name_cleared)
         row1.addWidget(lbl_name)
         row1.addWidget(self.input_name, 1)
         content_layout.addLayout(row1)
@@ -1034,9 +1043,34 @@ class MemoWindow(QMainWindow):
         self.input_date.setFixedWidth(145)
         self.input_date.setFont(QFont('Malgun Gothic', 11))
         self.input_date.setStyleSheet(field_style_date)
-        self.input_date.dateChanged.connect(lambda: setattr(self, '_date_touched', True))
+        self.input_date.dateChanged.connect(self._on_date_changed)
         self.input_date.installEventFilter(self)
         for child in self.input_date.findChildren(QWidget):
+            child.installEventFilter(self)
+        self.input_time = QTimeEdit(QTime(9, 0))
+        self.input_time.setDisplayFormat('HH:mm')
+        self.input_time.setFixedWidth(72)
+        self.input_time.setFont(QFont('Malgun Gothic', 11))
+        self.input_time.setEnabled(False)
+        self.input_time.setStyleSheet("""
+            QTimeEdit {
+                background: rgba(255,255,255,0.5);
+                border: 1px solid #d4b800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #333;
+            }
+            QTimeEdit:disabled {
+                background: rgba(255,255,255,0.2);
+                border: 1px solid #ddd;
+                color: #bbb;
+            }
+            QTimeEdit::up-button { width: 0px; }
+            QTimeEdit::down-button { width: 0px; }
+        """)
+        self.input_time.timeChanged.connect(lambda: setattr(self, '_time_touched', True))
+        self.input_time.installEventFilter(self)
+        for child in self.input_time.findChildren(QWidget):
             child.installEventFilter(self)
         self._cal_popup = CustomCalendarWidget()
         self._cal_popup.setWindowFlags(Qt.Popup)
@@ -1093,6 +1127,7 @@ class MemoWindow(QMainWindow):
 
         row2.addWidget(lbl_date)
         row2.addWidget(self.input_date)
+        row2.addWidget(self.input_time)
         row2.addStretch()
         row2.addWidget(btn_history)
         content_layout.addWidget(self.date_row_widget)
@@ -1260,24 +1295,66 @@ class MemoWindow(QMainWindow):
                     return True
                 if event.key() == Qt.Key_Escape:
                     self.input_date.setDate(QDate(1900, 1, 1))
+                    self.input_time.setEnabled(False)
+                    self.input_time.setTime(QTime(9, 0))
                     self._date_touched = False
+                    self._time_touched = False
                     self.input_name.setFocus()
                     return True
                 if event.key() == Qt.Key_Tab:
                     if self.input_date.currentSection() == QDateTimeEdit.DaySection:
+                        if self.input_time.isEnabled():
+                            self.input_time.setFocus()
+                        else:
+                            self.input_name.setFocus()
+                        return True
+            if obj is self.input_time or (hasattr(self, 'input_time') and self.input_time.isAncestorOf(obj)):
+                if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                    self._add_task()
+                    return True
+                if event.key() == Qt.Key_Tab:
+                    if self.input_time.currentSection() == QDateTimeEdit.MinuteSection:
                         self.input_name.setFocus()
                         return True
         return super().eventFilter(obj, event)
+
+    def _on_date_changed(self, qdate):
+        if qdate != QDate(1900, 1, 1):
+            self._date_touched = True
+            self.input_time.setEnabled(True)
+        else:
+            self._date_touched = False
+            self.input_time.setEnabled(False)
+            self.input_time.setTime(QTime(9, 0))
+            self._time_touched = False
+
+    def _on_name_cleared(self, text):
+        if not text:
+            self.input_date.setDate(QDate(1900, 1, 1))
+            self.input_time.setEnabled(False)
+            self.input_time.setTime(QTime(9, 0))
+            self._date_touched = False
+            self._time_touched = False
 
     def _add_task(self):
         name = self.input_name.text().strip()
         if not name:
             return
-        deadline = self.input_date.date().toString('yyyy-MM-dd') if self._date_touched else ''
+        if self._date_touched:
+            date_str = self.input_date.date().toString('yyyy-MM-dd')
+            if self._time_touched:
+                deadline = f'{date_str} {self.input_time.time().toString("HH:mm")}'
+            else:
+                deadline = date_str
+        else:
+            deadline = ''
         add_task(self.window_id, name, deadline)
         self.input_name.clear()
         self.input_date.setDate(QDate(1900, 1, 1))
+        self.input_time.setEnabled(False)
+        self.input_time.setTime(QTime(9, 0))
         self._date_touched = False
+        self._time_touched = False
         self.input_name.setFocus()
         self._refresh_tasks()
 
@@ -1742,7 +1819,6 @@ class MemoWindow(QMainWindow):
 
     def _on_cal_date_selected(self, date):
         self.input_date.setDate(date)
-        self._date_touched = True
         self._cal_popup.hide()
 
     def show_help(self):
