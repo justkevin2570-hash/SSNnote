@@ -878,6 +878,7 @@ class DocumentRow(QWidget):
             self.num_edit._on_empty_click = lambda: on_paste('number', self.title_edit, self.num_edit)
 
         if doc.get('id') is None:
+            lay.addSpacing(22)  # 삭제 버튼(22px) 자리 확보 → 위 행과 폭 통일
             return
 
         import os

@@ -1,5 +1,5 @@
 {
-  "version": "v1.71",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.71/SSNnote_Setup.exe",
-  "changelog": "- 앱 시작 시 타이틀바 가운데에 버전 상태 10초 표시\n- 타이틀바 높이 축소 (40 → 32)"
+  "version": "v1.74",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.74/SSNnote_Setup.exe",
+  "changelog": "- 공문 예비줄 폭 통일 (위 행과 동일하게 정렬)\n- 시작 배너 표시 시간 10초 → 5초로 단축"
 }

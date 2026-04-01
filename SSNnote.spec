@@ -1,11 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files, collect_dynamic_libs
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=[] + collect_dynamic_libs('winrt'),
     datas=[
         ('version.json', '.'),
         ('엑스아이콘.png', '.'),
@@ -13,7 +13,7 @@ a = Analysis(
         ('수정 아이콘.png', '.'),
         ('아래방향 아이콘.png', '.'),
         ('윗방향 아이콘.png', '.'),
-    ] + collect_data_files('PyQt5'),
+    ] + collect_data_files('PyQt5') + collect_data_files('winrt'),
     hiddenimports=[
         'PyQt5.sip',
         'PyQt5.QtCore',
@@ -35,11 +35,7 @@ a = Analysis(
         'PIL.Image',
         'PIL.ImageFilter',
         'PIL.ImageOps',
-        'winrt.windows.media.ocr',
-        'winrt.windows.globalization',
-        'winrt.windows.graphics.imaging',
-        'winrt.windows.storage.streams',
-    ] + collect_submodules('PyQt5'),
+    ] + collect_submodules('winrt') + collect_submodules('PyQt5'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
