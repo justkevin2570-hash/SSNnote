@@ -1,5 +1,5 @@
 {
-  "version": "v1.75",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.75/SSNnote_Setup.exe",
-  "changelog": "- 마감일 시간 선택 팝업 추가 (시간 칸 클릭 시)\n- 날짜/시간 칸 크기 및 정렬 개선\n- D-day 호버 시 연분홍 색상 및 폰트 크기 축소"
+  "version": "v1.8",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.8/SSNnote_Setup.exe",
+  "changelog": "- AI 공문 작성 창 신규 추가\n- Ctrl+Shift+X 캡처로 공문 제목/관련번호 자동 인식\n- Gemini Vision 또는 Windows OCR 자동 선택\n- AI 설정 메뉴 (외부 AI / 내부 AI / AI 이용 안함)\n- 저장 기록 열람·삭제 기능\n- 중복 저장 방지"
 }
