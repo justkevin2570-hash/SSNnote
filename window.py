@@ -6,14 +6,15 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QApplication,
     QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QMenu, QAction, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
-    QPlainTextEdit, QSizePolicy, QSplitter, QGraphicsColorizeEffect, QTimeEdit,
+    QPlainTextEdit, QSizePolicy, QGraphicsColorizeEffect, QTimeEdit,
     QListWidget, QAbstractItemView
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
-                get_documents, add_document, update_document, delete_document)
+                get_documents, add_document, update_document, delete_document,
+                get_official_documents, delete_official_document)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
 import updater
@@ -597,27 +598,15 @@ class TaskRow(QWidget):
         self.on_update()
 
 
-from PyQt5.QtWidgets import QSplitterHandle
+class _FixedDotBar(QWidget):
+    """드래그 불가 고정 구분선 (황금색 바 + 점 장식)."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(10)
 
-class DragHandleSplitter(QSplitter):
-    """가운데에 드래그 핸들 점을 그리는 커스텀 스플리터."""
-    def createHandle(self):
-        return _DotHandle(self.orientation(), self)
-
-class _DotHandle(QSplitterHandle):
     def paintEvent(self, event):
-        super().paintEvent(event)
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        dot_color = QColor('#a07000')
-        painter.setBrush(dot_color)
-        painter.setPen(Qt.NoPen)
-        cx = self.width() // 2
-        cy = self.height() // 2
-        r = 2  # 점 반지름
-        gap = 6  # 점 간격
-        for i in (-2, -1, 0, 1, 2):
-            painter.drawEllipse(cx + i * gap - r, cy - r, r * 2, r * 2)
+        painter.fillRect(self.rect(), QColor('#d4b800'))
         painter.end()
 
 
@@ -1039,14 +1028,10 @@ class MemoWindow(QMainWindow):
         _outer_layout.setContentsMargins(0, 0, 8, 0)
         _outer_layout.setSpacing(0)
 
-        _splitter = DragHandleSplitter(Qt.Vertical)
-        _splitter.setStyleSheet("""
-            QSplitter::handle {
-                background: #d4b800;
-                height: 10px;
-            }
-        """)
-        _splitter.setChildrenCollapsible(False)
+        _splitter = QWidget()
+        _splitter_layout = QVBoxLayout(_splitter)
+        _splitter_layout.setContentsMargins(0, 0, 0, 0)
+        _splitter_layout.setSpacing(0)
         _outer_layout.addWidget(_splitter)
 
         _top_panel = QWidget()
@@ -1248,120 +1233,50 @@ class MemoWindow(QMainWindow):
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
         content_layout.addWidget(scroll)
-        _splitter.addWidget(_top_panel)
+        _splitter_layout.addWidget(_top_panel, stretch=1)
 
-        # ── 하단 패널: 공문번호 섹션 ──────────────────────────────
+        # ── 하단 패널: 공문 작성 버튼 ──────────────────────────────
         _bottom_panel = QWidget()
         _bottom_panel.setStyleSheet('background: transparent;')
-        bottom_layout = QVBoxLayout(_bottom_panel)
-        bottom_layout.setContentsMargins(0, 4, 0, 4)
-        bottom_layout.setSpacing(2)
+        bottom_layout = QHBoxLayout(_bottom_panel)
+        bottom_layout.setContentsMargins(8, 6, 8, 6)
+        bottom_layout.setSpacing(6)
 
-        # 헤더: "공문번호" 레이블 + 캡처 버튼
-        doc_header = QHBoxLayout()
-        doc_header.setContentsMargins(8, 0, 8, 0)
-        lbl_doc = QLabel('공문 캡쳐')
-        lbl_doc.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
-        lbl_doc.setStyleSheet('color: #5a4000; background: transparent;')
-        self.lbl_capture_result = ClickToCopyLabel('')
-        self.lbl_capture_result.setFont(QFont('Malgun Gothic', 10))
-        self.lbl_capture_result.setStyleSheet("""
-            QLabel {
-                background: rgba(255,255,255,0.25);
-                border: 1px solid #c0a800;
-                border-radius: 4px;
-                padding: 2px 6px;
-                color: #5a4000;
-                font-family: 'Malgun Gothic';
-                font-size: 10pt;
-            }
-        """)
-        self.lbl_capture_result.setCursor(Qt.PointingHandCursor)
-        btn_capture = QPushButton('캡처')
-        btn_capture.setFont(QFont('Malgun Gothic', 10))
-        btn_capture.setFixedWidth(50)
-        btn_capture.setStyleSheet("""
+        _btn_style = """
             QPushButton {
                 background: rgba(255,255,255,0.5);
                 border: 1px solid #d4b800;
-                border-radius: 4px;
-                padding: 2px 6px;
+                border-radius: 6px;
+                padding: 4px 8px;
                 color: #5a4000;
             }
             QPushButton:hover { background: rgba(212,184,0,0.25); }
-        """)
-        btn_capture.clicked.connect(self._start_capture)
-        btn_shortcut = QPushButton('단축키 ON')
-        btn_shortcut.setFont(QFont('Malgun Gothic', 9, QFont.Bold))
-        btn_shortcut.setFixedWidth(85)
-        btn_shortcut.setCheckable(True)
-        btn_shortcut.setChecked(True)
-        btn_shortcut.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,0.5);
-                border: 1px solid #d4b800;
-                border-radius: 4px;
-                padding: 2px 4px;
-                color: #999999;
-                font-weight: normal;
-            }
-            QPushButton:hover { background: rgba(212,184,0,0.25); }
-            QPushButton:checked {
-                background: rgba(212,184,0,0.35);
-                border: 1px solid #a08800;
-                color: #3a2800;
-                font-weight: bold;
-            }
-        """)
-        def _toggle_shortcut(checked):
-            for sc in self._shortcuts:
-                sc.setEnabled(checked)
-            if self._on_toggle_hotkey:
-                self._on_toggle_hotkey(checked)
-            btn_shortcut.setText('단축키 ON' if checked else '단축키 OFF')
-        btn_shortcut.toggled.connect(_toggle_shortcut)
-        self._btn_shortcut = btn_shortcut
+        """
 
+        btn_doc_write = QPushButton('공문 작성 (AI)')
+        btn_doc_write.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
+        btn_doc_write.setStyleSheet(_btn_style)
+        btn_doc_write.clicked.connect(self._open_document_editor)
+        bottom_layout.addWidget(btn_doc_write)
+
+        btn_doc_history = QPushButton('저장 기록')
+        btn_doc_history.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
+        btn_doc_history.setStyleSheet(_btn_style)
+        btn_doc_history.clicked.connect(self._show_official_doc_history)
+        bottom_layout.addWidget(btn_doc_history)
+
+        # 기존 capture 메서드 호환용 더미 위젯 (숨김)
+        self.lbl_capture_result = QLabel('')
+        self.lbl_capture_result.hide()
         self.lbl_capture_status = QLabel('')
-        self.lbl_capture_status.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
-        self.lbl_capture_status.setStyleSheet('color: #1a56cc; background: transparent;')
         self.lbl_capture_status.hide()
-        doc_header.addWidget(lbl_doc)
-        doc_header.addSpacing(6)
-        doc_header.addWidget(self.lbl_capture_status)
-        doc_header.addStretch()
-        doc_header.addWidget(btn_shortcut)
-        doc_header.addSpacing(4)
-        doc_header.addWidget(btn_capture)
-        bottom_layout.addLayout(doc_header)
-
-        doc_line = QFrame()
-        doc_line.setFrameShape(QFrame.HLine)
-        doc_line.setStyleSheet('color: #d4b800; background: #d4b800; max-height: 1px; margin: 0 8px;')
-        bottom_layout.addWidget(doc_line)
-
-        # 공문 목록 스크롤 영역
         self.doc_list_widget = QWidget()
-        self.doc_list_widget.setStyleSheet('background: transparent;')
         self.doc_list_layout = QVBoxLayout(self.doc_list_widget)
-        self.doc_list_layout.setContentsMargins(0, 0, 0, 0)
-        self.doc_list_layout.setSpacing(0)
         self.doc_list_layout.addStretch()
+        self.doc_list_widget.hide()
 
-        doc_scroll = QScrollArea()
-        doc_scroll.setWidgetResizable(True)
-        doc_scroll.setWidget(self.doc_list_widget)
-        doc_scroll.setStyleSheet("""
-            QScrollArea { border: none; background: transparent; }
-            QScrollBar:vertical { width: 6px; background: transparent; }
-            QScrollBar::handle:vertical { background: #d4b800; border-radius: 3px; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-        """)
-        bottom_layout.addWidget(doc_scroll)
-
-        _splitter.addWidget(_bottom_panel)
-        _splitter.setStretchFactor(0, 2)
-        _splitter.setStretchFactor(1, 1)
+        _splitter_layout.addWidget(_FixedDotBar())
+        _splitter_layout.addWidget(_bottom_panel, stretch=0)
 
         root.addWidget(self.content)
         self._apply_color(self._bg_color)
@@ -1516,6 +1431,110 @@ class MemoWindow(QMainWindow):
     def _delete_document(self, doc_id):
         delete_document(doc_id)
         self._refresh_documents()
+
+    def _open_document_editor(self):
+        try:
+            from document_editor import DocumentEditorWindow
+            self._doc_editor = DocumentEditorWindow(parent=None)
+            self._doc_editor.show()
+        except Exception as e:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(self, '오류', f'공문 작성 창 열기 실패:\n{e}')
+
+    def _show_official_doc_history(self):
+        from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
+                                      QListWidget, QListWidgetItem, QPushButton,
+                                      QLabel, QTextEdit, QSplitter, QMessageBox)
+        docs = get_official_documents()
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle('저장 기록')
+        dlg.setMinimumSize(560, 420)
+        dlg.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 10pt;")
+
+        vlay = QVBoxLayout(dlg)
+        vlay.setContentsMargins(10, 10, 10, 10)
+
+        if not docs:
+            vlay.addWidget(QLabel('저장된 공문이 없습니다.'))
+            btn_close = QPushButton('닫기')
+            btn_close.clicked.connect(dlg.accept)
+            vlay.addWidget(btn_close)
+            dlg.exec_()
+            return
+
+        splitter = QSplitter(Qt.Horizontal)
+
+        list_widget = QListWidget()
+        list_widget.setMaximumWidth(200)
+        for doc in docs:
+            item = QListWidgetItem(doc['title'] or '(제목 없음)')
+            item.setData(Qt.UserRole, doc)
+            list_widget.addItem(item)
+        splitter.addWidget(list_widget)
+
+        right = QWidget()
+        rlay = QVBoxLayout(right)
+        rlay.setContentsMargins(6, 0, 0, 0)
+        lbl_title = QLabel()
+        lbl_title.setStyleSheet('font-weight: bold; font-size: 11pt;')
+        lbl_date = QLabel()
+        lbl_date.setStyleSheet('color: #888; font-size: 9pt;')
+        text_view = QTextEdit()
+        text_view.setReadOnly(True)
+        rlay.addWidget(lbl_title)
+        rlay.addWidget(lbl_date)
+        rlay.addWidget(text_view)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(1, 1)
+        vlay.addWidget(splitter)
+
+        def on_select():
+            item = list_widget.currentItem()
+            if not item:
+                return
+            doc = item.data(Qt.UserRole)
+            lbl_title.setText(doc['title'] or '(제목 없음)')
+            lbl_date.setText(f"저장일: {doc.get('created_at', '')}")
+            text_view.setPlainText(doc.get('content', ''))
+
+        list_widget.currentItemChanged.connect(lambda *_: on_select())
+        if list_widget.count() > 0:
+            list_widget.setCurrentRow(0)
+
+        btn_row = QHBoxLayout()
+        btn_del = QPushButton('선택 삭제')
+        btn_del.setStyleSheet("""
+            QPushButton { background: #fff0f0; border: 1px solid #e08080;
+                          border-radius: 4px; padding: 4px 10px; color: #a00; }
+            QPushButton:hover { background: #ffd8d8; }
+        """)
+        def on_delete():
+            item = list_widget.currentItem()
+            if not item:
+                return
+            doc = item.data(Qt.UserRole)
+            reply = QMessageBox.question(dlg, '삭제 확인',
+                f'「{doc["title"] or "(제목 없음)"}」을(를) 삭제할까요?',
+                QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                delete_official_document(doc['id'])
+                list_widget.takeItem(list_widget.row(item))
+                lbl_title.clear(); lbl_date.clear(); text_view.clear()
+        btn_del.clicked.connect(on_delete)
+        btn_close = QPushButton('닫기')
+        btn_close.setStyleSheet("""
+            QPushButton { background: rgba(255,255,255,0.8); border: 1px solid #aaa;
+                          border-radius: 4px; padding: 4px 10px; }
+            QPushButton:hover { background: #eee; }
+        """)
+        btn_close.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_del)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_close)
+        vlay.addLayout(btn_row)
+
+        dlg.exec_()
 
     def _start_capture(self):
         # 모든 메모 창 숨기고 화면 캡처 후 오버레이 표시

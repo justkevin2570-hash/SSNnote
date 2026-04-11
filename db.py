@@ -49,6 +49,15 @@ def init_db():
                 doc_number TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
             );
+
+            CREATE TABLE IF NOT EXISTS official_documents (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                title      TEXT NOT NULL DEFAULT '',
+                doc_number TEXT NOT NULL DEFAULT '',
+                content    TEXT NOT NULL DEFAULT '',
+                doc_type   TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
         """)
 
         # tasks 테이블에 window_id 컬럼 없으면 추가 (기존 DB 마이그레이션)
@@ -196,3 +205,27 @@ def update_document(doc_id, title, doc_number):
 def delete_document(doc_id):
     with _connect() as conn:
         conn.execute('DELETE FROM documents WHERE id=?', (doc_id,))
+
+
+# ── official_documents CRUD ──────────────────────────────────
+
+def save_official_document(title, doc_number, content, doc_type):
+    with _connect() as conn:
+        cur = conn.execute(
+            'INSERT INTO official_documents (title, doc_number, content, doc_type) VALUES (?, ?, ?, ?)',
+            (title, doc_number, content, doc_type)
+        )
+        return cur.lastrowid
+
+
+def get_official_documents():
+    with _connect() as conn:
+        rows = conn.execute(
+            'SELECT * FROM official_documents ORDER BY created_at DESC'
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_official_document(doc_id):
+    with _connect() as conn:
+        conn.execute('DELETE FROM official_documents WHERE id=?', (doc_id,))

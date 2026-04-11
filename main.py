@@ -120,10 +120,26 @@ if __name__ == '__main__':
                 _last_active_window = top
 
     def _trigger_capture():
-        if not _open_windows:
-            return
-        target = _last_active_window if _last_active_window in _open_windows else _open_windows[0]
-        target._start_capture()
+        # 열린 공문 작성 창 찾기
+        doc_editor = None
+        for w in QApplication.topLevelWidgets():
+            if type(w).__name__ == 'DocumentEditorWindow' and w.isVisible():
+                doc_editor = w
+                break
+
+        if doc_editor is None:
+            # 공문 작성 창이 없으면 열기
+            if not _open_windows:
+                return
+            target = _last_active_window if _last_active_window in _open_windows else _open_windows[0]
+            target._open_document_editor()
+            doc_editor = getattr(target, '_doc_editor', None)
+            if doc_editor is None:
+                return
+            # 창이 뜨고 나서 캡처 시작
+            QTimer.singleShot(300, doc_editor._start_capture)
+        else:
+            doc_editor._start_capture()
 
     def _show_or_restore():
         if _open_windows:
