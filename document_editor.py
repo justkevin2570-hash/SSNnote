@@ -1,13 +1,130 @@
+import re
 import sys
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QPushButton,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QLineEdit,
-    QComboBox, QMessageBox, QInputDialog
+    QMessageBox, QInputDialog
 )
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFont
-from ai_client import AiStreamThread, load_api_key, save_api_key, load_ai_mode, save_ai_mode
+from PyQt5.QtCore import Qt, QTimer, QSize
+from PyQt5.QtGui import QFont, QIcon, QPixmap
+from ai_client import (AiStreamThread, load_api_key, save_api_key,
+                        load_ai_mode, save_ai_mode,
+                        load_ollama_model, save_ollama_model, OLLAMA_HOST)
 from db import save_official_document, get_official_documents
+
+
+# ── 문서 유형 ─────────────────────────────────────────────────────
+
+_DOC_TYPE_LABELS = {
+    'result_report':    '결과 보고',
+    'home_letter':      '가정통신문 발송',
+    'survey_submit':    '수요조사 결과 제출',
+    'recruit_announce': '채용 공고',
+    'recruit_result':   '채용 결정',
+    'general':          '일반 계획/운영',
+}
+
+
+def _detect_doc_type(title: str) -> str:
+    """제목 키워드로 문서 유형 자동 판별. 전각 괄호(［］)도 지원."""
+    # 전각 괄호를 반각으로 정규화 후 비교
+    t = title.strip().replace('［', '[').replace('］', ']')
+    if '[공고]' in t or '채용 계획 공고' in t or '채용 계획 재공고' in t:
+        return 'recruit_announce'
+    if '[채용]' in t:
+        return 'recruit_result'
+    if '가정통신문 발송' in t:
+        return 'home_letter'
+    if '결과 보고' in t or re.search(r'결과\s*$', t):
+        return 'result_report'
+    if ('수요조사' in t or '진단조사' in t) and '제출' in t:
+        return 'survey_submit'
+    return 'general'
+
+
+def _eul_reul(text: str) -> str:
+    """마지막 글자 받침 여부로 '을'/'를' 자동 선택."""
+    if not text:
+        return '을(를)'
+    code = ord(text[-1]) - 0xAC00
+    if 0 <= code < 11172 and code % 28 != 0:
+        return '을'
+    return '를'
+
+
+def _extract_subject(title: str) -> str:
+    """제목에서 연도·접두어를 제거한 핵심 사업명 추출."""
+    s = re.sub(r'^\d{4}(학년도|년도|년)?\.?\s*', '', title)  # 앞 연도+점 제거
+    s = re.sub(r'^\[.+?\]\s*', '', s)                        # [공고] 등 반각 제거
+    s = re.sub(r'^［.+?］\s*', '', s)                         # ［채용］ 전각 제거
+    return s.strip()
+
+
+def _get_template(title: str, doc_type: str) -> str:
+    """문서 유형별 뼈대 템플릿 반환."""
+    subject = _extract_subject(title)
+    josa    = _eul_reul(title)
+
+    if doc_type == 'result_report':
+        # 붙임용 사업명: "결과 보고"/"결과" 접미어 제거 후 "결과 1부" 생성
+        attach = re.sub(r'\s*(결과\s*보고|결과)\s*$', '', subject).strip()
+        return (
+            f"1. {title}{josa} 다음과 같이 보고합니다.\n\n"
+            "  가. 일시: \n"
+            "  나. 장소: \n"
+            "  다. 인원: \n"
+            "  라. 내용: \n\n"
+            f"붙임  {attach} 결과 1부.  끝."
+        )
+    elif doc_type == 'home_letter':
+        attach = re.sub(r'\s*가정통신문\s*발송\s*$', '', subject).strip()
+        return (
+            f"1. {title}{josa} 붙임과 같이 발송하고자 합니다.\n\n"
+            f"붙임  {attach} 가정통신문 1부.  끝."
+        )
+    elif doc_type == 'survey_submit':
+        attach = re.sub(r'\s*(결과\s*)?제출\s*$', '', subject).strip()
+        return (
+            f"1. {title}{josa} 붙임과 같이 제출하고자 합니다.\n\n"
+            f"붙임  {attach} 결과(서식) 1부.  끝."
+        )
+    elif doc_type == 'recruit_announce':
+        attach = re.sub(r'\s*(채용\s*계획\s*(재)?공고(\(.+?\))?|공고(\(.+?\))?)$', '', subject).strip()
+        return (
+            f"1. {title}{josa} 다음과 같이 공고하고자 합니다.\n\n"
+            "  가. 채용예정인원 및 과목:\n"
+            "      구분 | 채용 과목 | 선발예정 인원 | 채용기간 | 비고\n\n"
+            "  나. 접수기간: \n"
+            "  다. 접수장소: \n"
+            "  라. 공고방법: 인터넷 홈페이지(전라남도교육청)\n"
+            "  마. 공고일자: \n\n"
+            f"붙임  1. {attach} 공고문 1부.\n"
+            "      2. 서류평가 및 면접평가표 1부.(별첨)\n"
+            "      3. 서류 및 면접 전형 평가표 1부.(별첨)  끝."
+        )
+    elif doc_type == 'recruit_result':
+        return (
+            f"1. {title}{josa} 다음과 같이 채용하고자 합니다.\n\n"
+            "  가. 채용 대상자:\n"
+            "      연번 | 학교명 | 성명 | 생년월일 | 자격증 | 운용요일 | 비고\n\n"
+            "  나. 강사 채용 기간: \n"
+            "  다. 강사 채용 과목: \n"
+            "  라. 강사 근무 시간: \n"
+            "  마. 강사 수당: \n\n"
+            "붙임  1. 서류(적부) 전형 평가표 1부.(별첨)\n"
+            "      2. 응시원서 및 자기소개서 1부.(별첨)\n"
+            "      3. 채용계약서 1부.(별첨)  끝."
+        )
+    else:  # general
+        attach = re.sub(r'\s*(운영\s*)?계획\s*$', '', subject).strip()
+        return (
+            f"1. {title}{josa} 다음과 같이 운영하고자 합니다.\n\n"
+            "  가. 일시: \n"
+            "  나. 장소: \n"
+            "  다. 대상: \n"
+            "  라. 내용: \n\n"
+            f"붙임  {attach} 계획 1부.  끝."
+        )
 
 
 class DocumentEditorWindow(QMainWindow):
@@ -18,6 +135,7 @@ class DocumentEditorWindow(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle("AI 공문 도우미")
+        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         self._restore_window_state()  # 저장된 위치/크기 복원, 없으면 기본값
 
         _font = QFont('Malgun Gothic', 12)
@@ -34,28 +152,38 @@ class DocumentEditorWindow(QMainWindow):
         header = QHBoxLayout()
         self.title_input = QLineEdit()
         self.title_input.setMinimumHeight(_input_h)
-        self.type_combo = QComboBox()
-        self.type_combo.addItems(["계획", "품의", "보관"])
-        self.type_combo.setFixedWidth(104)
-        self.type_combo.setMinimumHeight(_input_h)
-        self.type_combo.setEditable(True)
-        self.type_combo.lineEdit().setReadOnly(True)
-        self.type_combo.lineEdit().setAlignment(Qt.AlignCenter)
+        self.title_input.textChanged.connect(self._update_draft_button)
+        self.title_input.returnPressed.connect(self._try_generate_draft)
         header.addWidget(QLabel("공문 제목"))
         header.addWidget(self.title_input)
-        header.addWidget(self.type_combo)
 
         # ── 관련 공문번호 ──
         ref_row = QHBoxLayout()
         self.ref_input = QLineEdit()
         self.ref_input.setMinimumHeight(_input_h)
-        btn_move_to_title = QPushButton("공문 제목으로 이동")
+        self.ref_input.textChanged.connect(self._update_draft_button)
+        self.ref_input.returnPressed.connect(self._try_generate_draft)
+        btn_move_to_title = QPushButton()
         btn_move_to_title.setMinimumHeight(_input_h)
-        btn_move_to_title.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 11pt; padding-left: 10px; padding-right: 10px;")
+        btn_move_to_title.setFixedWidth(_input_h)
+        btn_move_to_title.setToolTip("공문 제목으로 이동")
+        _arrow_path = __import__('os').path.join(
+            __import__('os').path.dirname(__import__('os').path.abspath(__file__)), '위화살표.png'
+        )
+        btn_move_to_title.setIcon(QIcon(QPixmap(_arrow_path).scaled(
+            _input_h - 8, _input_h - 8, Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )))
+        btn_move_to_title.setIconSize(QSize(_input_h - 8, _input_h - 8))
         btn_move_to_title.clicked.connect(self._move_ref_to_title)
+        btn_help = QPushButton("도움말")
+        btn_help.setMinimumHeight(_input_h)
+        btn_help.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 11pt; padding-left: 10px; padding-right: 10px; background-color: #FFC300; color: black;")
+        btn_help.clicked.connect(self._show_help)
         ref_row.addWidget(QLabel("관련 번호"))
-        ref_row.addWidget(self.ref_input)
+        ref_row.addWidget(self.ref_input, stretch=1)
         ref_row.addWidget(btn_move_to_title)
+        ref_row.addStretch(1)  # 오른쪽 여백 — ref_input 가로 길이를 절반으로
+        ref_row.addWidget(btn_help)
 
         # ── 본문 편집 영역 ──
         self.editor = QTextEdit()
@@ -67,7 +195,7 @@ class DocumentEditorWindow(QMainWindow):
         # ── AI 채팅바 ──
         chat_row = QHBoxLayout()
         self.ai_input = QLineEdit()
-        self.ai_input.setPlaceholderText("AI에게 요청 (예: '붙임 문구 추가해줘', '더 간결하게 다듬어줘')")
+        self.ai_input.setPlaceholderText("AI에게 요청")
         self.ai_input.setMinimumHeight(_input_h)
         self.ai_input.returnPressed.connect(self.ask_ai)
         self.btn_send = QPushButton("전송")
@@ -84,22 +212,27 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_draft.setMinimumHeight(_input_h)
         self.btn_draft.setStyleSheet(_ctrl_btn_style)
         self.btn_draft.clicked.connect(self.generate_draft)
-        self.btn_save = QPushButton("저장")
-        self.btn_save.setMinimumHeight(_input_h)
-        self.btn_save.setStyleSheet(_ctrl_btn_style)
-        self.btn_save.clicked.connect(self.save_document)
-        self.btn_save_exit = QPushButton("저장 후 나가기")
-        self.btn_save_exit.setMinimumHeight(_input_h)
-        self.btn_save_exit.setStyleSheet(_ctrl_btn_style)
-        self.btn_save_exit.clicked.connect(self.save_and_close)
         self.btn_apikey = QPushButton("AI 설정")
         self.btn_apikey.setMinimumHeight(_input_h)
         self.btn_apikey.setStyleSheet(_ctrl_btn_style)
         self.btn_apikey.clicked.connect(self._show_ai_settings_menu)
+        self.btn_copy_title = QPushButton("제목 복사")
+        self.btn_copy_title.setMinimumHeight(_input_h)
+        self.btn_copy_title.setStyleSheet(_ctrl_btn_style)
+        self.btn_copy_title.clicked.connect(self._copy_title)
+        self.btn_copy = QPushButton("본문 복사")
+        self.btn_copy.setMinimumHeight(_input_h)
+        self.btn_copy.setStyleSheet(_ctrl_btn_style)
+        self.btn_copy.clicked.connect(self._copy_body)
+        self.btn_save_exit = QPushButton("저장 후 나가기")
+        self.btn_save_exit.setMinimumHeight(_input_h)
+        self.btn_save_exit.setStyleSheet(_ctrl_btn_style)
+        self.btn_save_exit.clicked.connect(self.save_and_close)
         ctrl_row.addWidget(self.btn_draft)
-        ctrl_row.addStretch()
         ctrl_row.addWidget(self.btn_apikey)
-        ctrl_row.addWidget(self.btn_save)
+        ctrl_row.addStretch()
+        ctrl_row.addWidget(self.btn_copy_title)
+        ctrl_row.addWidget(self.btn_copy)
         ctrl_row.addWidget(self.btn_save_exit)
 
         # ── 전체 배치 ──
@@ -111,6 +244,7 @@ class DocumentEditorWindow(QMainWindow):
 
         self.statusBar().showMessage("준비 완료")
         self._apply_ai_mode()
+        self._update_draft_button()  # 초기 상태: 빈칸이면 비활성
 
     # ── AI 초안 생성 ──
     def generate_draft(self):
@@ -119,17 +253,38 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage("제목을 먼저 입력하세요.")
             return
 
-        doc_type = self.type_combo.currentText()
-        ref = self.ref_input.text().strip()
-        ref_line = f"관련: {ref}\n" if ref else ""
+        doc_type   = _detect_doc_type(title)
+        type_label = _DOC_TYPE_LABELS.get(doc_type, '일반 계획/운영')
+        template   = _get_template(title, doc_type)
+        ref        = self.ref_input.text().strip()
+        mode       = load_ai_mode()
 
-        prompt = (
-            f"제목: {title}\n"
-            f"유형: {doc_type}\n"
-            f"{ref_line}"
-            "위 내용으로 공문 본문(내용/붙임)을 작성해주세요. "
-            "개조식, '~함', '~바람', '~고자 함' 문체로 작성하세요."
-        )
+        # 1단계: 뼈대 템플릿 즉시 삽입 (AI 없이도 바로 사용 가능)
+        self.editor.setPlainText(template)
+
+        if mode == 'none':
+            self.statusBar().showMessage(f"템플릿 삽입 완료 — {type_label}")
+            return
+
+        # 2단계: AI가 빈칸 채우기
+        if mode == 'internal':
+            prompt = (
+                f"제목: {title}\n"
+                f"문서유형: {type_label}\n\n"
+                "아래 뼈대의 빈칸(: 뒤 공란)을 제목에 맞게 채우세요.\n"
+                "형식(가~마 구조, 붙임)은 절대 바꾸지 마세요.\n\n"
+                f"{template}"
+            )
+        else:
+            ref_line = f"관련: {ref}\n" if ref else ""
+            prompt = (
+                f"제목: {title}\n"
+                f"문서유형: {type_label}\n"
+                f"{ref_line}"
+                "아래 공문 뼈대의 빈칸을 제목에 맞게 채워주세요. "
+                "형식(가~마 구조, 붙임 문구)은 그대로 유지하세요.\n\n"
+                f"{template}"
+            )
         self.editor.clear()
         self._start_ai(prompt)
 
@@ -181,20 +336,113 @@ class DocumentEditorWindow(QMainWindow):
         mode = load_ai_mode()
         ai_available = mode != 'none'
         self.btn_send.setEnabled(enabled and ai_available)
-        self.btn_draft.setEnabled(enabled and ai_available)
         self.ai_input.setEnabled(enabled and ai_available)
+        if enabled:
+            self._update_draft_button()   # 입력값 기반으로 복원
+        else:
+            self.btn_draft.setEnabled(False)  # AI 실행 중엔 무조건 비활성
+
+    def _update_draft_button(self):
+        """제목·관련번호 둘 다 빈칸이면 AI 초안 생성 버튼 비활성화."""
+        has_input = bool(self.title_input.text().strip() or self.ref_input.text().strip())
+        self.btn_draft.setEnabled(has_input and load_ai_mode() != 'none')
+
+    def _try_generate_draft(self):
+        """Enter 키 → 버튼 활성 상태일 때만 초안 생성."""
+        if self.btn_draft.isEnabled():
+            self.generate_draft()
+
+    def _copy_title(self):
+        """공문 제목을 클립보드에 복사."""
+        title = self.title_input.text().strip()
+        if not title:
+            self.statusBar().showMessage('복사할 제목이 없습니다.')
+            return
+        QApplication.clipboard().setText(title)
+        self.statusBar().showMessage('제목이 클립보드에 복사되었습니다.')
+        QTimer.singleShot(1500, lambda: self.statusBar().showMessage(''))
+
+    def _copy_body(self):
+        """본문 텍스트를 클립보드에 복사."""
+        content = self.editor.toPlainText().strip()
+        if not content:
+            self.statusBar().showMessage('복사할 내용이 없습니다.')
+            return
+        QApplication.clipboard().setText(content)
+        self.statusBar().showMessage('본문이 클립보드에 복사되었습니다.')
+        QTimer.singleShot(1500, lambda: self.statusBar().showMessage(''))
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self._cancel_ai()
+        elif event.key() == Qt.Key_X and event.modifiers() == (Qt.ControlModifier | Qt.ShiftModifier):
+            self._start_capture()
+        else:
+            super().keyPressEvent(event)
+
+    def _show_help(self):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton
+        dlg = QDialog(self)
+        dlg.setWindowTitle("사용 방법")
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        dlg.setFixedSize(580, 535)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(24, 20, 24, 16)
+        layout.setSpacing(6)
+
+        _s = "font-family:'Malgun Gothic'; font-size:10pt;"
+        _b = "font-family:'Malgun Gothic'; font-size:10pt; font-weight:bold;"
+        _li = "margin:0; padding:0;"
+        lbl = QLabel(
+            f"<p style='{_b} margin-bottom:4px;'>📋&nbsp; 공문 제목 / 관련번호 캡처</p>"
+            f"<p style='{_s} {_li}'>• Ctrl + Shift + X 를 누르면 캡처화면이 뜨면서 AI 공문 도우미가 실행됩니다.</p>"
+            f"<p style='{_s} {_li}'>• OCR 모드: 공문번호 형식(기관명-숫자) 패턴으로 판별합니다.</p>"
+            f"<p style='{_s} {_li}'>• 두 칸 중 하나만 차있으면 반대쪽 빈 칸으로 자동 배분합니다.</p>"
+            f"<br>"
+            f"<p style='{_b} margin-bottom:4px;'>⚡&nbsp; AI 초안 자동 생성</p>"
+            f"<p style='{_s} {_li}'>• 공문 제목 또는 관련번호 입력 후 Enter</p>"
+            f"<br>"
+            f"<p style='{_b} margin-bottom:4px;'>⛔&nbsp; AI 생성 취소</p>"
+            f"<p style='{_s} {_li}'>• 생성 중 ESC 키를 누르면 즉시 중단됩니다.</p>"
+        )
+        lbl.setWordWrap(True)
+        lbl.setFont(QFont('Malgun Gothic', 10))
+        layout.addWidget(lbl)
+
+        btn_ok = QPushButton("확인")
+        btn_ok.setFixedWidth(80)
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(dlg.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(btn_ok)
+        layout.addLayout(btn_row)
+
+        dlg.exec_()
+
+    def _cancel_ai(self):
+        if self.ai_thread and self.ai_thread.isRunning():
+            self.ai_thread.stop()
+            self.ai_thread.wait(500)
+            self.statusBar().showMessage('AI 생성이 취소되었습니다.')
+            self._set_controls_enabled(True)
 
     def _apply_ai_mode(self):
         """현재 AI 모드에 따라 AI 관련 버튼 활성/비활성."""
         mode = load_ai_mode()
         ai_available = mode != 'none'
-        self.btn_draft.setEnabled(ai_available)
+        self._update_draft_button()       # 입력값 + 모드 조합으로 판단
         self.btn_send.setEnabled(ai_available)
         self.ai_input.setEnabled(ai_available)
         if not ai_available:
             self.ai_input.setPlaceholderText('AI 이용 안함 — AI 설정에서 변경하세요.')
+        elif mode == 'internal':
+            self.ai_input.setPlaceholderText(
+                f"AI에게 요청 [내부 · {load_ollama_model()}]"
+            )
         else:
-            self.ai_input.setPlaceholderText("AI에게 요청 (예: '붙임 문구 추가해줘', '더 간결하게 다듬어줘')")
+            self.ai_input.setPlaceholderText("AI에게 요청")
 
     # ── AI 설정 메뉴 ──
     def _show_ai_settings_menu(self):
@@ -222,7 +470,7 @@ class DocumentEditorWindow(QMainWindow):
         if action == act_external:
             self._setup_external_ai()
         elif action == act_internal:
-            QMessageBox.information(self, '내부 AI', '내부 AI 설정은 추후 지원 예정입니다.')
+            self._setup_internal_ai()
         elif action == act_none:
             save_ai_mode('none')
             self._apply_ai_mode()
@@ -240,6 +488,34 @@ class DocumentEditorWindow(QMainWindow):
             self._apply_ai_mode()
             self.statusBar().showMessage('외부 AI(Gemini) 설정 완료.')
 
+    def _setup_internal_ai(self):
+        # Ollama 연결 및 모델 목록 가져오기
+        try:
+            import requests
+            resp = requests.get(f'{OLLAMA_HOST}/api/tags', timeout=5)
+            resp.raise_for_status()
+            available = [m['name'] for m in resp.json().get('models', [])]
+        except Exception:
+            QMessageBox.warning(
+                self, 'Ollama 연결 실패',
+                f'Ollama 서버({OLLAMA_HOST})에 연결할 수 없습니다.\n'
+                'Ollama가 실행 중인지 확인하세요.'
+            )
+            return
+
+        dlg = _OllamaModelDialog(available, load_ollama_model(), self)
+        if dlg.exec_() != dlg.Accepted:
+            return
+
+        model = dlg.selected_model()
+        if not model:
+            return
+
+        save_ollama_model(model)
+        save_ai_mode('internal')
+        self._apply_ai_mode()
+        self.statusBar().showMessage(f'내부 AI(Ollama · {model}) 설정 완료.')
+
     # ── 저장 ──
     def save_document(self):
         title = self.title_input.text().strip()
@@ -253,7 +529,6 @@ class DocumentEditorWindow(QMainWindow):
             return
 
         doc_number = self.ref_input.text().strip()
-        doc_type = self.type_combo.currentText()
 
         existing = get_official_documents()
         for doc in existing:
@@ -264,7 +539,7 @@ class DocumentEditorWindow(QMainWindow):
                 QTimer.singleShot(1000, lambda: self.statusBar().showMessage(''))
                 return
 
-        save_official_document(title, doc_number, content, doc_type)
+        save_official_document(title, doc_number, content, '')
         self.statusBar().showMessage('저장되었습니다.')
         QTimer.singleShot(1000, lambda: self.statusBar().showMessage(''))
         return True
@@ -408,6 +683,85 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage(f'OCR 오류: {msg}')
 
         self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
+
+
+class _OllamaModelDialog(
+    __import__('PyQt5.QtWidgets', fromlist=['QDialog']).QDialog
+):
+    """Ollama 설치 모델 목록에서 클릭으로 선택하는 다이얼로그."""
+
+    def __init__(self, models: list, current: str, parent=None):
+        from PyQt5.QtWidgets import (QVBoxLayout, QHBoxLayout,
+                                     QListWidget, QListWidgetItem,
+                                     QLineEdit, QPushButton, QLabel)
+        from PyQt5.QtCore import Qt
+        from PyQt5.QtGui import QFont
+        super().__init__(parent)
+        self.setWindowTitle('내부 AI 모델 선택 (Ollama)')
+        self.setMinimumWidth(320)
+        self.setMinimumHeight(360)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        _font = QFont('Malgun Gothic', 11)
+        self.setFont(_font)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(14, 14, 14, 14)
+
+        layout.addWidget(QLabel('설치된 Ollama 모델 중 하나를 선택하세요.'))
+
+        # 검색창
+        self._search = QLineEdit()
+        self._search.setPlaceholderText('모델 검색...')
+        self._search.setMinimumHeight(32)
+        self._search.textChanged.connect(self._filter)
+        layout.addWidget(self._search)
+
+        # 모델 목록
+        self._list = QListWidget()
+        self._list.setFont(_font)
+        self._list.setSpacing(2)
+        self._list.itemDoubleClicked.connect(self.accept)
+        self._models = models
+        self._populate(models, current)
+        layout.addWidget(self._list, stretch=1)
+
+        # 버튼
+        btn_row = QHBoxLayout()
+        btn_ok = QPushButton('선택')
+        btn_ok.setMinimumHeight(34)
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton('취소')
+        btn_cancel.setMinimumHeight(34)
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+
+    def _populate(self, models, select=''):
+        from PyQt5.QtWidgets import QListWidgetItem
+        from PyQt5.QtCore import Qt
+        self._list.clear()
+        for name in models:
+            item = QListWidgetItem(name)
+            item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            self._list.addItem(item)
+            if name == select:
+                self._list.setCurrentItem(item)
+        if not self._list.currentItem() and self._list.count():
+            self._list.setCurrentRow(0)
+
+    def _filter(self, text):
+        filtered = [m for m in self._models if text.lower() in m.lower()]
+        current = self._list.currentItem()
+        self._populate(filtered, current.text() if current else '')
+
+    def selected_model(self) -> str:
+        item = self._list.currentItem()
+        return item.text() if item else ''
 
 
 if __name__ == "__main__":
