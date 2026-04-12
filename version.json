@@ -1,5 +1,5 @@
 {
-  "version": "v1.90",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.90/SSNnote_Setup.exe",
-  "changelog": "- AI 공문 도우미 UI 대폭 개선\n- 본문 복사 / 제목 복사 버튼 추가\n- 제목·관련번호 입력 후 Enter로 AI 초안 즉시 생성\n- ESC로 AI 생성 취소\n- 공문 유형 자동 판별 및 뼈대 템플릿 즉시 삽입\n- 도움말 버튼 추가\n- AI 공문 도우미 항상 최상위 창 유지"
+  "version": "v1.91",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.91/SSNnote_Setup.exe",
+  "changelog": "- Gemini AI 모델 업그레이드 (gemini-3-flash-preview)\n- Google AI 신규 SDK(google-genai) 적용"
 }

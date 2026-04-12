@@ -180,24 +180,28 @@ def _pixmap_to_base64(pixmap: QPixmap) -> str:
 
 class GeminiAdapter:
     requires_api_key = True
-    MODEL_TEXT  = "models/gemini-2.0-flash-lite"
-    MODEL_VISION = "models/gemini-2.0-flash-lite"
+    MODEL_TEXT   = "gemini-3-flash-preview"
+    MODEL_VISION = "gemini-3-flash-preview"
 
     @staticmethod
     def _client():
-        import google.generativeai as genai
-        genai.configure(api_key=load_api_key())
-        return genai
+        from google import genai
+        return genai.Client(api_key=load_api_key())
 
     @classmethod
     def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
         """텍스트 스트리밍. on_chunk(str), on_done(full_str), on_error(msg)."""
         try:
-            genai = cls._client()
-            model = genai.GenerativeModel(cls.MODEL_TEXT, system_instruction=system)
-            response = model.generate_content(prompt, stream=True)
+            from google import genai
+            from google.genai import types
+            client = cls._client()
+            config = types.GenerateContentConfig(system_instruction=system)
             full = ""
-            for chunk in response:
+            for chunk in client.models.generate_content_stream(
+                model=cls.MODEL_TEXT,
+                contents=prompt,
+                config=config,
+            ):
                 text = chunk.text or ""
                 full += text
                 if text:
@@ -215,20 +219,19 @@ class GeminiAdapter:
         """
         import json, re
         try:
-            import google.generativeai as genai
-            from google.generativeai.types import HarmCategory, HarmBlockThreshold
-            genai.configure(api_key=load_api_key())
-            model = genai.GenerativeModel(
-                cls.MODEL_VISION,
-                system_instruction=OCR_SYSTEM_PROMPT
+            from google import genai
+            from google.genai import types
+            client = cls._client()
+            image_part = types.Part.from_bytes(
+                data=base64.b64decode(image_b64),
+                mime_type="image/png",
             )
-            image_part = {
-                "inline_data": {
-                    "mime_type": "image/png",
-                    "data": image_b64
-                }
-            }
-            response = model.generate_content([prompt, image_part])
+            config = types.GenerateContentConfig(system_instruction=OCR_SYSTEM_PROMPT)
+            response = client.models.generate_content(
+                model=cls.MODEL_VISION,
+                contents=[prompt, image_part],
+                config=config,
+            )
             raw = response.text.strip()
 
             # JSON 파싱 (마크다운 코드블록 제거 후 시도)
