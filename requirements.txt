@@ -1,5 +1,6 @@
 PyQt5==5.15.11
-google-generativeai==0.8.6
+qtawesome
+google-genai
 requests==2.33.1
 pillow==12.1.1
 pywin32==311

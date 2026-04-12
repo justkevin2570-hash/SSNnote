@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit, QSizePolicy, QGraphicsColorizeEffect, QTimeEdit,
     QListWidget, QAbstractItemView
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, pyqtSignal
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
@@ -1451,6 +1451,11 @@ class MemoWindow(QMainWindow):
         dlg.setWindowTitle('저장 기록')
         dlg.setMinimumSize(560, 420)
         dlg.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 10pt;")
+        _qs = QSettings('SSNnote', 'SSNnote')
+        geo = _qs.value('history_dlg/geometry')
+        if geo:
+            dlg.restoreGeometry(geo)
+        dlg.finished.connect(lambda: QSettings('SSNnote', 'SSNnote').setValue('history_dlg/geometry', dlg.saveGeometry()))
 
         vlay = QVBoxLayout(dlg)
         vlay.setContentsMargins(10, 10, 10, 10)

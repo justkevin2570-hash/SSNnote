@@ -1,5 +1,5 @@
 {
-  "version": "v1.91",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v1.91/SSNnote_Setup.exe",
-  "changelog": "- Gemini AI 모델 업그레이드 (gemini-3-flash-preview)\n- Google AI 신규 SDK(google-genai) 적용"
+  "version": "v2.0",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.0/SSNnote_Setup.exe",
+  "changelog": "- Gemini 모델 gemini-3-flash-preview로 단일화\n- 저장 기록 창 위치/크기 기억 기능 추가"
 }

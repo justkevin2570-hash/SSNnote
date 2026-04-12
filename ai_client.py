@@ -19,10 +19,16 @@ APPDATA_DIR        = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
 KEY_FILE           = os.path.join(APPDATA_DIR, 'gemini_key.txt')
 AI_MODE_FILE       = os.path.join(APPDATA_DIR, 'ai_mode.txt')
 OLLAMA_MODEL_FILE  = os.path.join(APPDATA_DIR, 'ollama_model.txt')
+GEMINI_MODEL_FILE  = os.path.join(APPDATA_DIR, 'gemini_model.txt')
 OLLAMA_HOST        = 'http://localhost:11434'
 
 # AI 모드: 'external' | 'internal' | 'none'
 _AI_MODES = ('external', 'internal', 'none')
+
+# API 키 없이도 표시할 기본 Gemini 모델 목록
+GEMINI_DEFAULT_MODELS = [
+    "gemini-3-flash-preview",
+]
 
 # 외부 AI(Gemini 등 대형 모델): 형식 제약 최소화, 모델 자율성 최대
 EXTERNAL_DOC_SYSTEM_PROMPT = (
@@ -144,6 +150,7 @@ def save_api_key(key: str):
     os.makedirs(APPDATA_DIR, exist_ok=True)
     with open(KEY_FILE, 'w', encoding='utf-8') as f:
         f.write(key.strip())
+    GeminiAdapter.invalidate_client()
 
 
 def load_ollama_model() -> str:
@@ -162,6 +169,27 @@ def save_ollama_model(model: str):
         f.write(model.strip())
 
 
+def load_gemini_model() -> str:
+    """저장된 Gemini 모델명 반환. 기본값: 'gemini-2.0-flash'."""
+    if os.path.exists(GEMINI_MODEL_FILE):
+        with open(GEMINI_MODEL_FILE, 'r', encoding='utf-8') as f:
+            v = f.read().strip()
+            if v:
+                return v
+    return 'gemini-3-flash-preview'
+
+
+def save_gemini_model(model: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(GEMINI_MODEL_FILE, 'w', encoding='utf-8') as f:
+        f.write(model.strip())
+
+
+def load_external_model_name() -> str:
+    """외부 AI(Gemini) 모델 표시명 반환."""
+    return load_gemini_model()
+
+
 # ── 내부 유틸 ────────────────────────────────────────────────────
 
 def _pixmap_to_base64(pixmap: QPixmap) -> str:
@@ -178,15 +206,28 @@ def _pixmap_to_base64(pixmap: QPixmap) -> str:
 # 다른 제공자로 바꿀 때: 아래 클래스만 교체하거나 새 Adapter 추가 후
 # AiStreamThread / ask_with_image_sync 의 import 대상을 변경하면 됩니다.
 
+_gemini_client = None  # 싱글톤 캐시
+
+
 class GeminiAdapter:
     requires_api_key = True
-    MODEL_TEXT   = "gemini-3-flash-preview"
-    MODEL_VISION = "gemini-3-flash-preview"
 
     @staticmethod
     def _client():
+        global _gemini_client
         from google import genai
-        return genai.Client(api_key=load_api_key())
+        if _gemini_client is None:
+            _gemini_client = genai.Client(api_key=load_api_key())
+        return _gemini_client
+
+    @staticmethod
+    def invalidate_client():
+        global _gemini_client
+        _gemini_client = None
+
+    @staticmethod
+    def fetch_models() -> list:
+        return GEMINI_DEFAULT_MODELS
 
     @classmethod
     def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
@@ -195,10 +236,15 @@ class GeminiAdapter:
             from google import genai
             from google.genai import types
             client = cls._client()
-            config = types.GenerateContentConfig(system_instruction=system)
+            model = load_gemini_model()
+            config = types.GenerateContentConfig(
+                system_instruction=system,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                max_output_tokens=1500,
+            )
             full = ""
             for chunk in client.models.generate_content_stream(
-                model=cls.MODEL_TEXT,
+                model=model,
                 contents=prompt,
                 config=config,
             ):
@@ -222,13 +268,14 @@ class GeminiAdapter:
             from google import genai
             from google.genai import types
             client = cls._client()
+            model = load_gemini_model()
             image_part = types.Part.from_bytes(
                 data=base64.b64decode(image_b64),
                 mime_type="image/png",
             )
             config = types.GenerateContentConfig(system_instruction=OCR_SYSTEM_PROMPT)
             response = client.models.generate_content(
-                model=cls.MODEL_VISION,
+                model=model,
                 contents=[prompt, image_part],
                 config=config,
             )
