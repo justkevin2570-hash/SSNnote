@@ -14,6 +14,9 @@ a = Analysis(
         ('아래방향 아이콘.png', '.'),
         ('윗방향 아이콘.png', '.'),
         ('위화살표.png', '.'),
+        ('yuju.png', '.'),
+        ('yuju2.png', '.'),
+        ('유자.png', '.'),
     ],
     hiddenimports=[
         'PyQt5.sip',

@@ -1,13 +1,41 @@
 import sys
 import os
+import json
 import socket
 import ctypes
 import ctypes.wintypes
 import threading
 
+_SETTINGS_PATH = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'settings.json')
+
+def _load_settings():
+    try:
+        with open(_SETTINGS_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_settings(data):
+    try:
+        os.makedirs(os.path.dirname(_SETTINGS_PATH), exist_ok=True)
+        with open(_SETTINGS_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction, QMessageBox
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
-from PyQt5.QtCore import Qt, QAbstractNativeEventFilter, QTimer
+from PyQt5.QtCore import Qt, QAbstractNativeEventFilter, QTimer, qInstallMessageHandler, QtMsgType
+
+
+def _qt_message_handler(msg_type, context, message):
+    if 'Unknown property cursor' in message:
+        return
+    if msg_type in (QtMsgType.QtDebugMsg, QtMsgType.QtInfoMsg):
+        return
+    print(message, file=sys.stderr)
+
+qInstallMessageHandler(_qt_message_handler)
 from db import init_db, get_all_windows, get_tasks, create_window
 from window import MemoWindow
 import auth
@@ -63,14 +91,20 @@ _last_active_window = None
 
 
 def _make_tray_icon():
+    from PyQt5.QtGui import QPen
     pix = QPixmap(32, 32)
     pix.fill(Qt.transparent)
     p = QPainter(pix)
     p.setRenderHint(QPainter.Antialiasing)
+    # 노트 본체 (노란 배경)
     p.setBrush(QColor('#f7c948'))
     p.setPen(QColor('#c8a000'))
     p.drawRoundedRect(2, 2, 28, 28, 4, 4)
-    p.setPen(QColor('#7a6000'))
+    # 노트 선 (어두운 색)
+    pen = QPen(QColor('#7a6000'))
+    pen.setWidth(2)
+    pen.setCapStyle(Qt.RoundCap)
+    p.setPen(pen)
     p.drawLine(7, 10, 25, 10)
     p.drawLine(7, 16, 25, 16)
     p.drawLine(7, 22, 18, 22)
@@ -87,8 +121,19 @@ def new_window(offset_from=None, on_toggle_hotkey=None):
     _launch_window(wid, x, y, 320, 400, collapsed=False, on_toggle_hotkey=on_toggle_hotkey)
 
 
+_alarm_callbacks = {}  # 정의 전 참조 문제 우회용
+
 def _launch_window(wid, x, y, width, height, collapsed, color='', on_toggle_hotkey=None):
-    win = MemoWindow(window_id=wid, on_new=new_window, open_windows=_open_windows, on_toggle_hotkey=on_toggle_hotkey)
+    win = MemoWindow(
+        window_id=wid,
+        on_new=new_window,
+        open_windows=_open_windows,
+        on_toggle_hotkey=on_toggle_hotkey,
+        on_alarm_interval_change=lambda m: _alarm_callbacks.get('set', lambda m: None)(m),
+        get_alarm_interval=lambda: _alarm_callbacks.get('get', lambda: 180)(),
+        on_timed_alarm_change=lambda v: _alarm_callbacks.get('set_timed', lambda v: None)(v),
+        get_timed_alarm_enabled=lambda: _alarm_callbacks.get('get_timed', lambda: True)(),
+    )
     win.apply_state(x, y, width, height, collapsed, color)
     win.show()
     _open_windows.append(win)
@@ -162,7 +207,7 @@ if __name__ == '__main__':
     app.setWindowIcon(_app_icon)
 
     tray = QSystemTrayIcon(_app_icon, app)
-    tray.setToolTip('서서니 메모')
+    tray.setToolTip('서서니 노트')
 
     menu = QMenu()
     act_quit = QAction('종료')
@@ -244,8 +289,13 @@ if __name__ == '__main__':
             _urgent_toast = UrgentToast(urgent)
             _urgent_toast.show()
 
+    _settings_cache = _load_settings()
+    _timed_alarm_enabled = [_settings_cache.get('timed_alarm_enabled', True)]
+
     def _check_timed_tasks():
         global _urgent_toast
+        if not _timed_alarm_enabled[0]:
+            return
         from datetime import datetime
         from window import UrgentToast
         urgent = []
@@ -263,13 +313,14 @@ if __name__ == '__main__':
                 except ValueError:
                     continue
                 remaining_min = (deadline_dt - now).total_seconds() / 60
-                for hours in (3, 2, 1):
-                    key = (task['id'], hours)
-                    target_min = hours * 60
+                alerts = [(3, '3시간 후 마감'), (2, '2시간 후 마감'), (1, '1시간 후 마감'), (0.5, '30분 후 마감')]
+                for threshold, label in alerts:
+                    key = (task['id'], threshold)
+                    target_min = threshold * 60
                     if abs(remaining_min - target_min) <= 5 and key not in _shown_timed_alerts:
                         _shown_timed_alerts.add(key)
                         t = dict(task)
-                        t['notice'] = f'{hours}시간 후 마감'
+                        t['notice'] = label
                         urgent.append(t)
                         break
 
@@ -290,10 +341,42 @@ if __name__ == '__main__':
             _urgent_toast = UrgentToast(urgent)
             _urgent_toast.show()
 
+    _alarm_interval = [_load_settings().get('alarm_interval_minutes', 180)]
+
+    def _get_alarm_interval():
+        return _alarm_interval[0]
+
+    def _set_alarm_interval(minutes):
+        _alarm_interval[0] = minutes
+        if minutes == 0:
+            _alarm_timer.stop()
+        else:
+            _alarm_timer.setInterval(minutes * 60 * 1000)
+            if not _alarm_timer.isActive():
+                _alarm_timer.start()
+        s = _load_settings()
+        s['alarm_interval_minutes'] = minutes
+        _save_settings(s)
+
+    def _get_timed_alarm_enabled():
+        return _timed_alarm_enabled[0]
+
+    def _set_timed_alarm_enabled(enabled):
+        _timed_alarm_enabled[0] = enabled
+        s = _load_settings()
+        s['timed_alarm_enabled'] = enabled
+        _save_settings(s)
+
+    _alarm_callbacks['get'] = _get_alarm_interval
+    _alarm_callbacks['set'] = _set_alarm_interval
+    _alarm_callbacks['get_timed'] = _get_timed_alarm_enabled
+    _alarm_callbacks['set_timed'] = _set_timed_alarm_enabled
+
     _alarm_timer = QTimer()
     _alarm_timer.timeout.connect(_check_urgent_tasks)
-    _alarm_timer.start(3 * 60 * 60 * 1000)          # 3시간마다
-    QTimer.singleShot(10000, _check_urgent_tasks)    # 앱 시작 10초 후 첫 체크
+    if _alarm_interval[0] != 0:
+        _alarm_timer.start(_alarm_interval[0] * 60 * 1000)
+        QTimer.singleShot(10000, _check_urgent_tasks)    # 앱 시작 10초 후 첫 체크
 
     _timed_alarm_timer = QTimer()
     _timed_alarm_timer.timeout.connect(_check_timed_tasks)

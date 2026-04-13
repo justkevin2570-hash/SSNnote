@@ -66,6 +66,16 @@ class AddDateButton(QLabel):
         super().mousePressEvent(event)
 
 
+class ClickableLabel(QLabel):
+    def __init__(self, callback, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._callback = callback
+
+    def mousePressEvent(self, event):
+        self._callback()
+        super().mousePressEvent(event)
+
+
 class DdayLabel(QLabel):
     def __init__(self, dday_text, date_text, *args, **kwargs):
         super().__init__(dday_text, *args, **kwargs)
@@ -115,7 +125,7 @@ def calc_dday(deadline_str):
 class EdgeHandle(QWidget):
     EDGE  = 6   # 가장자리 감지 두께(px)
     CORNER = 16  # 모서리 감지 크기(px)
-    MIN_W = 200
+    MIN_W = 360
     MIN_H = 100
 
     _CURSORS = {
@@ -976,25 +986,60 @@ class DocumentRow(QWidget):
 
 
 class UrgentToast(QWidget):
-    """마감 임박 태스크를 우하단에 3초간 표시하는 토스트 팝업."""
+    """마감 임박 태스크를 우하단에 10초간 표시하는 토스트 팝업."""
 
     def __init__(self, tasks):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(60, 44, 60, 52)
-        layout.setSpacing(22)
+        self.setStyleSheet("""
+            QWidget#toast {
+                background: #fff0e6;
+                border: 3px solid #e8a070;
+            }
+            QLabel { background: transparent; border: none; }
+        """)
+        self.setObjectName('toast')
 
-        header = QLabel('⚠  마감 임박')
-        header.setFont(QFont('Malgun Gothic', 20, QFont.Bold))
+        # 유자 이미지 로드 (팝업 밖으로 튀어나올 별도 위젯용)
+        _yuju_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'yuju.png')
+        face_pix = None
+        try:
+            from PIL import Image, ImageEnhance
+            import io
+            _pil = Image.open(_yuju_path).convert('RGBA')
+            face_h_px = int(_pil.height * 0.72)
+            _pil = _pil.crop((0, 0, _pil.width, face_h_px))
+            _pil = ImageEnhance.Brightness(_pil).enhance(1.2)
+            _pil = ImageEnhance.Color(_pil).enhance(1.1)
+            buf = io.BytesIO()
+            _pil.save(buf, format='PNG')
+            _yuju_pix = QPixmap()
+            _yuju_pix.loadFromData(buf.getvalue())
+            face_pix = _yuju_pix.scaledToHeight(130, Qt.SmoothTransformation)
+        except Exception:
+            _yuju_pix = QPixmap(_yuju_path)
+            if not _yuju_pix.isNull():
+                face_h = int(_yuju_pix.height() * 0.72)
+                _tmp = _yuju_pix.copy(0, 0, _yuju_pix.width(), face_h)
+                face_pix = _tmp.scaledToHeight(130, Qt.SmoothTransformation)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(27, 18, 27, 22)
+        layout.setSpacing(11)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(9)
+        header = QLabel('마감 임박')
+        header.setFont(QFont('Malgun Gothic', 16, QFont.Bold))
         header.setStyleSheet('color: #7a3000;')
-        layout.addWidget(header)
+        header_row.addWidget(header)
+        header_row.addStretch()
+        layout.addLayout(header_row)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet('color: #d4b800; max-height: 2px; margin: 4px 0;')
+        sep.setStyleSheet('background: #e8a070; max-height: 2px; border: none;')
         layout.addWidget(sep)
 
         for task in tasks:
@@ -1003,40 +1048,78 @@ class UrgentToast(QWidget):
             if len(name) > 30:
                 name = name[:29] + '…'
             row = QLabel(f'• {name}  <b>{dday}</b>')
-            row.setFont(QFont('Malgun Gothic', 18))
+            row.setFont(QFont('Malgun Gothic', 14))
             row.setStyleSheet('color: #3a2000;')
             layout.addWidget(row)
 
-        self.setStyleSheet("""
-            QWidget {
-                background: rgba(255, 248, 180, 0.97);
-                border: 7px solid #d4b800;
-                border-radius: 40px;
-            }
-        """)
-
         self.adjustSize()
         screen = QApplication.primaryScreen().availableGeometry()
-        self.move(screen.right() - self.width() - 24,
-                  screen.bottom() - self.height() - 52)
+        tx = screen.right() - self.width() - 24
+        ty = screen.bottom() - self.height() - 52
+        self.move(tx, ty)
 
-        # 3초 후 페이드 아웃
+        # 유자 이미지: 팝업 우상단 밖으로 튀어나오는 별도 위젯
+        self._face_widget = None
+        if face_pix:
+            fw = QLabel(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+            fw.setAttribute(Qt.WA_TranslucentBackground)
+            fw.setAttribute(Qt.WA_ShowWithoutActivating)
+            fw.setPixmap(face_pix)
+            fw.setStyleSheet('background: transparent; border: none;')
+            fw.resize(face_pix.size())
+            # 팝업 가로 3/4 지점, 이미지 절반이 위로 튀어나오도록 배치
+            fw.move(tx + self.width() * 3 // 4 - face_pix.width() // 2,
+                    ty - face_pix.height() // 2)
+            fw.show()
+            fw.setCursor(Qt.PointingHandCursor)
+            fw.mousePressEvent = lambda e: self._click_fade()
+            self._face_widget = fw
+            # 토스트가 show()된 뒤 이미지 위젯을 맨 앞으로
+            QTimer.singleShot(0, fw.raise_)
+
+        self.setCursor(Qt.PointingHandCursor)
+
+        # 10초 후 페이드 아웃
         self._anim = QPropertyAnimation(self, b'windowOpacity')
         self._anim.setDuration(600)
         self._anim.setStartValue(1.0)
         self._anim.setEndValue(0.0)
         self._anim.setEasingCurve(QEasingCurve.InQuad)
-        self._anim.finished.connect(self.close)
-        QTimer.singleShot(3000, self._anim.start)
+        self._anim.finished.connect(self._on_fade_done)
+        self._fade_timer = QTimer(self)
+        self._fade_timer.setSingleShot(True)
+        self._fade_timer.timeout.connect(self._anim.start)
+        self._fade_timer.start(10000)
+
+    def _on_fade_done(self):
+        if self._face_widget:
+            self._face_widget.close()
+        self.close()
+
+    def _click_fade(self):
+        self._fade_timer.stop()
+        self._anim.stop()
+        self._anim.setDuration(600)
+        self._anim.setStartValue(self.windowOpacity())
+        self._anim.start()
+
+    def mousePressEvent(self, event):
+        self._click_fade()
 
 
 class MemoWindow(QMainWindow):
-    def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None):
+    def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None,
+                 on_alarm_interval_change=None, get_alarm_interval=None,
+                 on_timed_alarm_change=None, get_timed_alarm_enabled=None):
         super().__init__()
         self.window_id       = window_id
         self.on_new          = on_new or (lambda **kw: None)
         self._open_windows   = open_windows if open_windows is not None else []
         self._on_toggle_hotkey = on_toggle_hotkey
+        self._on_alarm_interval_change = on_alarm_interval_change
+        self._get_alarm_interval = get_alarm_interval
+        self._on_timed_alarm_change = on_timed_alarm_change
+        self._get_timed_alarm_enabled = get_timed_alarm_enabled
         self.collapsed       = False
         self.expanded_height = 400
         self.pin_active      = False
@@ -1046,6 +1129,7 @@ class MemoWindow(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setMinimumWidth(360)
         self._build_ui()
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtGui import QKeySequence
@@ -1176,7 +1260,7 @@ class MemoWindow(QMainWindow):
         self.input_date.setMinimumDate(QDate(1900, 1, 1))
         self.input_date.setSpecialValueText(' ')
         self.input_date.setDate(QDate(1900, 1, 1))  # 빈 칸으로 표시
-        self.input_date.setFixedWidth(98)
+        self.input_date.setFixedWidth(115)
         self.input_date.setFont(QFont('Malgun Gothic', 11))
         self.input_date.setStyleSheet(field_style_date)
         self.input_date.dateChanged.connect(self._on_date_changed)
@@ -1185,7 +1269,7 @@ class MemoWindow(QMainWindow):
             child.installEventFilter(self)
         self.input_time = QTimeEdit(QTime(9, 0))
         self.input_time.setDisplayFormat('HH:mm')
-        self.input_time.setFixedWidth(58)
+        self.input_time.setFixedWidth(68)
         self.input_time.setFont(QFont('Malgun Gothic', 11))
         self.input_time.setEnabled(False)
         self.input_time.setStyleSheet("""
@@ -1704,8 +1788,63 @@ class MemoWindow(QMainWindow):
         wa.setDefaultWidget(color_widget)
         color_menu.addAction(wa)
 
+        # 마감 알림 메뉴
+        alarm_menu = QMenu('⏰ 마감 알림', self)
+        alarm_menu.setStyleSheet(self._make_menu_style())
+
+        # ── D-day 5일 이내 알림 서브메뉴 ──
+        dday_menu = QMenu('D-day 5일 이내 알림', self)
+        dday_menu.setStyleSheet(self._make_menu_style())
+
+        current_min = self._get_alarm_interval() if self._get_alarm_interval else 180
+        alarm_options = [
+            ('잡도리 모드 (30분마다)', 30),
+            ('긴장 모드 (1시간마다)', 60),
+            ('기본 설정 (3시간마다)', 180),
+        ]
+
+        off_check = '✅ ' if current_min == 0 else '　 '
+        act_off = QAction(off_check + '사용 안함', self)
+        act_off.triggered.connect(lambda: self._set_alarm_interval(0, menu))
+        dday_menu.addAction(act_off)
+
+        dday_menu.addSeparator()
+        for label, minutes in alarm_options:
+            check = '✅ ' if current_min == minutes else '　 '
+            act = QAction(check + label, self)
+            act.triggered.connect(lambda _, m=minutes: self._set_alarm_interval(m, menu))
+            dday_menu.addAction(act)
+
+        dday_menu.addSeparator()
+        custom_label = '✅ 사용자 설정' if current_min not in [m for _, m in alarm_options] and current_min != 0 else '　 사용자 설정'
+        act_custom = QAction(custom_label, self)
+        act_custom.triggered.connect(lambda: self._set_alarm_interval_custom(menu))
+        dday_menu.addAction(act_custom)
+
+        alarm_menu.addMenu(dday_menu)
+
+        # ── 당일 3시간 이내 알림 서브메뉴 ──
+        timed_menu = QMenu('당일 3시간 이내 알림', self)
+        timed_menu.setStyleSheet(self._make_menu_style())
+
+        desc_act = QAction('3시간, 2시간, 1시간, 30분 남았을 때\n알람 팝업이 뜹니다.', self)
+        desc_act.setEnabled(False)
+        timed_menu.addAction(desc_act)
+        timed_menu.addSeparator()
+
+        timed_enabled = self._get_timed_alarm_enabled() if self._get_timed_alarm_enabled else True
+        act_timed_on = QAction(('✅ ' if timed_enabled else '　 ') + '설정', self)
+        act_timed_off = QAction(('✅ ' if not timed_enabled else '　 ') + '해제', self)
+        act_timed_on.triggered.connect(lambda: self._set_timed_alarm_enabled(True, menu))
+        act_timed_off.triggered.connect(lambda: self._set_timed_alarm_enabled(False, menu))
+        timed_menu.addAction(act_timed_on)
+        timed_menu.addAction(act_timed_off)
+
+        alarm_menu.addMenu(timed_menu)
+
         menu.addAction(act_new)
         menu.addMenu(color_menu)
+        menu.addMenu(alarm_menu)
         menu.addAction(act_auto)
         menu.addAction(act_help)
         menu.addAction(act_update)
@@ -1745,6 +1884,29 @@ class MemoWindow(QMainWindow):
             }}
             QPushButton:hover {{ background: rgba(0,0,0,0.12); }}
         """)
+
+    def _set_alarm_interval(self, minutes, menu=None):
+        if self._on_alarm_interval_change:
+            self._on_alarm_interval_change(minutes)
+        if menu:
+            menu.close()
+
+    def _set_alarm_interval_custom(self, menu=None):
+        from PyQt5.QtWidgets import QInputDialog
+        current = self._get_alarm_interval() if self._get_alarm_interval else 3
+        current_h = max(1, round(current / 60))
+        hours, ok = QInputDialog.getInt(
+            self, '사용자 설정', '알림 주기를 입력하세요 (시간 단위):',
+            value=current_h, min=1, max=24
+        )
+        if ok:
+            self._set_alarm_interval(hours * 60, menu)
+
+    def _set_timed_alarm_enabled(self, enabled, menu=None):
+        if self._on_timed_alarm_change:
+            self._on_timed_alarm_change(enabled)
+        if menu:
+            menu.close()
 
     def _show_history(self):
         from collections import defaultdict

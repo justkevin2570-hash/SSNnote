@@ -31,7 +31,7 @@ STYLE = """
         background-color: #FFFFFF;
         border: 1px solid #D1D5DB;
         border-radius: 8px;
-        padding: 8px 12px;
+        padding: 6px 12px;
         color: #111827;
     }
     QLineEdit:focus {

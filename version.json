@@ -1,5 +1,5 @@
 {
-  "version": "v2.1",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.1/SSNnote_Setup.exe",
-  "changelog": "- 공문 제출 타입 추가\n- 붙임 개수 선택 기능\n- 에디터 굴림체·줄간격 적용\n- 마감 시간 알람(3h/2h/1h 전)\n- 드래그 복사 plain text 고정\n- 신규 설치 시 AI 기본값 없음"
+  "version": "v2.2",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.2/SSNnote_Setup.exe",
+  "changelog": "- 마감 알림 팝업 UI 개선 (유자 이미지, 복숭아 배경)\n- 팝업 이미지 팝업 밖으로 튀어나오는 효과\n- 30분 전 시간 알람 추가\n- 마감 알림 메뉴 구조 개편 (D-day/당일 시간 알람 분리)\n- 당일 3시간 이내 알림 설정/해제 기능"
 }
