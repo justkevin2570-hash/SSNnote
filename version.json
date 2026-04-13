@@ -1,5 +1,5 @@
 {
-  "version": "v2.0",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.0/SSNnote_Setup.exe",
-  "changelog": "- Gemini 모델 gemini-3-flash-preview로 단일화\n- 저장 기록 창 위치/크기 기억 기능 추가"
+  "version": "v2.1",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.1/SSNnote_Setup.exe",
+  "changelog": "- 공문 제출 타입 추가\n- 붙임 개수 선택 기능\n- 에디터 굴림체·줄간격 적용\n- 마감 시간 알람(3h/2h/1h 전)\n- 드래그 복사 plain text 고정\n- 신규 설치 시 AI 기본값 없음"
 }

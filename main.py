@@ -217,6 +217,88 @@ if __name__ == '__main__':
 
     QTimer.singleShot(300, _show_welcome_if_first_run)
 
+    # ── 마감 임박 알람 ────────────────────────────────────────────
+    _urgent_toast = None  # GC 방지용 참조
+    _shown_timed_alerts = set()  # (task_id, hours) 중복 방지
+
+    def _check_urgent_tasks():
+        global _urgent_toast
+        from window import calc_dday, UrgentToast
+        urgent = []
+        seen = set()
+        for win_data in get_all_windows():
+            for task in get_tasks(win_data['id']):
+                if task.get('strikethrough') or not task.get('deadline'):
+                    continue
+                dday = calc_dday(task['deadline'])
+                if dday.startswith('D+') or dday == '날짜오류':
+                    continue
+                is_urgent = (
+                    dday == 'D-day' or '시간' in dday or
+                    (dday.startswith('D-') and int(dday[2:]) <= 5)
+                )
+                if is_urgent and task['id'] not in seen:
+                    urgent.append(task)
+                    seen.add(task['id'])
+        if urgent:
+            _urgent_toast = UrgentToast(urgent)
+            _urgent_toast.show()
+
+    def _check_timed_tasks():
+        global _urgent_toast
+        from datetime import datetime
+        from window import UrgentToast
+        urgent = []
+        now = datetime.now()
+
+        for win_data in get_all_windows():
+            for task in get_tasks(win_data['id']):
+                if task.get('strikethrough') or not task.get('deadline'):
+                    continue
+                dl = task['deadline']
+                if len(dl) <= 10:
+                    continue
+                try:
+                    deadline_dt = datetime.strptime(dl, '%Y-%m-%d %H:%M')
+                except ValueError:
+                    continue
+                remaining_min = (deadline_dt - now).total_seconds() / 60
+                for hours in (3, 2, 1):
+                    key = (task['id'], hours)
+                    target_min = hours * 60
+                    if abs(remaining_min - target_min) <= 5 and key not in _shown_timed_alerts:
+                        _shown_timed_alerts.add(key)
+                        t = dict(task)
+                        t['notice'] = f'{hours}시간 후 마감'
+                        urgent.append(t)
+                        break
+
+        # 지난 마감 항목 정리
+        to_remove = set()
+        for key in _shown_timed_alerts:
+            task_id, _ = key
+            found = any(
+                t['id'] == task_id
+                for w in get_all_windows()
+                for t in get_tasks(w['id'])
+            )
+            if not found:
+                to_remove.add(key)
+        _shown_timed_alerts.difference_update(to_remove)
+
+        if urgent:
+            _urgent_toast = UrgentToast(urgent)
+            _urgent_toast.show()
+
+    _alarm_timer = QTimer()
+    _alarm_timer.timeout.connect(_check_urgent_tasks)
+    _alarm_timer.start(3 * 60 * 60 * 1000)          # 3시간마다
+    QTimer.singleShot(10000, _check_urgent_tasks)    # 앱 시작 10초 후 첫 체크
+
+    _timed_alarm_timer = QTimer()
+    _timed_alarm_timer.timeout.connect(_check_timed_tasks)
+    _timed_alarm_timer.start(60 * 1000)              # 1분마다
+
     _update_notifier = updater.UpdateNotifier()
     _banner_notifier = updater.StatusBannerNotifier()
 

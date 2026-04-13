@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit, QSizePolicy, QGraphicsColorizeEffect, QTimeEdit,
     QListWidget, QAbstractItemView
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
@@ -398,6 +398,7 @@ class TaskRow(QWidget):
 
         deadline = task['deadline']
         overdue = False
+        urgent = False
         if deadline:
             dday = calc_dday(deadline)
             if dday.startswith('D+'):
@@ -405,11 +406,16 @@ class TaskRow(QWidget):
                 dday_color = '#aaa'
             elif dday == 'D-day' or '시간' in dday:
                 dday_color = '#e74c3c'
+                urgent = True
             elif dday == '날짜오류':
                 dday_color = '#aaa'
             else:
                 days_left = int(dday[2:])
-                dday_color = '#e74c3c' if days_left <= 5 else '#333'
+                if days_left <= 5:
+                    dday_color = '#e74c3c'
+                    urgent = True
+                else:
+                    dday_color = '#333'
             suffix = f'({dday})'
         else:
             dday_color = '#333'
@@ -423,6 +429,8 @@ class TaskRow(QWidget):
         name_font.setPointSizeF(10.5 if overdue else 12)
         if overdue:
             name_font.setItalic(True)
+            name_font.setBold(True)
+        elif urgent:
             name_font.setBold(True)
         self.name_edit.setFont(name_font)
         self.name_edit.setStyleSheet(f"""
@@ -965,6 +973,61 @@ class DocumentRow(QWidget):
 
     def _save(self):
         update_document(self._doc['id'], self.title_edit.text(), self.num_edit.text())
+
+
+class UrgentToast(QWidget):
+    """마감 임박 태스크를 우하단에 3초간 표시하는 토스트 팝업."""
+
+    def __init__(self, tasks):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(60, 44, 60, 52)
+        layout.setSpacing(22)
+
+        header = QLabel('⚠  마감 임박')
+        header.setFont(QFont('Malgun Gothic', 20, QFont.Bold))
+        header.setStyleSheet('color: #7a3000;')
+        layout.addWidget(header)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet('color: #d4b800; max-height: 2px; margin: 4px 0;')
+        layout.addWidget(sep)
+
+        for task in tasks:
+            dday = task.get('notice') or calc_dday(task['deadline'])
+            name = task['name']
+            if len(name) > 30:
+                name = name[:29] + '…'
+            row = QLabel(f'• {name}  <b>{dday}</b>')
+            row.setFont(QFont('Malgun Gothic', 18))
+            row.setStyleSheet('color: #3a2000;')
+            layout.addWidget(row)
+
+        self.setStyleSheet("""
+            QWidget {
+                background: rgba(255, 248, 180, 0.97);
+                border: 7px solid #d4b800;
+                border-radius: 40px;
+            }
+        """)
+
+        self.adjustSize()
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.move(screen.right() - self.width() - 24,
+                  screen.bottom() - self.height() - 52)
+
+        # 3초 후 페이드 아웃
+        self._anim = QPropertyAnimation(self, b'windowOpacity')
+        self._anim.setDuration(600)
+        self._anim.setStartValue(1.0)
+        self._anim.setEndValue(0.0)
+        self._anim.setEasingCurve(QEasingCurve.InQuad)
+        self._anim.finished.connect(self.close)
+        QTimer.singleShot(3000, self._anim.start)
 
 
 class MemoWindow(QMainWindow):
@@ -1974,8 +2037,7 @@ class MemoWindow(QMainWindow):
             '&nbsp;&nbsp;&nbsp;&nbsp;- <b>R</b> : 롤업<br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;- <b>F</b> : 항상 위<br>'
             '③ 캡처는 공문을 전체화면으로 키워야 정확합니다.<br>'
-            '④ 캡처하고 공문 제목과 공문 번호란 클릭하시면 붙여넣기 됩니다.<br>'
-            '⑤ 공문 제목과 공문 번호란을 클릭하시면 복사가 됩니다.'
+            '④ 캡처하고 공문 제목과 공문 번호란 클릭하시면 붙여넣기 됩니다.'
             '</p>'
         )
         msg.setStyleSheet(

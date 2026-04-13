@@ -4,7 +4,7 @@ import qtawesome as qta
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QPushButton,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QLineEdit,
-    QMessageBox, QInputDialog, QFrame, QGraphicsDropShadowEffect
+    QMessageBox, QInputDialog, QFrame, QGraphicsDropShadowEffect, QSpinBox
 )
 from PyQt5.QtCore import Qt, QTimer, QSize, QEvent
 from PyQt5.QtGui import QFont, QIcon, QPixmap, QColor
@@ -40,11 +40,10 @@ STYLE = """
     }
     QTextEdit#editor {
         background-color: #FFFFFF;
-        border: 1px solid #E5E7EB;
+        border: 5px solid #6366F1;
         border-radius: 10px;
-        padding: 32px 36px;
+        padding: 28px 32px;
         color: #374151;
-        selection-background-color: #EEF2FF;
     }
     QFrame#AIInputFrame {
         background-color: #FFFFFF;
@@ -141,9 +140,10 @@ STYLE = """
 _DOC_TYPE_LABELS = {
     'result_report':    '결과 보고',
     'home_letter':      '가정통신문 발송',
-    'survey_submit':    '수요조사 결과 제출',
+    'submit':           '제출',
     'recruit_announce': '채용 공고',
     'recruit_result':   '채용 결정',
+    'purchase':         '품의/지출',
     'general':          '일반 계획/운영',
 }
 
@@ -160,8 +160,10 @@ def _detect_doc_type(title: str) -> str:
         return 'home_letter'
     if '결과 보고' in t or re.search(r'결과\s*$', t):
         return 'result_report'
-    if ('수요조사' in t or '진단조사' in t) and '제출' in t:
-        return 'survey_submit'
+    if '제출' in t:
+        return 'submit'
+    if any(k in t for k in ['지출', '지급']):
+        return 'purchase'
     return 'general'
 
 
@@ -183,38 +185,59 @@ def _extract_subject(title: str) -> str:
     return s.strip()
 
 
-def _get_template(title: str, doc_type: str) -> str:
-    """문서 유형별 뼈대 템플릿 반환."""
-    subject = _extract_subject(title)
-    josa    = _eul_reul(title)
+def _make_attach_block(first_text: str, count: int) -> str:
+    """붙임 블록 생성. first_text는 첫 번째 항목 내용(1부 포함). count=0이면 빈 문자열."""
+    if count == 0:
+        return ''
+    if count == 1:
+        return f"붙임  {first_text}.  끝."
+    lines = [f"붙임  1. {first_text}."]
+    for i in range(2, count + 1):
+        suffix = "  끝." if i == count else ""
+        lines.append(f"      {i}. 1부.{suffix}")
+    return '\n'.join(lines)
+
+
+def _get_template(title: str, doc_type: str, ref: str = '', attach_count: int = 1) -> str:
+    """문서 유형별 뼈대 템플릿 반환. ref가 있으면 관련번호 자동 삽입."""
+    subject  = _extract_subject(title)
+    josa     = _eul_reul(title)
+    ref_line = f"1. 관련: {ref}\n" if ref else "1. 관련: \n"
 
     if doc_type == 'result_report':
-        # 붙임용 사업명: "결과 보고"/"결과" 접미어 제거 후 "결과 1부" 생성
         attach = re.sub(r'\s*(결과\s*보고|결과)\s*$', '', subject).strip()
-        return (
-            f"1. {title}{josa} 다음과 같이 보고합니다.\n\n"
+        attach_block = _make_attach_block(f"{attach} 결과 1부", attach_count)
+        body = (
+            f"{ref_line}"
+            f"2. {title}{josa} 다음과 같이 보고합니다.\n"
             "  가. 일시: \n"
             "  나. 장소: \n"
             "  다. 인원: \n"
-            "  라. 내용: \n\n"
-            f"붙임  {attach} 결과 1부.  끝."
+            "  라. 내용: \n"
         )
+        return body + ("\n" + attach_block if attach_block else "")
     elif doc_type == 'home_letter':
         attach = re.sub(r'\s*가정통신문\s*발송\s*$', '', subject).strip()
-        return (
-            f"1. {title}{josa} 붙임과 같이 발송하고자 합니다.\n\n"
-            f"붙임  {attach} 가정통신문 1부.  끝."
+        attach_block = _make_attach_block(f"{attach} 가정통신문 1부", attach_count)
+        body = (
+            f"{ref_line}"
+            f"2. {title}{josa} 붙임과 같이 발송하고자 합니다.\n"
         )
-    elif doc_type == 'survey_submit':
-        attach = re.sub(r'\s*(결과\s*)?제출\s*$', '', subject).strip()
-        return (
-            f"1. {title}{josa} 붙임과 같이 제출하고자 합니다.\n\n"
-            f"붙임  {attach} 결과(서식) 1부.  끝."
+        return body + ("\n" + attach_block if attach_block else "")
+    elif doc_type == 'submit':
+        attach_word = re.sub(r'\s*제출\s*$', '', subject).strip()
+        josa_submit = _eul_reul(attach_word)
+        attach_block = _make_attach_block(f"{attach_word} 1부", attach_count)
+        body = (
+            f"{ref_line}"
+            f"2. {attach_word}{josa_submit} 붙임과 같이 제출하고자 합니다.\n"
         )
+        return body + ("\n" + attach_block if attach_block else "")
     elif doc_type == 'recruit_announce':
         attach = re.sub(r'\s*(채용\s*계획\s*(재)?공고(\(.+?\))?|공고(\(.+?\))?)$', '', subject).strip()
         return (
-            f"1. {title}{josa} 다음과 같이 공고하고자 합니다.\n\n"
+            f"{ref_line}"
+            f"2. {title}{josa} 다음과 같이 공고하고자 합니다.\n"
             "  가. 채용예정인원 및 과목:\n"
             "      구분 | 채용 과목 | 선발예정 인원 | 채용기간 | 비고\n\n"
             "  나. 접수기간: \n"
@@ -227,7 +250,8 @@ def _get_template(title: str, doc_type: str) -> str:
         )
     elif doc_type == 'recruit_result':
         return (
-            f"1. {title}{josa} 다음과 같이 채용하고자 합니다.\n\n"
+            f"{ref_line}"
+            f"2. {title}{josa} 다음과 같이 채용하고자 합니다.\n"
             "  가. 채용 대상자:\n"
             "      연번 | 학교명 | 성명 | 생년월일 | 자격증 | 운용요일 | 비고\n\n"
             "  나. 강사 채용 기간: \n"
@@ -238,16 +262,29 @@ def _get_template(title: str, doc_type: str) -> str:
             "      2. 응시원서 및 자기소개서 1부.(별첨)\n"
             "      3. 채용계약서 1부.(별첨)  끝."
         )
-    else:  # general
-        attach = re.sub(r'\s*(운영\s*)?계획\s*$', '', subject).strip()
+    elif doc_type == 'purchase':
         return (
-            f"1. {title}{josa} 다음과 같이 운영하고자 합니다.\n\n"
+            f"{ref_line}"
+            f"2. {title}{josa} 다음과 같이 지출하고자 합니다.\n"
             "  가. 일시: \n"
             "  나. 장소: \n"
             "  다. 대상: \n"
-            "  라. 내용: \n\n"
-            f"붙임  {attach} 계획 1부.  끝."
+            "  라. 내용: \n"
+            "  마. 내역: \n"
+            "  바. 예상금액: 원.  끝."
         )
+    else:  # general
+        attach = re.sub(r'\s*(운영\s*)?계획\s*$', '', subject).strip()
+        attach_block = _make_attach_block(f"{attach} 계획 1부", attach_count)
+        body = (
+            f"{ref_line}"
+            f"2. {title}{josa} 다음과 같이 운영하고자 합니다.\n"
+            "  가. 일시: \n"
+            "  나. 장소: \n"
+            "  다. 대상: \n"
+            "  라. 내용: \n"
+        )
+        return body + ("\n" + attach_block if attach_block else "")
 
 
 class DocumentEditorWindow(QMainWindow):
@@ -306,18 +343,34 @@ class DocumentEditorWindow(QMainWindow):
         btn_help.setObjectName("HelpButton")
         btn_help.setMinimumHeight(_input_h)
         btn_help.clicked.connect(self._show_help)
+        lbl_attach = QLabel("붙임 개수")
+        lbl_attach.setFixedHeight(_input_h)
+        self.spin_attach = QSpinBox()
+        self.spin_attach.setRange(0, 9)
+        self.spin_attach.setValue(1)
+        self.spin_attach.setFixedHeight(_input_h)
+        self.spin_attach.setFixedWidth(52)
+        self.spin_attach.setToolTip("붙임 항목 수 (0 = 붙임 없음)")
+        self.spin_attach.lineEdit().returnPressed.connect(self._try_generate_draft)
         ref_row.addWidget(QLabel("관련 번호"))
         ref_row.addWidget(self.ref_input, stretch=1)
         ref_row.addWidget(btn_move_to_title)
+        ref_row.addSpacing(10)
+        ref_row.addWidget(lbl_attach)
+        ref_row.addWidget(self.spin_attach)
         ref_row.addStretch(1)
         ref_row.addWidget(btn_help)
 
         # ── 본문 편집 영역 ──
         self.editor = QTextEdit()
         self.editor.setObjectName("editor")
-        self.editor.setFont(_font)
+        _editor_font = QFont('굴림체', 12)
+        _editor_font.setStretch(100)
+        _editor_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
+        self.editor.setFont(_editor_font)
+        self.editor.document().blockCountChanged.connect(self._apply_editor_line_height)
         self.editor.setPlaceholderText(
-            "AI 초안 생성 버튼을 누르거나, 아래 채팅창에 요청을 입력하세요."
+            "자동 초안 생성 버튼을 누르거나, 아래 채팅창에 요청을 입력하세요."
         )
         _shadow = QGraphicsDropShadowEffect()
         _shadow.setBlurRadius(20)
@@ -338,6 +391,7 @@ class DocumentEditorWindow(QMainWindow):
         self.ai_input.setPlaceholderText("AI에게 요청")
         self.ai_input.setFixedHeight(_input_h * 2)
         self.ai_input.installEventFilter(self)
+        self.editor.installEventFilter(self)
         self.btn_send = QPushButton()
         self.btn_send.setObjectName("AIPrimaryButton")
         self.btn_send.setIcon(qta.icon('fa5s.paper-plane', color='white'))
@@ -352,7 +406,7 @@ class DocumentEditorWindow(QMainWindow):
         # ── 컨트롤바 ──
         ctrl_row = QHBoxLayout()
         ctrl_row.setSpacing(8)
-        self.btn_draft = QPushButton("AI 초안 생성")
+        self.btn_draft = QPushButton("자동 초안 생성")
         self.btn_draft.setObjectName("DraftButton")
         self.btn_draft.setMinimumHeight(_input_h)
         self.btn_draft.clicked.connect(self.generate_draft)
@@ -387,6 +441,7 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage("준비 완료")
         self._apply_ai_mode()
         self._update_draft_button()  # 초기 상태: 빈칸이면 비활성
+        self._apply_editor_line_height()
 
     # ── AI 초안 생성 ──
     def generate_draft(self):
@@ -397,38 +452,33 @@ class DocumentEditorWindow(QMainWindow):
 
         doc_type   = _detect_doc_type(title)
         type_label = _DOC_TYPE_LABELS.get(doc_type, '일반 계획/운영')
-        template   = _get_template(title, doc_type)
         ref        = self.ref_input.text().strip()
+        template   = _get_template(title, doc_type, ref, self.spin_attach.value())
         mode       = load_ai_mode()
 
         # 1단계: 뼈대 템플릿 즉시 삽입 (AI 없이도 바로 사용 가능)
         self.editor.setPlainText(template)
+        self._apply_editor_line_height()
 
         if mode == 'none':
-            self.statusBar().showMessage(f"템플릿 삽입 완료 — {type_label}")
+            self.statusBar().showMessage(f'템플릿 삽입 완료 — {type_label}')
             return
 
         # 2단계: AI가 빈칸 채우기
-        if mode == 'internal':
-            prompt = (
-                f"제목: {title}\n"
-                f"문서유형: {type_label}\n\n"
-                "아래 뼈대의 빈칸(: 뒤 공란)을 제목에 맞게 채우세요.\n"
-                "형식(가~마 구조, 붙임)은 절대 바꾸지 마세요.\n\n"
-                f"{template}"
-            )
+        from ai_client import (FEWSHOT_PLAN_SYSTEM, FEWSHOT_PURCHASE_SYSTEM,
+                                FEWSHOT_DEFAULT_SYSTEM, FEWSHOT_SUBMIT_SYSTEM)
+        if doc_type == 'purchase':
+            system = FEWSHOT_PURCHASE_SYSTEM
+        elif doc_type == 'submit':
+            system = FEWSHOT_SUBMIT_SYSTEM
+        elif doc_type == 'general':
+            system = FEWSHOT_PLAN_SYSTEM
         else:
-            ref_line = f"관련: {ref}\n" if ref else ""
-            prompt = (
-                f"제목: {title}\n"
-                f"문서유형: {type_label}\n"
-                f"{ref_line}"
-                "아래 공문 뼈대의 빈칸을 제목에 맞게 채워주세요. "
-                "형식(가~마 구조, 붙임 문구)은 그대로 유지하세요.\n\n"
-                f"{template}"
-            )
+            system = FEWSHOT_DEFAULT_SYSTEM
+        ref_line = f"관련: {ref}\n" if ref else ""
+        prompt = f"제목: {title}\n{ref_line}"
         self.editor.clear()
-        self._start_ai(prompt)
+        self._start_ai(prompt, system=system)
 
     # ── AI 입력창 Enter 키 → 전송 ──
     def eventFilter(self, obj, event):
@@ -436,6 +486,20 @@ class DocumentEditorWindow(QMainWindow):
             if event.key() in (Qt.Key_Return, Qt.Key_Enter) and not (event.modifiers() & Qt.ShiftModifier):
                 self.ask_ai()
                 return True
+        if obj is self.editor and event.type() == QEvent.KeyPress:
+            if event.modifiers() == Qt.ControlModifier:
+                if event.key() == Qt.Key_C:
+                    selected = self.editor.textCursor().selectedText().replace('\u2029', '\n')
+                    if selected:
+                        QApplication.clipboard().setText(selected)
+                    return True
+                if event.key() == Qt.Key_X:
+                    cursor = self.editor.textCursor()
+                    selected = cursor.selectedText().replace('\u2029', '\n')
+                    if selected:
+                        QApplication.clipboard().setText(selected)
+                        cursor.removeSelectedText()
+                    return True
         return super().eventFilter(obj, event)
 
     # ── 자유 AI 채팅 ──
@@ -454,14 +518,14 @@ class DocumentEditorWindow(QMainWindow):
         self._start_ai(prompt)
 
     # ── 공통 AI 실행 ──
-    def _start_ai(self, prompt):
+    def _start_ai(self, prompt, system=None):
         if self.ai_thread and self.ai_thread.isRunning():
             return
 
         self.statusBar().showMessage("AI가 생각 중...")
         self._set_controls_enabled(False)
 
-        self.ai_thread = AiStreamThread(prompt)
+        self.ai_thread = AiStreamThread(prompt, system=system)
         self.ai_thread.new_text_signal.connect(self._append_text)
         self.ai_thread.finished_signal.connect(self._on_finished)
         self.ai_thread.error_signal.connect(self._on_error)
@@ -493,9 +557,10 @@ class DocumentEditorWindow(QMainWindow):
             self.btn_draft.setEnabled(False)  # AI 실행 중엔 무조건 비활성
 
     def _update_draft_button(self):
-        """제목·관련번호 둘 다 빈칸이면 AI 초안 생성 버튼 비활성화."""
+        """제목·관련번호 입력 여부로 버튼 활성화. AI 모드에 따라 텍스트 변경."""
         has_input = bool(self.title_input.text().strip() or self.ref_input.text().strip())
-        self.btn_draft.setEnabled(has_input and load_ai_mode() != 'none')
+        self.btn_draft.setEnabled(has_input)
+        self.btn_draft.setText('자동 초안 생성')
 
     def _try_generate_draft(self):
         """Enter 키 → 버튼 활성 상태일 때만 초안 생성."""
@@ -550,7 +615,7 @@ class DocumentEditorWindow(QMainWindow):
             f"<p style='{_s} {_li}'>• 캡쳐하면 텍스트를 판별해서 공문제목 또는 관련번호에 적힙니다.</p>"
             f"<p style='{_s} {_li}'>• 두 칸 중 하나만 차있으면 반대쪽 빈 칸으로 자동 배분합니다.</p>"
             f"<br>"
-            f"<p style='{_b} margin-bottom:4px;'>⚡&nbsp; AI 초안 자동 생성</p>"
+            f"<p style='{_b} margin-bottom:4px;'>⚡&nbsp; 자동 초안 생성</p>"
             f"<p style='{_s} {_li}'>• 공문 제목 또는 관련번호 입력 후 Enter</p>"
             f"<br>"
             f"<p style='{_b} margin-bottom:4px;'>⛔&nbsp; AI 생성 취소</p>"
@@ -577,6 +642,15 @@ class DocumentEditorWindow(QMainWindow):
             self.ai_thread.wait(500)
             self.statusBar().showMessage('AI 생성이 취소되었습니다.')
             self._set_controls_enabled(True)
+
+    def _apply_editor_line_height(self):
+        """에디터 본문 줄간격 123% 적용."""
+        from PyQt5.QtGui import QTextCursor, QTextBlockFormat
+        cursor = self.editor.textCursor()
+        cursor.select(QTextCursor.Document)
+        fmt = QTextBlockFormat()
+        fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
+        cursor.mergeBlockFormat(fmt)
 
     def _apply_ai_mode(self):
         """현재 AI 모드에 따라 AI 관련 버튼 활성/비활성."""
@@ -788,17 +862,7 @@ class DocumentEditorWindow(QMainWindow):
         self._restore_after_capture()
 
         target = self._capture_target()
-        mode   = load_ai_mode()
-
-        if mode == 'external' and load_api_key():
-            from ai_client import AiImageWorker
-            self._img_worker = AiImageWorker(pixmap)
-            self._img_worker.finished.connect(lambda r: self._on_ai_result(r, target))
-            self._img_worker.error.connect(lambda msg: self._ocr_fallback(pixmap, target))
-            self._img_worker.start()
-            self.statusBar().showMessage('AI가 공문을 분석 중...')
-        else:
-            self._ocr_fallback(pixmap, target)
+        self._ocr_fallback(pixmap, target)
 
     def _on_ai_result(self, result, target):
         title      = result.get('title', '').strip()
