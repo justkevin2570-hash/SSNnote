@@ -1,4 +1,5 @@
 PyQt5==5.15.11
+PyQtWebEngine==5.15.7
 qtawesome
 google-genai
 requests==2.33.1

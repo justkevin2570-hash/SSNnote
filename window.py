@@ -19,7 +19,7 @@ from autostart import is_enabled as autostart_is_enabled, set_enabled as autosta
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
 import updater
 
-TITLE_BAR_HEIGHT = 32
+TITLE_BAR_HEIGHT = 33
 TITLE_COLOR      = '#f7c948'
 SNAP_THRESHOLD   = 20  # 완전히 붙는 거리(px)
 SNAP_ZONE        = 50  # 당기기 시작하는 거리(px)
@@ -261,7 +261,7 @@ class TitleBar(QWidget):
         _gray.setColor(QColor('#888888'))
         _gray.setStrength(1.0)
         self.btn_pin.setGraphicsEffect(_gray)
-        _x_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '엑스아이콘.png')
+        _x_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', '엑스아이콘.png')
         self.btn_close = QPushButton()
         self.btn_close.setIcon(QIcon(QPixmap(_x_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         self.btn_close.setIconSize(QSize(18, 18))
@@ -863,7 +863,7 @@ class DocumentRow(QWidget):
         import os
         from PyQt5.QtGui import QIcon, QPixmap
         from PyQt5.QtCore import QSize
-        _edit_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '수정 아이콘.png')
+        _edit_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', '수정 아이콘.png')
         btn_edit = QPushButton()
         btn_edit.setIcon(QIcon(QPixmap(_edit_icon_path).scaled(15, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)))
         btn_edit.setIconSize(QSize(15, 16))
@@ -964,7 +964,7 @@ class DocumentRow(QWidget):
         import os
         from PyQt5.QtGui import QIcon, QPixmap
         from PyQt5.QtCore import QSize
-        _del_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '엑스아이콘.png')
+        _del_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', '엑스아이콘.png')
         btn_del = QPushButton()
         btn_del.setIcon(QIcon(QPixmap(_del_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         btn_del.setIconSize(QSize(18, 18))
@@ -995,14 +995,17 @@ class UrgentToast(QWidget):
         self.setStyleSheet("""
             QWidget#toast {
                 background: #fff0e6;
-                border: 3px solid #e8a070;
             }
             QLabel { background: transparent; border: none; }
         """)
         self.setObjectName('toast')
 
-        # 유자 이미지 로드 (팝업 밖으로 튀어나올 별도 위젯용)
-        _yuju_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'yuju.png')
+        # 유자 이미지 로드 (팝업 밖으로 튀어나올 별도 위젯용) - yuju_1~3 랜덤
+        import random as _random
+        _base = os.path.dirname(os.path.abspath(__file__))
+        _candidates = [os.path.join(_base, 'assets', f'yuju_{i}.png') for i in (1, 2, 3)]
+        _candidates = [p for p in _candidates if os.path.exists(p)]
+        _yuju_path = _random.choice(_candidates) if _candidates else os.path.join(_base, 'assets', 'yuju.png')
         face_pix = None
         try:
             from PIL import Image, ImageEnhance
@@ -1103,6 +1106,20 @@ class UrgentToast(QWidget):
         self._anim.setStartValue(self.windowOpacity())
         self._anim.start()
 
+    def paintEvent(self, event):
+        from PyQt5.QtGui import QPainter, QColor
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        pen = painter.pen()
+        pen.setColor(QColor('#d4637a'))
+        pen.setWidth(5)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        # 안쪽으로 2px 들어와서 테두리가 잘리지 않게
+        painter.drawRect(2, 2, self.width() - 4, self.height() - 4)
+        painter.end()
+
     def mousePressEvent(self, event):
         self._click_fade()
 
@@ -1110,7 +1127,8 @@ class UrgentToast(QWidget):
 class MemoWindow(QMainWindow):
     def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None,
                  on_alarm_interval_change=None, get_alarm_interval=None,
-                 on_timed_alarm_change=None, get_timed_alarm_enabled=None):
+                 on_timed_alarm_change=None, get_timed_alarm_enabled=None,
+                 on_shortcut_change=None, get_shortcut_enabled=None):
         super().__init__()
         self.window_id       = window_id
         self.on_new          = on_new or (lambda **kw: None)
@@ -1120,6 +1138,8 @@ class MemoWindow(QMainWindow):
         self._get_alarm_interval = get_alarm_interval
         self._on_timed_alarm_change = on_timed_alarm_change
         self._get_timed_alarm_enabled = get_timed_alarm_enabled
+        self._on_shortcut_change = on_shortcut_change
+        self._get_shortcut_enabled = get_shortcut_enabled
         self.collapsed       = False
         self.expanded_height = 400
         self.pin_active      = False
@@ -1138,6 +1158,10 @@ class MemoWindow(QMainWindow):
         self._shade_shortcut = QShortcut(QKeySequence('Ctrl+Shift+R'), self)
         self._shade_shortcut.activated.connect(self.toggle_shade)
         self._shortcuts = [self._pin_shortcut, self._shade_shortcut]
+        # 저장된 단축키 상태 적용
+        if get_shortcut_enabled is not None and not get_shortcut_enabled():
+            for sc in self._shortcuts:
+                sc.setEnabled(False)
 
     def apply_state(self, x, y, width, height, collapsed, color=''):
         self.expanded_height = height
@@ -1756,7 +1780,7 @@ class MemoWindow(QMainWindow):
         act_new    = QAction('🆕 새 메모장', self)
         autostart_on = autostart_is_enabled()
         act_auto   = QAction(('✅' if autostart_on else '☐') + ' 시작 시 자동실행', self)
-        act_help   = QAction('💡 도움말', self)
+        act_help   = QAction('💡 단축키', self)
         act_update = QAction('⬇️ 업데이트 확인', self)
         act_delete = QAction('🗑️ 메모장 삭제', self)
 
@@ -1842,16 +1866,30 @@ class MemoWindow(QMainWindow):
 
         alarm_menu.addMenu(timed_menu)
 
+        # 단축키 설정 서브메뉴
+        shortcut_menu = QMenu('⌨️ 단축키 설정', self)
+        shortcut_menu.setStyleSheet(self._make_menu_style())
+        sc_enabled = self._get_shortcut_enabled() if self._get_shortcut_enabled else True
+        act_sc_on  = QAction(('✅ ' if sc_enabled else '　 ') + '켬', self)
+        act_sc_off = QAction(('✅ ' if not sc_enabled else '　 ') + '끔', self)
+        act_sc_on.triggered.connect(lambda: self._toggle_shortcut(True, menu))
+        act_sc_off.triggered.connect(lambda: self._toggle_shortcut(False, menu))
+        shortcut_menu.addAction(act_sc_on)
+        shortcut_menu.addAction(act_sc_off)
+
         menu.addAction(act_new)
         menu.addMenu(color_menu)
         menu.addMenu(alarm_menu)
         menu.addAction(act_auto)
+        menu.addMenu(shortcut_menu)
         menu.addAction(act_help)
         menu.addAction(act_update)
         menu.addSeparator()
         menu.addAction(act_delete)
 
-        act_new.triggered.connect(lambda: self.on_new(offset_from=self, on_toggle_hotkey=self._on_toggle_hotkey))
+        act_new.triggered.connect(lambda: self.on_new(offset_from=self, on_toggle_hotkey=self._on_toggle_hotkey,
+                                                       on_shortcut_change=self._on_shortcut_change,
+                                                       get_shortcut_enabled=self._get_shortcut_enabled))
         act_auto.triggered.connect(lambda: autostart_set(not autostart_on))
         act_help.triggered.connect(self.show_help)
         act_update.triggered.connect(lambda: updater.check_for_update_manual(self))
@@ -1905,6 +1943,16 @@ class MemoWindow(QMainWindow):
     def _set_timed_alarm_enabled(self, enabled, menu=None):
         if self._on_timed_alarm_change:
             self._on_timed_alarm_change(enabled)
+        if menu:
+            menu.close()
+
+    def _set_local_shortcuts_enabled(self, enabled):
+        for sc in self._shortcuts:
+            sc.setEnabled(enabled)
+
+    def _toggle_shortcut(self, enabled, menu=None):
+        if self._on_shortcut_change:
+            self._on_shortcut_change(enabled)
         if menu:
             menu.close()
 
@@ -2189,7 +2237,7 @@ class MemoWindow(QMainWindow):
 
     def show_help(self):
         msg = QMessageBox(self)
-        msg.setWindowTitle('도움말')
+        msg.setWindowTitle('단축키')
         msg.setText(
             '<p style="line-height: 195%; font-family: Malgun Gothic; font-size: 11pt;">'
             '① Tab키, Enter키만 잘 쓰면 편하게 쓰실 수 있습니다.<br>'
@@ -2198,8 +2246,7 @@ class MemoWindow(QMainWindow):
             '&nbsp;&nbsp;&nbsp;&nbsp;- <b>S</b> : 포커싱<br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;- <b>R</b> : 롤업<br>'
             '&nbsp;&nbsp;&nbsp;&nbsp;- <b>F</b> : 항상 위<br>'
-            '③ 캡처는 공문을 전체화면으로 키워야 정확합니다.<br>'
-            '④ 캡처하고 공문 제목과 공문 번호란 클릭하시면 붙여넣기 됩니다.'
+            '③ 캡처는 공문을 전체화면으로 키워야 정확합니다.'
             '</p>'
         )
         msg.setStyleSheet(

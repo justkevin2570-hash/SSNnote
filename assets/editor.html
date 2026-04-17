@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: '굴림체', Gulim, '굴림', sans-serif;
+  font-size: 12pt;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  color: #374151;
+}
+
+/* 툴바 */
+#toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 5px 8px;
+  background: #f3f4f6;
+  border-bottom: 1px solid #d1d5db;
+  align-items: center;
+  flex-shrink: 0;
+}
+#toolbar button {
+  padding: 3px 9px;
+  font-size: 10.5px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #fff;
+  cursor: pointer;
+  font-family: 'Malgun Gothic', sans-serif;
+  color: #374151;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+#toolbar button:hover { background: #e9ecef; }
+#toolbar button:active { background: #dee2e6; }
+.sep { width: 1px; height: 18px; background: #d1d5db; margin: 0 3px; flex-shrink: 0; }
+
+/* 에디터 래퍼 */
+#wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px;
+}
+
+/* 편집 영역 */
+#editor {
+  outline: none;
+  min-height: 100%;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+#editor p { margin: 0; padding: 0; min-height: 1.2em; }
+#editor:empty::before,
+#editor p:only-child:empty::before {
+  content: attr(data-ph);
+  color: #9ca3af;
+  pointer-events: none;
+  font-family: 'Pretendard GOV', 'Malgun Gothic', sans-serif;
+}
+
+/* 표 */
+#editor table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  table-layout: fixed;
+  width: auto;
+}
+#editor table td, #editor table th {
+  border: 1px solid #555;
+  padding: 4px 8px;
+  min-width: 60px;
+  vertical-align: top;
+  word-break: break-word;
+}
+#editor table th {
+  background: #f0f0f0;
+  text-align: center;
+}
+
+/* 선택 셀 하이라이트 */
+#editor .sel-cell {
+  background-color: #dbeafe !important;
+}
+
+/* F5 셀 블록 선택 (한글 스타일) */
+#editor .hwp-sel {
+  background-color: #c7d7f5 !important;
+  outline: 2px solid #3b5bdb;
+  outline-offset: -2px;
+}
+
+/* 셀 나누기 모달 */
+#split-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.25);
+  z-index: 999;
+  align-items: center;
+  justify-content: center;
+}
+#split-modal-overlay.show { display: flex; }
+#split-modal {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 20px 24px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  font-family: 'Malgun Gothic', sans-serif;
+  min-width: 200px;
+}
+#split-modal h3 { font-size: 12px; font-weight: 700; color: #374151; margin-bottom: 14px; }
+#split-modal .field {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px; font-size: 11px; color: #6b7280;
+}
+#split-modal .field label { width: 30px; }
+#split-modal .field input {
+  width: 64px; padding: 4px 8px;
+  border: 1px solid #d1d5db; border-radius: 5px;
+  font-size: 12px; text-align: center;
+}
+#split-modal .field input:focus { outline: 2px solid #6366f1; border-color: #6366f1; }
+#split-modal .btns { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
+#split-modal .btns button {
+  padding: 4px 14px; font-size: 11px; border-radius: 5px;
+  border: 1px solid #d1d5db; cursor: pointer; font-family: inherit;
+}
+#split-modal .btns .ok { background: #6366f1; color: #fff; border-color: #6366f1; font-weight: 700; }
+#split-modal .btns .ok:hover { background: #4f46e5; }
+
+/* 표 삽입 모달 */
+#table-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.25);
+  z-index: 999;
+  align-items: center;
+  justify-content: center;
+}
+#table-modal-overlay.show { display: flex; }
+#table-modal {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 20px 24px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  font-family: 'Malgun Gothic', sans-serif;
+  min-width: 220px;
+}
+#table-modal h3 {
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  margin-bottom: 14px;
+}
+#table-modal .field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: #6b7280;
+}
+#table-modal .field label { width: 30px; }
+#table-modal .field input {
+  width: 64px;
+  padding: 4px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  font-size: 12px;
+  text-align: center;
+}
+#table-modal .field input:focus {
+  outline: 2px solid #6366f1;
+  border-color: #6366f1;
+}
+#table-modal .btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 14px;
+}
+#table-modal .btns button {
+  padding: 4px 14px;
+  font-size: 11px;
+  border-radius: 5px;
+  border: 1px solid #d1d5db;
+  cursor: pointer;
+  font-family: inherit;
+}
+#table-modal .btns .ok {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+  font-weight: 700;
+}
+#table-modal .btns .ok:hover { background: #4f46e5; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button onclick="fmt('bold')"><b>B</b></button>
+  <button onclick="fmt('italic')"><i>I</i></button>
+  <button onclick="fmt('underline')"><u>U</u></button>
+  <div class="sep"></div>
+  <button onclick="openTableModal()">표 삽입</button>
+  <button onclick="tableCmd('insertColBefore')">← 열</button>
+  <button onclick="tableCmd('insertColAfter')">열 →</button>
+  <button onclick="tableCmd('insertRowBefore')">↑ 행</button>
+  <button onclick="tableCmd('insertRowAfter')">행 ↓</button>
+  <button onclick="tableCmd('deleteCol')">열 삭제</button>
+  <button onclick="tableCmd('deleteRow')">행 삭제</button>
+  <button onclick="tableCmd('mergeRight')">→ 병합</button>
+  <button onclick="tableCmd('deleteTable')">표 삭제</button>
+</div>
+
+<!-- 표 삽입 모달 -->
+<div id="table-modal-overlay">
+  <div id="table-modal">
+    <h3>표 크기 설정</h3>
+    <div class="field"><label>행</label><input id="tbl-rows" type="number" min="1" max="30" value="3"> 행</div>
+    <div class="field"><label>열</label><input id="tbl-cols" type="number" min="1" max="20" value="3"> 열</div>
+    <div class="btns">
+      <button onclick="closeTableModal()">취소</button>
+      <button class="ok" onclick="confirmTableInsert()">삽입</button>
+    </div>
+  </div>
+</div>
+
+<!-- 셀 나누기 모달 -->
+<div id="split-modal-overlay">
+  <div id="split-modal">
+    <h3>셀 나누기</h3>
+    <div class="field"><label>열</label><input id="split-cols" type="number" min="1" max="10" value="2"> 칸으로 나누기</div>
+    <div class="field"><label>행</label><input id="split-rows" type="number" min="1" max="10" value="1"> 줄로 나누기</div>
+    <div class="btns">
+      <button onclick="closeSplitModal()">취소</button>
+      <button class="ok" onclick="confirmSplit()">나누기</button>
+    </div>
+  </div>
+</div>
+
+<div id="wrap">
+  <div id="editor" contenteditable="true"
+       data-ph="자동 초안 생성 버튼을 누르거나, 아래 채팅창에 요청을 입력하세요."></div>
+</div>
+
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script>
+// 기본 단락 구분자를 <p> 태그로 설정
+document.execCommand('defaultParagraphSeparator', false, 'p');
+
+// 우클릭 브라우저 메뉴 비활성화
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+const editor = document.getElementById('editor');
+let bridge = null;
+
+// QWebChannel 초기화
+new QWebChannel(qt.webChannelTransport, function(channel) {
+    bridge = channel.objects.bridge;
+    // 초기 빈 상태 전송
+    if (bridge) bridge.on_content_change('');
+});
+
+// 에디터 변경 시 Python으로 HTML 전송
+editor.addEventListener('input', () => {
+    if (bridge) bridge.on_content_change(editor.innerHTML);
+});
+
+// ── 텍스트 서식 ──
+function fmt(cmd) {
+    document.execCommand(cmd);
+    editor.focus();
+}
+
+// ── HTML 이스케이프 ──
+function esc(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+// ── 커서 위치의 <td>/<th> 반환 ──
+function getCell() {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return null;
+    let node = sel.getRangeAt(0).startContainer;
+    while (node && node !== editor) {
+        if (node.nodeName === 'TD' || node.nodeName === 'TH') return node;
+        node = node.parentNode;
+    }
+    return null;
+}
+
+// ── 표 반환 ──
+function getTable(cell) {
+    let n = cell || getCell();
+    while (n && n !== editor) {
+        if (n.nodeName === 'TABLE') return n;
+        n = n.parentNode;
+    }
+    return null;
+}
+
+// ── 표 삽입 모달 ──
+let _savedRange = null;
+
+function openTableModal() {
+    // 현재 커서 위치 저장
+    const sel = window.getSelection();
+    _savedRange = (sel && sel.rangeCount) ? sel.getRangeAt(0).cloneRange() : null;
+
+    document.getElementById('table-modal-overlay').classList.add('show');
+    document.getElementById('tbl-rows').focus();
+    document.getElementById('tbl-rows').select();
+}
+
+function closeTableModal() {
+    document.getElementById('table-modal-overlay').classList.remove('show');
+    editor.focus();
+}
+
+function confirmTableInsert() {
+    const rows = Math.max(1, parseInt(document.getElementById('tbl-rows').value) || 3);
+    const cols = Math.max(1, parseInt(document.getElementById('tbl-cols').value) || 3);
+    closeTableModal();
+
+    // 저장된 커서 위치 복원
+    if (_savedRange) {
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(_savedRange);
+    }
+    insertTable(rows, cols);
+}
+
+// Enter 키로 삽입, Escape로 닫기
+document.getElementById('table-modal-overlay').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); confirmTableInsert(); }
+    if (e.key === 'Escape') closeTableModal();
+});
+
+// ── 표 삽입 ──
+function insertTable(rows, cols) {
+    const table = document.createElement('table');
+    for (let r = 0; r < rows; r++) {
+        const tr = table.insertRow();
+        for (let c = 0; c < cols; c++) {
+            const cell = (r === 0)
+                ? document.createElement('th')
+                : document.createElement('td');
+            cell.contentEditable = 'true';
+            cell.innerHTML = '<br>';
+            tr.appendChild(cell);
+        }
+    }
+
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(table);
+        range.collapse(false);
+    } else {
+        editor.appendChild(table);
+    }
+
+    // 표 뒤에 빈 단락 추가
+    const p = document.createElement('p');
+    p.innerHTML = '<br>';
+    if (table.nextSibling) {
+        table.parentNode.insertBefore(p, table.nextSibling);
+    } else {
+        editor.appendChild(p);
+    }
+
+    // 첫 번째 셀로 커서 이동
+    const firstCell = table.rows[0].cells[0];
+    const r = document.createRange();
+    r.setStart(firstCell, 0);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    editor.focus();
+
+    if (bridge) bridge.on_content_change(editor.innerHTML);
+}
+
+// ── 표 조작 ──
+function tableCmd(cmd) {
+    const cell = getCell();
+    if (!cell) { alert('표 안에 커서를 두세요.'); return; }
+    const table = getTable(cell);
+    const row = cell.parentElement;
+    const ri = row.rowIndex;
+    const ci = cell.cellIndex;
+    const colCount = table.rows[0].cells.length;
+
+    if (cmd === 'deleteTable') {
+        table.parentNode.removeChild(table);
+
+    } else if (cmd === 'insertRowBefore') {
+        const nr = table.insertRow(ri);
+        for (let c = 0; c < colCount; c++) {
+            const td = nr.insertCell();
+            td.contentEditable = 'true';
+            td.innerHTML = '<br>';
+        }
+    } else if (cmd === 'insertRowAfter') {
+        const nr = table.insertRow(ri + 1);
+        for (let c = 0; c < colCount; c++) {
+            const td = nr.insertCell();
+            td.contentEditable = 'true';
+            td.innerHTML = '<br>';
+        }
+    } else if (cmd === 'deleteRow') {
+        if (table.rows.length <= 1) { table.parentNode.removeChild(table); }
+        else table.deleteRow(ri);
+
+    } else if (cmd === 'insertColBefore') {
+        for (let r = 0; r < table.rows.length; r++) {
+            const tag = (r === 0) ? 'th' : 'td';
+            const td = document.createElement(tag);
+            td.contentEditable = 'true';
+            td.innerHTML = '<br>';
+            table.rows[r].insertBefore(td, table.rows[r].cells[ci]);
+        }
+    } else if (cmd === 'insertColAfter') {
+        for (let r = 0; r < table.rows.length; r++) {
+            const tag = (r === 0) ? 'th' : 'td';
+            const td = document.createElement(tag);
+            td.contentEditable = 'true';
+            td.innerHTML = '<br>';
+            const ref = table.rows[r].cells[ci + 1];
+            if (ref) table.rows[r].insertBefore(td, ref);
+            else table.rows[r].appendChild(td);
+        }
+    } else if (cmd === 'deleteCol') {
+        if (colCount <= 1) { table.parentNode.removeChild(table); return; }
+        for (let r = table.rows.length - 1; r >= 0; r--) {
+            if (table.rows[r].cells[ci]) table.rows[r].deleteCell(ci);
+        }
+    } else if (cmd === 'mergeRight') {
+        const nextCell = row.cells[ci + 1];
+        if (!nextCell) { alert('오른쪽에 병합할 셀이 없습니다.'); return; }
+        const span = parseInt(cell.getAttribute('colspan') || 1);
+        cell.setAttribute('colspan', span + 1);
+        cell.innerHTML += nextCell.innerHTML;
+        row.removeChild(nextCell);
+    }
+
+    if (bridge) bridge.on_content_change(editor.innerHTML);
+}
+
+// ── 셀 단위 너비 조절 (현재 행만, Shift+Left/Right) ──
+function resizeCellWidth(cell, delta) {
+    const table = getTable(cell);
+    if (!table) return;
+    const row = cell.parentElement;
+    const ci  = cell.cellIndex;
+
+    // 현재 행 셀들만 px 너비 초기화
+    Array.from(row.cells).forEach(c => {
+        if (!c.style.width) c.style.width = c.offsetWidth + 'px';
+    });
+
+    const curW = parseInt(cell.style.width) || cell.offsetWidth || 60;
+    const newW = Math.max(24, curW + delta);
+    const actualDelta = newW - curW;
+    cell.style.width = newW + 'px';
+
+    // 오른쪽 인접 셀 보정 (이 행만)
+    const adj = row.cells[ci + 1];
+    if (adj) {
+        const adjW = parseInt(adj.style.width) || adj.offsetWidth || 60;
+        adj.style.width = Math.max(24, adjW - actualDelta) + 'px';
+    }
+    notifyChange();
+}
+
+// ── 셀 단위 행 높이 조절 (현재 행만, Shift+Up/Down) ──
+function resizeCellHeight(cell, delta) {
+    const row = cell.parentElement;
+    const curH = row.offsetHeight || 24;
+    const newH = Math.max(20, curH + delta);
+    Array.from(row.cells).forEach(c => {
+        c.style.height    = newH + 'px';
+        c.style.minHeight = newH + 'px';
+    });
+    notifyChange();
+}
+
+// ── 열 너비 조절 ──
+function resizeCol(cell, delta) {
+    const table = getTable(cell);
+    if (!table || !table.rows.length) return;
+    const ci = cell.cellIndex;
+
+    // 모든 셀 너비를 px로 초기화 (style 없을 때)
+    for (let r = 0; r < table.rows.length; r++) {
+        Array.from(table.rows[r].cells).forEach(c => {
+            if (!c.style.width) c.style.width = c.offsetWidth + 'px';
+        });
+    }
+
+    const curW = parseInt(table.rows[0].cells[ci]?.style.width) || 60;
+    const newW = Math.max(24, curW + delta);
+    const actualDelta = newW - curW;
+
+    for (let r = 0; r < table.rows.length; r++) {
+        const c = table.rows[r].cells[ci];
+        if (c) c.style.width = newW + 'px';
+    }
+
+    // 오른쪽 인접 열에서 보정 (표 전체 너비 유지)
+    const adjCi = ci + 1;
+    if (adjCi < table.rows[0].cells.length) {
+        for (let r = 0; r < table.rows.length; r++) {
+            const adj = table.rows[r].cells[adjCi];
+            if (adj) {
+                const adjW = parseInt(adj.style.width) || adj.offsetWidth || 60;
+                adj.style.width = Math.max(24, adjW - actualDelta) + 'px';
+            }
+        }
+    }
+    notifyChange();
+}
+
+// ── 행 높이 조절 ──
+function resizeRow(cell, delta) {
+    const row = cell.parentElement;
+    const curH = row.offsetHeight || 24;
+    const newH = Math.max(20, curH + delta);
+    Array.from(row.cells).forEach(c => {
+        c.style.height    = newH + 'px';
+        c.style.minHeight = newH + 'px';
+    });
+    notifyChange();
+}
+
+// ── Python → JS: plain text를 HTML로 변환하여 삽입 ──
+window.setContent = function(text) {
+    if (!text || !text.trim()) {
+        editor.innerHTML = '';
+        if (bridge) bridge.on_content_change('');
+        return;
+    }
+    const html = text.split('\n').map(line =>
+        '<p>' + (line.trim() ? esc(line) : '<br>') + '</p>'
+    ).join('');
+    editor.innerHTML = html;
+    if (bridge) bridge.on_content_change(editor.innerHTML);
+};
+
+// ── Python → JS: AI 스트리밍 텍스트 추가 ──
+window.setStreamContent = function(text) {
+    window.setContent(text);
+    const wrap = document.getElementById('wrap');
+    wrap.scrollTop = wrap.scrollHeight;
+};
+
+// ── Python → JS: AI가 생성한 HTML을 그대로 삽입 (표 포함) ──
+window.setHtmlContent = function(html) {
+    editor.innerHTML = html;
+    if (bridge) bridge.on_content_change(editor.innerHTML);
+    const wrap = document.getElementById('wrap');
+    wrap.scrollTop = wrap.scrollHeight;
+};
+
+// ── 복사용: 표 스타일을 인라인으로 변환한 HTML 반환 ──
+window.getHWPHtml = function() {
+    const clone = editor.cloneNode(true);
+    const origTables = Array.from(editor.querySelectorAll('table'));
+    const cloneTables = Array.from(clone.querySelectorAll('table'));
+    const editorW = editor.offsetWidth || 1;
+
+    origTables.forEach((orig, i) => {
+        const tbl = cloneTables[i];
+        if (!tbl || !orig.rows.length) return;
+
+        // 에디터 너비 대비 표 너비 비율 유지 (100% 강제 → 2배 문제 해결)
+        const tableWidthPct = Math.min(100, Math.round(orig.offsetWidth / editorW * 100));
+
+        // 첫 행 기준으로 각 열의 실제 너비 비율 계산
+        const totalW = orig.offsetWidth || 1;
+        const firstRow = orig.rows[0];
+        const colWidths = Array.from(firstRow.cells).map(cell =>
+            Math.round(cell.offsetWidth / totalW * 100)
+        );
+
+        tbl.style.borderCollapse = 'collapse';
+        tbl.style.width = tableWidthPct + '%';
+        tbl.style.tableLayout = 'fixed';
+        tbl.style.border = '0.5pt solid black';
+
+        Array.from(tbl.rows).forEach(row => {
+            Array.from(row.cells).forEach((cell, ci) => {
+                const w = colWidths[ci] !== undefined
+                    ? colWidths[ci]
+                    : Math.round(100 / firstRow.cells.length);
+                cell.style.width = w + '%';
+                cell.style.border = '0.5pt solid black';
+                cell.style.padding = '5px';
+                cell.style.verticalAlign = 'middle';
+                cell.style.fontFamily = "'굴림체', Gulim";
+                cell.style.fontSize = '12pt';
+                cell.style.lineHeight = '1.5';
+            });
+        });
+
+        Array.from(tbl.querySelectorAll('th')).forEach(th => {
+            th.style.backgroundColor = '#f0f0f0';
+            th.style.textAlign = 'center';
+        });
+
+        // 셀 안에 <b>/<strong> 태그가 있으면 셀 인라인 스타일에도 bold 반영
+        // (HWP는 자식 태그 bold를 무시하는 경우가 있어 belt-and-suspenders 처리)
+        Array.from(tbl.querySelectorAll('td, th')).forEach(cell => {
+            if (cell.querySelector('b, strong') ||
+                cell.style.fontWeight === 'bold' ||
+                getComputedStyle(cell).fontWeight >= 700) {
+                cell.style.fontWeight = 'bold';
+            }
+        });
+    });
+
+    return clone.innerHTML;
+};
+
+// ══════════════════════════════════════════════
+// 한글(HWP) 스타일 단축키
+// ══════════════════════════════════════════════
+
+let _f5Active = false;  // F5 셀 선택 모드 여부
+let _f5Cell   = null;   // 현재 커서(이동 기준) 셀
+let _f5Anchor = null;   // 직사각형 선택의 시작점 셀
+let _f5Cells  = [];     // 현재 선택된 모든 셀
+let _f5Step   = 0;      // 0=비활성, 1=셀, 2=행, 3=표전체
+
+function clearF5() {
+    document.querySelectorAll('.hwp-sel').forEach(el => el.classList.remove('hwp-sel'));
+    _f5Active = false;
+    _f5Cell   = null;
+    _f5Anchor = null;
+    _f5Cells  = [];
+    _f5Step   = 0;
+}
+
+// F5 모드에서 단일 셀 선택
+function f5SelectCell(cell) {
+    document.querySelectorAll('.hwp-sel').forEach(el => el.classList.remove('hwp-sel'));
+    cell.classList.add('hwp-sel');
+    _f5Cell   = cell;
+    _f5Anchor = cell;
+    _f5Cells  = [cell];
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+}
+
+// F5 모드에서 anchor ~ cell 직사각형으로 선택 확장
+function f5ExtendTo(cell) {
+    document.querySelectorAll('.hwp-sel').forEach(el => el.classList.remove('hwp-sel'));
+    const table = getTable(_f5Anchor);
+    if (!table) return;
+    const [ar, ac] = cellPos(_f5Anchor);
+    const [cr, cc] = cellPos(cell);
+    const minR = Math.min(ar, cr), maxR = Math.max(ar, cr);
+    const minC = Math.min(ac, cc), maxC = Math.max(ac, cc);
+    _f5Cells = [];
+    for (let r = minR; r <= maxR; r++) {
+        for (let c = minC; c <= maxC; c++) {
+            const tc = cellAt(table, r, c);
+            if (tc) { tc.classList.add('hwp-sel'); _f5Cells.push(tc); }
+        }
+    }
+    _f5Cell = cell;
+}
+
+// 선택된 셀 전체 병합
+function mergeSelectedCells() {
+    if (_f5Cells.length <= 1) return;
+    const table = getTable(_f5Cells[0]);
+    const positions = _f5Cells.map(c => cellPos(c));
+    const minR = Math.min(...positions.map(p => p[0]));
+    const maxR = Math.max(...positions.map(p => p[0]));
+    const minC = Math.min(...positions.map(p => p[1]));
+    const maxC = Math.max(...positions.map(p => p[1]));
+
+    const topLeft = cellAt(table, minR, minC);
+    if (!topLeft) return;
+
+    // 병합할 셀 수집 (top-left 제외)
+    const toRemove = [];
+    for (let r = minR; r <= maxR; r++) {
+        for (let c = minC; c <= maxC; c++) {
+            if (r === minR && c === minC) continue;
+            const cell = cellAt(table, r, c);
+            if (cell) toRemove.push(cell);
+        }
+    }
+
+    // 내용 합치기
+    toRemove.forEach(cell => {
+        const html = cell.innerHTML.trim();
+        if (html && html !== '<br>') topLeft.innerHTML += html;
+    });
+
+    // colspan / rowspan 적용
+    const colspan = maxC - minC + 1;
+    const rowspan = maxR - minR + 1;
+    if (colspan > 1) topLeft.setAttribute('colspan', colspan);
+    if (rowspan > 1) topLeft.setAttribute('rowspan', rowspan);
+
+    // 셀 제거 후 빈 행 정리
+    toRemove.forEach(cell => { if (cell.parentElement) cell.parentElement.removeChild(cell); });
+    for (let r = table.rows.length - 1; r >= 0; r--) {
+        if (table.rows[r] && table.rows[r].cells.length === 0) table.deleteRow(r);
+    }
+
+    notifyChange();
+    clearF5();
+    topLeft.focus();
+}
+
+// 셀의 [행인덱스, 열인덱스] 반환
+function cellPos(cell) {
+    return [cell.parentElement.rowIndex, cell.cellIndex];
+}
+
+// table에서 [rowIdx][colIdx] 위치의 셀 반환
+function cellAt(table, ri, ci) {
+    const row = table.rows[ri];
+    if (!row) return null;
+    return row.cells[ci] || null;
+}
+
+document.addEventListener('keydown', e => {
+    const cell = getCell();
+
+    // ── F5: 셀 선택 모드 진입 / 단계 전환 ──
+    if (e.key === 'F5') {
+        e.preventDefault();
+        if (!cell) { clearF5(); return; }
+
+        if (!_f5Active) {
+            // 1번: 셀 하나 선택
+            _f5Active = true;
+            _f5Step   = 1;
+            f5SelectCell(cell);
+        } else {
+            // 순환: 1(단일) → 2(확장모드) → 3(행전체) → 4(표전체) → 1
+            _f5Step = (_f5Step % 4) + 1;
+            document.querySelectorAll('.hwp-sel').forEach(el => el.classList.remove('hwp-sel'));
+            if (_f5Step === 1) {
+                // 단일 셀 재선택
+                f5SelectCell(_f5Cell);
+            } else if (_f5Step === 2) {
+                // 확장 모드 진입 — 기존 선택 유지, 방향키로 범위 확장
+                _f5Cells.forEach(c => c.classList.add('hwp-sel'));
+            } else if (_f5Step === 3) {
+                // 행 전체 선택
+                _f5Cells = Array.from(_f5Cell.parentElement.cells);
+                _f5Cells.forEach(c => c.classList.add('hwp-sel'));
+            } else {
+                // 표 전체 선택
+                _f5Cells = Array.from(getTable(_f5Cell).querySelectorAll('td,th'));
+                _f5Cells.forEach(c => c.classList.add('hwp-sel'));
+            }
+        }
+        return;
+    }
+
+    // ── F5 확장 모드(step 2): 방향키로 범위 확장 ──
+    if (_f5Active && _f5Step === 2 && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const table = getTable(_f5Cell);
+        const [ri, ci] = cellPos(_f5Cell);
+        let nextCell = null;
+        if (e.key === 'ArrowRight') nextCell = cellAt(table, ri, ci + 1);
+        if (e.key === 'ArrowLeft')  nextCell = cellAt(table, ri, ci - 1);
+        if (e.key === 'ArrowDown')  nextCell = cellAt(table, ri + 1, ci);
+        if (e.key === 'ArrowUp')    nextCell = cellAt(table, ri - 1, ci);
+        if (nextCell) f5ExtendTo(nextCell);
+        return;
+    }
+
+    // ── F5 step 1 + Shift+방향키: 셀 단위 너비/높이 조절 ──
+    if (_f5Active && _f5Step === 1 && e.shiftKey && !e.ctrlKey &&
+        ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        if (e.key === 'ArrowRight') resizeCellWidth(_f5Cell,  +20);
+        if (e.key === 'ArrowLeft')  resizeCellWidth(_f5Cell,  -20);
+        if (e.key === 'ArrowDown')  resizeCellHeight(_f5Cell, +10);
+        if (e.key === 'ArrowUp')    resizeCellHeight(_f5Cell, -10);
+        return;
+    }
+
+    // ── F5 활성 + Ctrl+방향키: 열/행 크기 조절 ──
+    if (_f5Active && e.ctrlKey && !e.shiftKey &&
+        ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        if (e.key === 'ArrowRight') resizeCol(_f5Cell, +20);
+        if (e.key === 'ArrowLeft')  resizeCol(_f5Cell, -20);
+        if (e.key === 'ArrowDown')  resizeRow(_f5Cell, +10);
+        if (e.key === 'ArrowUp')    resizeRow(_f5Cell, -10);
+        return;
+    }
+
+    // ── F5 step 1: 방향키로 단일 셀 이동 (Shift/Ctrl 없을 때만) ──
+    if (_f5Active && _f5Step === 1 && !e.shiftKey && !e.ctrlKey &&
+        ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+        e.preventDefault();
+        const table = getTable(_f5Cell);
+        const [ri, ci] = cellPos(_f5Cell);
+        let nextCell = null;
+        if (e.key === 'ArrowRight') nextCell = cellAt(table, ri, ci + 1);
+        if (e.key === 'ArrowLeft')  nextCell = cellAt(table, ri, ci - 1);
+        if (e.key === 'ArrowDown')  nextCell = cellAt(table, ri + 1, ci);
+        if (e.key === 'ArrowUp')    nextCell = cellAt(table, ri - 1, ci);
+        if (nextCell) f5SelectCell(nextCell);
+        return;
+    }
+
+    // ── F5 활성 상태에서 S: 셀 나누기 ──
+    if (_f5Active && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        openSplitModal();
+        return;
+    }
+
+    // ── F5 활성 상태에서 M: 선택 셀 전체 병합 (다중) 또는 오른쪽 병합 (단일) ──
+    if (_f5Active && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        if (_f5Cells.length > 1) {
+            mergeSelectedCells();
+        } else {
+            tableCmd('mergeRight');
+            clearF5();
+        }
+        return;
+    }
+
+    // ── Escape: F5 모드 해제 ──
+    if (e.key === 'Escape' && _f5Active) {
+        clearF5();
+        return;
+    }
+
+    // F5 모드 중 위 외의 키 입력 시 모드 해제 (modifier 단독 제외)
+    if (_f5Active && !['Shift','Control','Alt','Meta','F5'].includes(e.key)) {
+        clearF5();
+    }
+
+    // ── 표 안 ArrowUp/Down: 위아래 행 셀로 이동 ──
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && cell && !_f5Active) {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount) {
+            const cursorRect = sel.getRangeAt(0).getBoundingClientRect();
+            const cellRect   = cell.getBoundingClientRect();
+            const lineH      = parseFloat(getComputedStyle(cell).lineHeight) || 20;
+
+            if (e.key === 'ArrowUp' && cursorRect.top - cellRect.top < lineH) {
+                const above = cellAt(getTable(cell), cell.parentElement.rowIndex - 1, cell.cellIndex);
+                if (above) {
+                    e.preventDefault();
+                    above.focus();
+                    const r = document.createRange();
+                    r.selectNodeContents(above);
+                    r.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(r);
+                }
+            } else if (e.key === 'ArrowDown' && cellRect.bottom - cursorRect.bottom < lineH) {
+                const below = cellAt(getTable(cell), cell.parentElement.rowIndex + 1, cell.cellIndex);
+                if (below) {
+                    e.preventDefault();
+                    below.focus();
+                    const r = document.createRange();
+                    r.selectNodeContents(below);
+                    r.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(r);
+                }
+            }
+        }
+        return;
+    }
+
+    // ── Tab / Shift+Tab: 셀 이동 ──
+    if (e.key === 'Tab' && cell) {
+        e.preventDefault();
+        const table = getTable(cell);
+        const allCells = Array.from(table.querySelectorAll('td, th'));
+        const idx  = allCells.indexOf(cell);
+        const next = e.shiftKey ? allCells[idx - 1] : allCells[idx + 1];
+        if (next) {
+            next.focus();
+            const range = document.createRange();
+            range.selectNodeContents(next);
+            range.collapse(false);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+        return;
+    }
+
+    // ── Ctrl+Shift+L/C/R/M: 텍스트 정렬 ──
+    if (e.ctrlKey && e.shiftKey) {
+        if (e.key === 'L') { e.preventDefault(); document.execCommand('justifyLeft');   notifyChange(); return; }
+        if (e.key === 'C') { e.preventDefault(); document.execCommand('justifyCenter'); notifyChange(); return; }
+        if (e.key === 'R') { e.preventDefault(); document.execCommand('justifyRight');  notifyChange(); return; }
+        if (e.key === 'M') { e.preventDefault(); document.execCommand('justifyFull');   notifyChange(); return; }
+    }
+
+    // ── Alt+Insert: 아래에 행 추가 ──
+    if (e.altKey && e.key === 'Insert' && cell) {
+        e.preventDefault(); tableCmd('insertRowAfter'); return;
+    }
+
+    // ── Alt+Delete: 현재 행 삭제 ──
+    if (e.altKey && e.key === 'Delete' && cell) {
+        e.preventDefault(); tableCmd('deleteRow'); return;
+    }
+});
+
+function notifyChange() {
+    if (bridge) bridge.on_content_change(editor.innerHTML);
+}
+
+// ── 셀 나누기 모달 ──
+let _splitTargetCell = null;
+
+function openSplitModal() {
+    _splitTargetCell = _f5Cell;
+    clearF5();
+    document.getElementById('split-modal-overlay').classList.add('show');
+    document.getElementById('split-cols').value = 2;
+    document.getElementById('split-rows').value = 1;
+    document.getElementById('split-cols').focus();
+    document.getElementById('split-cols').select();
+}
+
+function closeSplitModal() {
+    document.getElementById('split-modal-overlay').classList.remove('show');
+    if (_splitTargetCell) _splitTargetCell.focus();
+}
+
+function confirmSplit() {
+    const cols = Math.max(1, parseInt(document.getElementById('split-cols').value) || 2);
+    const rows = Math.max(1, parseInt(document.getElementById('split-rows').value) || 1);
+    closeSplitModal();
+    splitCell(_splitTargetCell, cols, rows);
+}
+
+document.getElementById('split-modal-overlay').addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); confirmSplit(); }
+    if (e.key === 'Escape') closeSplitModal();
+});
+
+// ── 셀 나누기 실제 구현 ──
+function splitCell(cell, cols, rows) {
+    if (!cell) return;
+    const table = getTable(cell);
+    const row   = cell.parentElement;
+    const ri    = row.rowIndex;
+    const ci    = cell.cellIndex;
+
+    // ── 열 나누기 ──
+    if (cols > 1) {
+        // 현재 행: 현재 셀 뒤에 (cols-1)개 셀 추가
+        for (let i = 1; i < cols; i++) {
+            const nc = document.createElement(cell.nodeName);
+            nc.contentEditable = 'true';
+            nc.innerHTML = '<br>';
+            const ref = row.cells[ci + i];
+            if (ref) row.insertBefore(nc, ref);
+            else row.appendChild(nc);
+        }
+        // 나머지 행: ci 위치를 덮는 셀의 colspan만 (cols-1) 증가
+        for (let r = 0; r < table.rows.length; r++) {
+            if (r === ri) continue;
+            let colPos = 0;
+            for (let c = 0; c < table.rows[r].cells.length; c++) {
+                const tc   = table.rows[r].cells[c];
+                const span = parseInt(tc.getAttribute('colspan') || 1);
+                if (colPos <= ci && ci < colPos + span) {
+                    tc.setAttribute('colspan', span + cols - 1);
+                    break;
+                }
+                colPos += span;
+            }
+        }
+    }
+
+    // ── 행 나누기 ──
+    if (rows > 1) {
+        const cellColspan = parseInt(cell.getAttribute('colspan') || 1);
+        // 현재 행의 다른 셀들: rowspan 증가
+        Array.from(row.cells).forEach(c => {
+            if (c === cell) return;
+            const rs = parseInt(c.getAttribute('rowspan') || 1);
+            c.setAttribute('rowspan', rs + rows - 1);
+        });
+        // 분할 셀 위치에만 새 셀이 있는 행 추가
+        for (let i = 1; i < rows; i++) {
+            const newRow = table.insertRow(ri + i);
+            const nc = newRow.insertCell();
+            nc.contentEditable = 'true';
+            nc.innerHTML = '<br>';
+            if (cellColspan > 1) nc.setAttribute('colspan', cellColspan);
+        }
+    }
+
+    notifyChange();
+    cell.focus();
+}
+</script>
+</body>
+</html>

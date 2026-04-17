@@ -112,18 +112,20 @@ def _make_tray_icon():
     return QIcon(pix)
 
 
-def new_window(offset_from=None, on_toggle_hotkey=None):
+def new_window(offset_from=None, on_toggle_hotkey=None, on_shortcut_change=None, get_shortcut_enabled=None):
     x, y = 130, 130
     if offset_from:
         pos = offset_from.pos()
         x, y = pos.x() + 30, pos.y() + 30
     wid = create_window(x=x, y=y)
-    _launch_window(wid, x, y, 320, 400, collapsed=False, on_toggle_hotkey=on_toggle_hotkey)
+    _launch_window(wid, x, y, 320, 400, collapsed=False, on_toggle_hotkey=on_toggle_hotkey,
+                   on_shortcut_change=on_shortcut_change, get_shortcut_enabled=get_shortcut_enabled)
 
 
 _alarm_callbacks = {}  # 정의 전 참조 문제 우회용
 
-def _launch_window(wid, x, y, width, height, collapsed, color='', on_toggle_hotkey=None):
+def _launch_window(wid, x, y, width, height, collapsed, color='', on_toggle_hotkey=None,
+                   on_shortcut_change=None, get_shortcut_enabled=None):
     win = MemoWindow(
         window_id=wid,
         on_new=new_window,
@@ -133,6 +135,8 @@ def _launch_window(wid, x, y, width, height, collapsed, color='', on_toggle_hotk
         get_alarm_interval=lambda: _alarm_callbacks.get('get', lambda: 180)(),
         on_timed_alarm_change=lambda v: _alarm_callbacks.get('set_timed', lambda v: None)(v),
         get_timed_alarm_enabled=lambda: _alarm_callbacks.get('get_timed', lambda: True)(),
+        on_shortcut_change=on_shortcut_change,
+        get_shortcut_enabled=get_shortcut_enabled,
     )
     win.apply_state(x, y, width, height, collapsed, color)
     win.show()
@@ -154,6 +158,7 @@ if __name__ == '__main__':
     autostart.refresh_if_enabled()
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
@@ -203,6 +208,26 @@ if __name__ == '__main__':
     app.installNativeEventFilter(_hotkey_filter)
     app.aboutToQuit.connect(_hotkey_filter.unregister)
 
+    # ── 단축키 켬/끔 상태 관리 ──────────────────────────────────────
+    _sc_settings = _load_settings()
+    _shortcut_enabled = [_sc_settings.get('shortcut_enabled', True)]
+
+    def _get_shortcut_enabled():
+        return _shortcut_enabled[0]
+
+    def _set_shortcut_enabled(enabled):
+        _shortcut_enabled[0] = enabled
+        _hotkey_filter.set_enabled(enabled)
+        for win in _open_windows:
+            win._set_local_shortcuts_enabled(enabled)
+        s = _load_settings()
+        s['shortcut_enabled'] = enabled
+        _save_settings(s)
+
+    # 저장된 상태가 끔이었다면 초기 적용
+    if not _shortcut_enabled[0]:
+        _hotkey_filter.set_enabled(False)
+
     _app_icon = _make_tray_icon()
     app.setWindowIcon(_app_icon)
 
@@ -215,9 +240,14 @@ if __name__ == '__main__':
     menu.addAction(act_quit)
     def _restore_all_windows():
         for w in get_all_windows():
-            _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''), on_toggle_hotkey=_hotkey_filter.set_enabled)
+            _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''),
+                           on_toggle_hotkey=_hotkey_filter.set_enabled,
+                           on_shortcut_change=_set_shortcut_enabled,
+                           get_shortcut_enabled=_get_shortcut_enabled)
         if not _open_windows:
-            new_window(on_toggle_hotkey=_hotkey_filter.set_enabled)
+            new_window(on_toggle_hotkey=_hotkey_filter.set_enabled,
+                       on_shortcut_change=_set_shortcut_enabled,
+                       get_shortcut_enabled=_get_shortcut_enabled)
 
     def on_tray_activated(reason):
         if reason == QSystemTrayIcon.Trigger:  # 좌클릭
@@ -228,7 +258,10 @@ if __name__ == '__main__':
     tray.show()
 
     for w in get_all_windows():
-        _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''), on_toggle_hotkey=_hotkey_filter.set_enabled)
+        _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''),
+                       on_toggle_hotkey=_hotkey_filter.set_enabled,
+                       on_shortcut_change=_set_shortcut_enabled,
+                       get_shortcut_enabled=_get_shortcut_enabled)
 
     def _cloud_init():
         """백그라운드: 익명 인증 후 전체 데이터 Supabase 동기화."""
