@@ -1,18 +1,19 @@
 import os
 import ctypes
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QApplication,
     QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QMenu, QAction, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
     QPlainTextEdit, QSizePolicy, QGraphicsColorizeEffect, QTimeEdit,
-    QListWidget, QAbstractItemView
+    QListWidget, QAbstractItemView, QComboBox, QListWidgetItem
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap
+from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
+                set_task_priority, set_task_recurrence, search_tasks_all,
                 get_documents, add_document, update_document, delete_document,
                 get_official_documents, delete_official_document)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
@@ -29,6 +30,51 @@ PALETTE = [
     '#AECBFA', '#D7AEFB', '#FDCFE8', '#E6C9A8', '#AAAAAA', '#DDDDDD', '#FFFFFF',
 ]
 
+# ── Fluent System Icons 폰트 로드 ────────────────────────────────
+_FI_FONT_ID        = -1
+_FI_FILLED_FONT_ID = -1
+
+def _load_fluent_icons():
+    global _FI_FONT_ID, _FI_FILLED_FONT_ID
+    base = os.path.dirname(os.path.abspath(__file__))
+    if _FI_FONT_ID == -1:
+        _FI_FONT_ID = QFontDatabase.addApplicationFont(
+            os.path.join(base, 'assets', 'FluentSystemIcons-Regular.ttf'))
+    if _FI_FILLED_FONT_ID == -1:
+        _FI_FILLED_FONT_ID = QFontDatabase.addApplicationFont(
+            os.path.join(base, 'assets', 'FluentSystemIcons-Filled.ttf'))
+
+def mi_font(size=14):
+    """Fluent System Icons Regular QFont 반환."""
+    _load_fluent_icons()
+    families = QFontDatabase.applicationFontFamilies(_FI_FONT_ID)
+    return QFont(families[0] if families else 'FluentSystemIcons-Regular', size)
+
+def mi_font_filled(size=14):
+    """Fluent System Icons Filled QFont 반환."""
+    _load_fluent_icons()
+    families = QFontDatabase.applicationFontFamilies(_FI_FILLED_FONT_ID)
+    return QFont(families[0] if families else 'FluentSystemIcons-Filled', size)
+
+def mi_icon(codepoint, size=18, color='#555555'):
+    """Fluent Icons 코드포인트를 QIcon으로 변환."""
+    _load_fluent_icons()
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setFont(mi_font(int(size * 0.82)))
+    painter.setPen(QColor(color))
+    painter.drawText(pix.rect(), Qt.AlignCenter, codepoint)
+    painter.end()
+    return QIcon(pix)
+
+
+# Fluent System Icons 코드포인트 (20px Regular 기준)
+class MI:
+    STAR          = '\uebaa'   # star_emphasis_20_regular (삐침 별) — Regular 폰트용
+    STAR_BORDER   = '\uf70f'   # star_20_regular (아웃라인 별) — Regular 폰트용
+    AUTORENEW     = '\uf13d'   # arrow_clockwise
+    CHECK         = '\uf294'   # checkmark
 
 
 class AddDateButton(QLabel):
@@ -122,10 +168,35 @@ def calc_dday(deadline_str):
         return 'D-day'
 
 
+def _next_recurrence_deadline(deadline_str, recurrence):
+    import calendar as _cal
+    try:
+        base = date.fromisoformat(deadline_str[:10])
+    except ValueError:
+        return ''
+    if recurrence == 'weekly':
+        next_date = base + timedelta(weeks=1)
+    elif recurrence == 'biweekly':
+        next_date = base + timedelta(weeks=2)
+    elif recurrence == 'monthly':
+        year = base.year + (base.month // 12)
+        month = (base.month % 12) + 1
+        day = min(base.day, _cal.monthrange(year, month)[1])
+        next_date = date(year, month, day)
+    elif recurrence == 'yearly':
+        year = base.year + 1
+        day = min(base.day, _cal.monthrange(year, base.month)[1])
+        next_date = date(year, base.month, day)
+    else:
+        return ''
+    time_suffix = deadline_str[10:] if len(deadline_str) > 10 else ''
+    return next_date.isoformat() + time_suffix
+
+
 class EdgeHandle(QWidget):
     EDGE  = 6   # 가장자리 감지 두께(px)
     CORNER = 16  # 모서리 감지 크기(px)
-    MIN_W = 360
+    MIN_W = 320
     MIN_H = 100
 
     _CURSORS = {
@@ -396,15 +467,30 @@ class _AutoHeightEdit(QPlainTextEdit):
 
 
 class TaskRow(QWidget):
-    def __init__(self, task, on_delete, on_update):
+    def __init__(self, task, on_delete, on_update, scale=1.0):
         super().__init__()
         self.task      = task
         self.on_update = on_update
+        self._scale    = scale
         self.setStyleSheet('background: transparent;')
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 8, 0)
+        layout.setContentsMargins(4, 0, 8, 0)
         layout.setSpacing(4)
+
+        # 별 버튼 (우선순위) — Fluent Icons 폰트 렌더링
+        _is_starred = bool(task.get('priority', 0))
+        _star_sz = int(22 * scale)
+        _star_pt = int(15 * scale)
+        self.btn_star = QPushButton(MI.STAR if _is_starred else MI.STAR_BORDER)
+        self.btn_star.setFixedSize(_star_sz, _star_sz)
+        self.btn_star.setFlat(True)
+        self.btn_star.setFont(mi_font(_star_pt))
+        self.btn_star.setStyleSheet(
+            f"color: {'#D4A800' if _is_starred else '#AAAAAA'}; border: none; padding: 0;"
+        )
+        self.btn_star.clicked.connect(self._toggle_priority)
+        layout.addWidget(self.btn_star, 0, Qt.AlignVCenter)
 
         deadline = task['deadline']
         overdue = False
@@ -435,12 +521,15 @@ class TaskRow(QWidget):
         name_color = '#aaa' if overdue else '#111'
 
         self.name_edit = _AutoHeightEdit(task['name'])
+        _base_pt = 12 * scale
         name_font = QFont('Malgun Gothic', 12)
-        name_font.setPointSizeF(10.5 if overdue else 12)
+        name_font.setPointSizeF((10.5 / 12) * _base_pt if overdue else _base_pt)
         if overdue:
             name_font.setItalic(True)
             name_font.setBold(True)
         elif urgent:
+            name_font.setBold(True)
+        elif _is_starred:
             name_font.setBold(True)
         self.name_edit.setFont(name_font)
         self.name_edit.setStyleSheet(f"""
@@ -475,7 +564,7 @@ class TaskRow(QWidget):
                 date_text = suffix
             dday_lbl = DdayLabel(suffix, date_text)
             dday_font = QFont('Malgun Gothic', 12, QFont.Bold)
-            dday_font.setPointSizeF(10.5 if overdue else 12)
+            dday_font.setPointSizeF((10.5 / 12) * _base_pt if overdue else _base_pt)
             if overdue:
                 dday_font.setItalic(True)
             dday_lbl.setFont(dday_font)
@@ -493,6 +582,12 @@ class TaskRow(QWidget):
         btn_menu.clicked.connect(lambda: self._open_task_menu(btn_menu, task, on_delete))
 
         layout.addWidget(self.name_edit, 1)
+        if task.get('recurrence', ''):
+            lbl_recur = QLabel(MI.AUTORENEW)
+            lbl_recur.setFont(mi_font(int(13 * scale)))
+            lbl_recur.setStyleSheet('color: #333; background: transparent; padding-top: 3px; padding-left: 4px;')
+            lbl_recur.setFixedWidth(int(28 * scale))
+            layout.addWidget(lbl_recur, 0, Qt.AlignTop)
         if dday_lbl:
             layout.addWidget(dday_lbl, 0, Qt.AlignTop)
         elif hasattr(self, '_add_date_btn'):
@@ -511,7 +606,10 @@ class TaskRow(QWidget):
             return
         if name != self.task['name']:
             self.task['name'] = name
-            update_task(self.task['id'], name, self.task['deadline'], strikethrough=int(self._strikethrough))
+            update_task(self.task['id'], name, self.task['deadline'],
+                        strikethrough=int(self._strikethrough),
+                        priority=self.task.get('priority', 0),
+                        recurrence=self.task.get('recurrence', ''))
             self.on_update()
 
     def _open_task_menu(self, btn, task, on_delete):
@@ -530,16 +628,36 @@ class TaskRow(QWidget):
             QMenu::item { padding: 6px 16px 6px 12px; }
             QMenu::item:selected { background: rgba(212,184,0,0.3); }
         """)
+        is_starred = bool(self.task.get('priority', 0))
+        act_star = QAction((MI.STAR + ' 우선순위 해제(P)' if is_starred else MI.STAR_BORDER + ' 우선순위 설정(P)'), self)
+        act_star.setFont(mi_font(10))
+        menu.addAction(act_star)
+
+        sub_recur = QMenu(MI.AUTORENEW + ' 반복 설정', self)
+        sub_recur.setFont(mi_font(10))
+        sub_recur.setStyleSheet(menu.styleSheet())
+        cur_recur = self.task.get('recurrence', '')
+        for _label, _val in [('없음', ''), ('매주', 'weekly'), ('격주', 'biweekly'), ('매월', 'monthly'), ('매년', 'yearly')]:
+            _act = QAction((MI.CHECK + ' ' if cur_recur == _val else '    ') + _label, self)
+            _act.triggered.connect(lambda _, v=_val: self._set_recurrence(v))
+            sub_recur.addAction(_act)
+        menu.addMenu(sub_recur)
+
+        menu.addSeparator()
         act_strike = QAction('가운데 선(C)', self)
         act_delete = QAction('삭제(Delete/D)', self)
         menu.addAction(act_strike)
         menu.addAction(act_delete)
 
+        act_star.triggered.connect(self._toggle_priority)
         act_strike.triggered.connect(self._toggle_strikethrough)
         act_delete.triggered.connect(lambda: on_delete(task))
 
         def _key_press(e):
-            if e.key() == Qt.Key_C:
+            if e.key() == Qt.Key_P:
+                act_star.trigger()
+                menu.close()
+            elif e.key() == Qt.Key_C:
                 act_strike.trigger()
                 menu.close()
             elif e.key() in (Qt.Key_Delete, Qt.Key_D):
@@ -559,7 +677,10 @@ class TaskRow(QWidget):
         font.setStrikeOut(self._strikethrough)
         self.name_edit.setFont(font)
         self.name_edit._update_height()
-        update_task(self.task['id'], self.task['name'], self.task['deadline'], strikethrough=int(self._strikethrough))
+        update_task(self.task['id'], self.task['name'], self.task['deadline'],
+                    strikethrough=int(self._strikethrough),
+                    priority=self.task.get('priority', 0),
+                    recurrence=self.task.get('recurrence', ''))
 
     def _show_date_picker(self):
         if not hasattr(self, '_cal_popup'):
@@ -612,7 +733,26 @@ class TaskRow(QWidget):
         deadline_str = qdate.toString('yyyy-MM-dd')
         self.task['deadline'] = deadline_str
         update_task(self.task['id'], self.task['name'], deadline_str,
-                    strikethrough=int(self._strikethrough))
+                    strikethrough=int(self._strikethrough),
+                    priority=self.task.get('priority', 0),
+                    recurrence=self.task.get('recurrence', ''))
+        self.on_update()
+
+    def _toggle_priority(self):
+        new = 0 if self.task.get('priority', 0) else 1
+        self.task['priority'] = new
+        _pt = self.btn_star.font().pointSize()
+        self.btn_star.setText(MI.STAR if new else MI.STAR_BORDER)
+        self.btn_star.setFont(mi_font(_pt))
+        self.btn_star.setStyleSheet(
+            f"color: {'#D4A800' if new else '#AAAAAA'}; border: none; padding: 0;"
+        )
+        set_task_priority(self.task['id'], new)
+        self.on_update()
+
+    def _set_recurrence(self, recurrence):
+        self.task['recurrence'] = recurrence
+        set_task_recurrence(self.task['id'], recurrence)
         self.on_update()
 
 
@@ -639,6 +779,68 @@ class CustomCalendarWidget(QCalendarWidget):
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(rect.adjusted(1, 1, -2, -2))
             painter.restore()
+
+
+class GlobalSearchDialog(QDialog):
+    def __init__(self, open_windows, parent=None):
+        super().__init__(parent, Qt.WindowStaysOnTopHint)
+        self.setWindowTitle('통합 검색')
+        self.setMinimumSize(440, 380)
+        self._open_windows = open_windows
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText('검색어 입력…')
+        self._input.setFont(QFont('Malgun Gothic', 11))
+        self._input.setStyleSheet(
+            "QLineEdit { border: 1px solid #d4b800; border-radius: 4px; padding: 4px 8px; }"
+        )
+        layout.addWidget(self._input)
+
+        self._list = QListWidget()
+        self._list.setFont(QFont('Malgun Gothic', 10))
+        self._list.setAlternatingRowColors(True)
+        self._list.setStyleSheet(
+            "QListWidget { border: 1px solid #ddd; border-radius: 4px; }"
+            "QListWidget::item { padding: 5px 8px; }"
+            "QListWidget::item:selected { background: rgba(212,184,0,0.4); color: #333; }"
+        )
+        layout.addWidget(self._list)
+
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(250)
+        self._input.textChanged.connect(lambda: self._timer.start())
+        self._timer.timeout.connect(self._do_search)
+        self._list.itemDoubleClicked.connect(self._jump_to)
+
+    def _do_search(self):
+        q = self._input.text().strip()
+        self._list.clear()
+        if not q:
+            return
+        for r in search_tasks_all(q):
+            dday = calc_dday(r['deadline']) if r.get('deadline') else ''
+            text = f"[{dday}]  {r['name']}" if dday else r['name']
+            item = QListWidgetItem(text)
+            item.setData(Qt.UserRole, r)
+            if r.get('color'):
+                item.setBackground(QColor(r['color']).lighter(140))
+            self._list.addItem(item)
+
+    def _jump_to(self, item):
+        r = item.data(Qt.UserRole)
+        for win in self._open_windows:
+            if win.window_id == r['window_id']:
+                win.show()
+                win.raise_()
+                win.activateWindow()
+                win._highlight_task(r['id'])
+                break
+        self.accept()
 
 
 class TimePickerPopup(QFrame):
@@ -672,13 +874,17 @@ class TimePickerPopup(QFrame):
         self._hour_list.setFixedWidth(52)
         self._hour_list.setFixedHeight(180)
         for h in range(24):
-            self._hour_list.addItem(f'{h:02d}')
+            _item = QListWidgetItem(f'{h:02d}')
+            _item.setTextAlignment(Qt.AlignCenter)
+            self._hour_list.addItem(_item)
 
         self._min_list = QListWidget()
         self._min_list.setFixedWidth(52)
         self._min_list.setFixedHeight(180)
         for m in range(0, 60, 5):
-            self._min_list.addItem(f'{m:02d}')
+            _item = QListWidgetItem(f'{m:02d}')
+            _item.setTextAlignment(Qt.AlignCenter)
+            self._min_list.addItem(_item)
 
         layout.addWidget(self._hour_list)
         layout.addWidget(self._min_list)
@@ -1003,7 +1209,10 @@ class UrgentToast(QWidget):
         # 유자 이미지 로드 (팝업 밖으로 튀어나올 별도 위젯용) - yuju_1~3 랜덤
         import random as _random
         _base = os.path.dirname(os.path.abspath(__file__))
-        _candidates = [os.path.join(_base, 'assets', f'yuju_{i}.png') for i in (1, 2, 3)]
+        _candidates = (
+            [os.path.join(_base, 'assets', f'yuju_{i}.png') for i in range(1, 8)]
+            + [os.path.join(_base, 'assets', '위화살표.jpg')]
+        )
         _candidates = [p for p in _candidates if os.path.exists(p)]
         _yuju_path = _random.choice(_candidates) if _candidates else os.path.join(_base, 'assets', 'yuju.png')
         face_pix = None
@@ -1055,6 +1264,7 @@ class UrgentToast(QWidget):
             row.setStyleSheet('color: #3a2000;')
             layout.addWidget(row)
 
+        self.setMinimumWidth(300)
         self.adjustSize()
         screen = QApplication.primaryScreen().availableGeometry()
         tx = screen.right() - self.width() - 24
@@ -1145,6 +1355,7 @@ class MemoWindow(QMainWindow):
         self.pin_active      = False
         self._bg_color       = '#FEFFA7'  # 기본값
         self._capture_hint_shown = False
+        self._scale          = 1.0
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -1163,16 +1374,20 @@ class MemoWindow(QMainWindow):
             for sc in self._shortcuts:
                 sc.setEnabled(False)
 
-    def apply_state(self, x, y, width, height, collapsed, color=''):
+    def apply_state(self, x, y, width, height, collapsed, color='', scale=1.0):
         self.expanded_height = height
         self.collapsed       = collapsed
         self.move(x, y)
-        self.resize(width, TITLE_BAR_HEIGHT if collapsed else height)
+        self.resize(max(width, EdgeHandle.MIN_W), TITLE_BAR_HEIGHT if collapsed else height)
         if collapsed:
             self.content.hide()
             self.setFixedHeight(TITLE_BAR_HEIGHT)
         if color:
             self._apply_color(color)
+        if scale != 1.0:
+            self._scale = scale
+            self._apply_scale_to_inputs()
+            self._refresh_tasks()
 
     def _build_ui(self):
         central = QWidget()
@@ -1317,8 +1532,6 @@ class MemoWindow(QMainWindow):
         self.input_time.installEventFilter(self)
         for child in self.input_time.findChildren(QWidget):
             child.installEventFilter(self)
-        self._time_popup = TimePickerPopup()
-        self._time_popup.time_selected.connect(self._on_time_popup_selected)
         self._cal_popup = CustomCalendarWidget()
         self._cal_popup.setWindowFlags(Qt.Popup)
         self._cal_popup.setStyleSheet("""
@@ -1372,9 +1585,30 @@ class MemoWindow(QMainWindow):
         """)
         btn_history.clicked.connect(self._show_history)
 
+        self.input_recurrence = QComboBox()
+        self.input_recurrence.addItems(['반복 없음', '매주', '격주', '매월', '매년'])
+        for _i in range(self.input_recurrence.count()):
+            self.input_recurrence.setItemData(_i, Qt.AlignCenter, Qt.TextAlignmentRole)
+        self.input_recurrence.installEventFilter(self)
+        self.input_recurrence.setFixedWidth(90)
+        self.input_recurrence.setFont(QFont('Malgun Gothic', 10))
+        self.input_recurrence.setStyleSheet(
+            "QComboBox { border: 1px solid #d4b800; border-radius: 4px; padding: 0 4px; "
+            "background: #fffde7; color: #333; }"
+            "QComboBox:focus { border: 2px solid #4a90d9; background: rgba(255,255,255,0.85); }"
+            "QComboBox::drop-down { border: none; width: 0px; }"
+            "QComboBox QAbstractItemView { font-family: 'Malgun Gothic'; font-size: 10pt; }"
+        )
+
+        _row_h = self.input_name.sizeHint().height()
+        self.input_date.setFixedHeight(_row_h)
+        self.input_time.setFixedHeight(_row_h)
+        self.input_recurrence.setFixedHeight(_row_h)
+
         row2.addWidget(lbl_date)
         row2.addWidget(self.input_date)
         row2.addWidget(self.input_time)
+        row2.addWidget(self.input_recurrence)
         row2.addStretch()
         row2.addWidget(btn_history)
         content_layout.addWidget(self.date_row_widget)
@@ -1451,6 +1685,7 @@ class MemoWindow(QMainWindow):
 
         root.addWidget(self.content)
         self._apply_color(self._bg_color)
+        self._renew_overdue_recurring_tasks()
         self._refresh_tasks()
         self._refresh_documents()
         self._schedule_midnight_refresh()
@@ -1459,9 +1694,6 @@ class MemoWindow(QMainWindow):
     def eventFilter(self, obj, event):
         if hasattr(self, '_cal_popup') and (obj is self.input_date or self.input_date.isAncestorOf(obj)) and event.type() == QEvent.MouseButtonPress:
             self._toggle_cal_popup()
-            return True
-        if hasattr(self, '_time_popup') and (obj is self.input_time or self.input_time.isAncestorOf(obj)) and event.type() == QEvent.MouseButtonPress and self.input_time.isEnabled():
-            self._toggle_time_popup()
             return True
         if event.type() == QEvent.KeyPress:
             if obj is self.input_name and event.key() == Qt.Key_Tab:
@@ -1494,8 +1726,12 @@ class MemoWindow(QMainWindow):
                     return True
                 if event.key() == Qt.Key_Tab:
                     if self.input_time.currentSection() == QDateTimeEdit.MinuteSection:
-                        self.input_name.setFocus()
+                        self.input_recurrence.setFocus()
                         return True
+            if obj is self.input_recurrence:
+                if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                    self._add_task()
+                    return True
         return super().eventFilter(obj, event)
 
     def _on_date_changed(self, qdate):
@@ -1530,20 +1766,40 @@ class MemoWindow(QMainWindow):
                 deadline = date_str
         else:
             deadline = ''
-        add_task(self.window_id, name, deadline)
+        _RECUR_MAP = {0: '', 1: 'weekly', 2: 'biweekly', 3: 'monthly', 4: 'yearly'}
+        recurrence = _RECUR_MAP.get(self.input_recurrence.currentIndex(), '')
+        add_task(self.window_id, name, deadline, recurrence=recurrence)
         self.input_name.clear()
         self.input_date.setDate(QDate(1900, 1, 1))
         self.input_time.setEnabled(False)
         self.input_time.setTime(QTime(9, 0))
+        self.input_recurrence.setCurrentIndex(0)
         self._date_touched = False
         self._time_touched = False
         self.input_name.setFocus()
         self._refresh_tasks()
 
     def _delete_task(self, task):
-        add_task_history(self.window_id, task['name'], task['deadline'], strikethrough=task.get('strikethrough', 0))
+        add_task_history(self.window_id, task['name'], task['deadline'],
+                         strikethrough=task.get('strikethrough', 0),
+                         priority=task.get('priority', 0),
+                         recurrence=task.get('recurrence', ''))
         delete_task(task['id'])
         self._refresh_tasks()
+
+    def _open_global_search(self):
+        dlg = GlobalSearchDialog(self._open_windows, parent=self)
+        dlg.exec_()
+
+    def _highlight_task(self, task_id):
+        for i in range(self.task_list_layout.count()):
+            item = self.task_list_layout.itemAt(i)
+            if item and item.widget() and hasattr(item.widget(), 'task'):
+                row = item.widget()
+                if row.task.get('id') == task_id:
+                    row.setStyleSheet('background: rgba(212,184,0,0.35); border-radius: 4px;')
+                    QTimer.singleShot(1500, lambda r=row: r.setStyleSheet(''))
+                    break
 
     def _schedule_midnight_refresh(self):
         if hasattr(self, '_midnight_timer'):
@@ -1557,7 +1813,28 @@ class MemoWindow(QMainWindow):
         self._midnight_timer.timeout.connect(self._on_midnight)
         self._midnight_timer.start(ms_until_midnight)
 
+    def _renew_overdue_recurring_tasks(self):
+        today = date.today().isoformat()
+        for task in get_tasks(self.window_id):
+            if not task.get('recurrence') or not task.get('deadline'):
+                continue
+            dl = task['deadline'][:10]
+            if dl >= today:
+                continue
+            next_dl = task['deadline']
+            for _ in range(366):
+                next_dl = _next_recurrence_deadline(next_dl, task['recurrence'])
+                if not next_dl:
+                    break
+                if next_dl[:10] >= today:
+                    update_task(task['id'], task['name'], next_dl,
+                                strikethrough=0,
+                                priority=task.get('priority', 0),
+                                recurrence=task['recurrence'])
+                    break
+
     def _on_midnight(self):
+        self._renew_overdue_recurring_tasks()
         self._refresh_tasks()
         self._schedule_midnight_refresh()  # 다음 자정 예약
 
@@ -1567,7 +1844,7 @@ class MemoWindow(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
         for task in get_tasks(self.window_id):
-            row = TaskRow(task, self._delete_task, self._refresh_tasks)
+            row = TaskRow(task, self._delete_task, self._refresh_tasks, scale=self._scale)
             self.task_list_layout.insertWidget(self.task_list_layout.count() - 1, row)
 
     def _refresh_documents(self):
@@ -1757,6 +2034,58 @@ class MemoWindow(QMainWindow):
 
         self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
 
+    @staticmethod
+    def _make_check_icon(checked, size=20):
+        from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen, QIcon
+        px = QPixmap(size, size)
+        px.fill(QColor(0, 0, 0, 0))
+        p = QPainter(px)
+        p.setRenderHint(QPainter.Antialiasing)
+        if checked:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor('#2ecc71'))
+            p.drawRoundedRect(1, 1, size - 2, size - 2, 4, 4)
+            p.setPen(QPen(QColor('#ffffff'), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            bx, by = int(size * 0.40), int(size * 0.62)
+            p.drawLine(int(size * 0.18), int(size * 0.50), bx, by)
+            p.drawLine(bx, by, int(size * 0.82), int(size * 0.25))
+        else:
+            p.setPen(QPen(QColor('#aaaaaa'), 1.5))
+            p.setBrush(QColor(0, 0, 0, 0))
+            p.drawRoundedRect(2, 2, size - 4, size - 4, 3, 3)
+        p.end()
+        return QIcon(px)
+
+    def _make_check_widget_action(self, parent_menu, text, checked, on_trigger):
+        from PyQt5.QtWidgets import QWidgetAction, QToolButton, QSizePolicy
+        wa = QWidgetAction(parent_menu)
+        btn = QToolButton()
+        btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        btn.setIcon(self._make_check_icon(checked))
+        btn.setIconSize(QSize(20, 20))
+        btn.setText(text)
+        btn.setFont(QFont('Malgun Gothic', 11))
+        btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        btn.setStyleSheet("""
+            QToolButton {
+                background: transparent;
+                border: none;
+                padding: 7px 16px 7px 4px;
+                color: #333;
+                text-align: left;
+            }
+            QToolButton:hover {
+                background: rgba(212,184,0,0.3);
+                border-radius: 4px;
+            }
+        """)
+        def _clicked():
+            on_trigger()
+            QTimer.singleShot(0, parent_menu.close)
+        btn.pressed.connect(_clicked)
+        wa.setDefaultWidget(btn)
+        return wa
+
     def _make_menu_style(self):
         return """
             QMenu {
@@ -1778,8 +2107,10 @@ class MemoWindow(QMainWindow):
         menu.setStyleSheet(self._make_menu_style())
 
         act_new    = QAction('🆕 새 메모장', self)
+        act_search = QAction('🔍 통합 검색', self)
         autostart_on = autostart_is_enabled()
-        act_auto   = QAction(('✅' if autostart_on else '☐') + ' 시작 시 자동실행', self)
+        act_auto = QAction(('✅ ' if autostart_on else '☐ ') + '시작 시 자동실행', self)
+        act_auto.triggered.connect(lambda: autostart_set(not autostart_on))
         act_help   = QAction('💡 단축키', self)
         act_update = QAction('⬇️ 업데이트 확인', self)
         act_delete = QAction('🗑️ 메모장 삭제', self)
@@ -1815,6 +2146,7 @@ class MemoWindow(QMainWindow):
         # 마감 알림 메뉴
         alarm_menu = QMenu('⏰ 마감 알림', self)
         alarm_menu.setStyleSheet(self._make_menu_style())
+        alarm_menu.setToolTipsVisible(True)
 
         # ── D-day 5일 이내 알림 서브메뉴 ──
         dday_menu = QMenu('D-day 5일 이내 알림', self)
@@ -1847,50 +2179,43 @@ class MemoWindow(QMainWindow):
 
         alarm_menu.addMenu(dday_menu)
 
-        # ── 당일 3시간 이내 알림 서브메뉴 ──
-        timed_menu = QMenu('당일 3시간 이내 알림', self)
-        timed_menu.setStyleSheet(self._make_menu_style())
-
-        desc_act = QAction('3시간, 2시간, 1시간, 30분 남았을 때\n알람 팝업이 뜹니다.', self)
-        desc_act.setEnabled(False)
-        timed_menu.addAction(desc_act)
-        timed_menu.addSeparator()
-
+        # ── 당일 3시간 이내 알림 토글 ──
         timed_enabled = self._get_timed_alarm_enabled() if self._get_timed_alarm_enabled else True
-        act_timed_on = QAction(('✅ ' if timed_enabled else '　 ') + '설정', self)
-        act_timed_off = QAction(('✅ ' if not timed_enabled else '　 ') + '해제', self)
-        act_timed_on.triggered.connect(lambda: self._set_timed_alarm_enabled(True, menu))
-        act_timed_off.triggered.connect(lambda: self._set_timed_alarm_enabled(False, menu))
-        timed_menu.addAction(act_timed_on)
-        timed_menu.addAction(act_timed_off)
+        act_timed = QAction(('✅ ' if timed_enabled else '☐ ') + '당일 3시간 알림', self)
+        act_timed.setToolTip('3시간, 2시간, 1시간, 30분 전에 팝업 알림이 뜹니다.')
+        act_timed.triggered.connect(lambda: self._set_timed_alarm_enabled(not timed_enabled, menu))
+        alarm_menu.addAction(act_timed)
 
-        alarm_menu.addMenu(timed_menu)
-
-        # 단축키 설정 서브메뉴
-        shortcut_menu = QMenu('⌨️ 단축키 설정', self)
-        shortcut_menu.setStyleSheet(self._make_menu_style())
+        # 단축키 사용 체크 액션
         sc_enabled = self._get_shortcut_enabled() if self._get_shortcut_enabled else True
-        act_sc_on  = QAction(('✅ ' if sc_enabled else '　 ') + '켬', self)
-        act_sc_off = QAction(('✅ ' if not sc_enabled else '　 ') + '끔', self)
-        act_sc_on.triggered.connect(lambda: self._toggle_shortcut(True, menu))
-        act_sc_off.triggered.connect(lambda: self._toggle_shortcut(False, menu))
-        shortcut_menu.addAction(act_sc_on)
-        shortcut_menu.addAction(act_sc_off)
+        act_sc = QAction(('✅ ' if sc_enabled else '☐ ') + '단축키 사용', self)
+        act_sc.triggered.connect(lambda: self._toggle_shortcut(not sc_enabled))
+
+        # 글자 크기 서브메뉴
+        size_menu = QMenu('🔠 글자 크기', self)
+        size_menu.setStyleSheet(self._make_menu_style().replace('min-width: 176px', 'min-width: 100px'))
+        for label, val in [('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2)]:
+            check = '✅ ' if abs(self._scale - val) < 0.01 else '　 '
+            act_sz = QAction(check + label, self)
+            act_sz.triggered.connect(lambda _, v=val: self._set_scale(v, menu))
+            size_menu.addAction(act_sz)
 
         menu.addAction(act_new)
+        menu.addAction(act_search)
         menu.addMenu(color_menu)
+        menu.addMenu(size_menu)
         menu.addMenu(alarm_menu)
         menu.addAction(act_auto)
-        menu.addMenu(shortcut_menu)
+        menu.addAction(act_sc)
         menu.addAction(act_help)
         menu.addAction(act_update)
         menu.addSeparator()
         menu.addAction(act_delete)
 
+        act_search.triggered.connect(self._open_global_search)
         act_new.triggered.connect(lambda: self.on_new(offset_from=self, on_toggle_hotkey=self._on_toggle_hotkey,
                                                        on_shortcut_change=self._on_shortcut_change,
                                                        get_shortcut_enabled=self._get_shortcut_enabled))
-        act_auto.triggered.connect(lambda: autostart_set(not autostart_on))
         act_help.triggered.connect(self.show_help)
         act_update.triggered.connect(lambda: updater.check_for_update_manual(self))
         act_delete.triggered.connect(self.delete_memo)
@@ -2001,7 +2326,10 @@ class MemoWindow(QMainWindow):
                     btn_toggle.setText(f'{arrow}  {year}년 {int(month)}월  ({visible}건)')
 
             def restore_task(r, row_widget, btn_toggle, container, year, month):
-                add_task(self.window_id, r['name'], r['deadline'], strikethrough=r.get('strikethrough', 0))
+                add_task(self.window_id, r['name'], r['deadline'],
+                         strikethrough=r.get('strikethrough', 0),
+                         priority=r.get('priority', 0),
+                         recurrence=r.get('recurrence', ''))
                 delete_task_history(r['id'])
                 self._refresh_tasks()
                 row_widget.hide()
@@ -2214,26 +2542,6 @@ class MemoWindow(QMainWindow):
         self.input_date.setDate(date)
         self._cal_popup.hide()
 
-    def _toggle_time_popup(self):
-        if self._time_popup.isVisible():
-            self._time_popup.hide()
-        else:
-            self._time_popup.set_current_time(self.input_time.time())
-            pos = self.input_time.mapToGlobal(QPoint(0, self.input_time.height()))
-            self._time_popup.adjustSize()
-            screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
-            screen_rect = screen.availableGeometry()
-            popup_size = self._time_popup.sizeHint()
-            if pos.x() + popup_size.width() > screen_rect.right():
-                pos.setX(screen_rect.right() - popup_size.width())
-            if pos.y() + popup_size.height() > screen_rect.bottom():
-                pos = self.input_time.mapToGlobal(QPoint(0, -popup_size.height()))
-            self._time_popup.move(pos)
-            self._time_popup.show()
-
-    def _on_time_popup_selected(self, qtime):
-        self.input_time.setTime(qtime)
-        self._time_touched = True
 
     def show_help(self):
         msg = QMessageBox(self)
@@ -2379,6 +2687,28 @@ class MemoWindow(QMainWindow):
         if not self.collapsed:
             self.expanded_height = self.height()
 
+    def _apply_scale_to_inputs(self):
+        s = self._scale
+        self.input_name.setFont(QFont('Malgun Gothic', int(11 * s)))
+        self.input_date.setFont(QFont('Malgun Gothic', int(11 * s)))
+        self.input_date.setFixedWidth(int(115 * s))
+        self.input_time.setFont(QFont('Malgun Gothic', int(11 * s)))
+        self.input_time.setFixedWidth(int(68 * s))
+        self.input_recurrence.setFont(QFont('Malgun Gothic', int(10 * s)))
+        self.input_recurrence.setFixedWidth(int(90 * s))
+        _row_h = self.input_name.sizeHint().height()
+        self.input_date.setFixedHeight(_row_h)
+        self.input_time.setFixedHeight(_row_h)
+        self.input_recurrence.setFixedHeight(_row_h)
+
+    def _set_scale(self, scale, menu=None):
+        self._scale = scale
+        self._apply_scale_to_inputs()
+        self._refresh_tasks()
+        self.save_state()
+        if menu:
+            menu.close()
+
     def save_state(self):
         pos = self.pos()
         update_window(
@@ -2388,6 +2718,7 @@ class MemoWindow(QMainWindow):
             height=self.expanded_height,
             collapsed=self.collapsed,
             color=self._bg_color,
+            scale=self._scale,
         )
 
     def showEvent(self, e):

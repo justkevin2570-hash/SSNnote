@@ -68,6 +68,8 @@ def init_db():
         wcols = [r[1] for r in conn.execute('PRAGMA table_info(windows)').fetchall()]
         if 'color' not in wcols:
             conn.execute("ALTER TABLE windows ADD COLUMN color TEXT DEFAULT ''")
+        if 'scale' not in wcols:
+            conn.execute("ALTER TABLE windows ADD COLUMN scale REAL DEFAULT 1.0")
 
         if 'strikethrough' not in cols:
             conn.execute('ALTER TABLE tasks ADD COLUMN strikethrough INTEGER NOT NULL DEFAULT 0')
@@ -75,6 +77,18 @@ def init_db():
         hcols = [r[1] for r in conn.execute('PRAGMA table_info(task_history)').fetchall()]
         if 'strikethrough' not in hcols:
             conn.execute('ALTER TABLE task_history ADD COLUMN strikethrough INTEGER NOT NULL DEFAULT 0')
+
+        # priority, recurrence 컬럼 마이그레이션
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(tasks)').fetchall()]
+        if 'priority' not in cols:
+            conn.execute('ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0')
+        hcols = [r[1] for r in conn.execute('PRAGMA table_info(task_history)').fetchall()]
+        if 'priority' not in hcols:
+            conn.execute('ALTER TABLE task_history ADD COLUMN priority INTEGER NOT NULL DEFAULT 0')
+        if 'recurrence' not in cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN recurrence TEXT NOT NULL DEFAULT ''")
+        if 'recurrence' not in hcols:
+            conn.execute("ALTER TABLE task_history ADD COLUMN recurrence TEXT NOT NULL DEFAULT ''")
 
         # 기존 window_state 마이그레이션
         tables = [r[0] for r in conn.execute(
@@ -111,11 +125,11 @@ def create_window(x=130, y=130, width=320, height=400):
         return cur.lastrowid
 
 
-def update_window(window_id, x, y, width, height, collapsed, color=''):
+def update_window(window_id, x, y, width, height, collapsed, color='', scale=1.0):
     with _connect() as conn:
         conn.execute(
-            'UPDATE windows SET x=?,y=?,width=?,height=?,collapsed=?,color=? WHERE id=?',
-            (x, y, width, height, 1 if collapsed else 0, color, window_id)
+            'UPDATE windows SET x=?,y=?,width=?,height=?,collapsed=?,color=?,scale=? WHERE id=?',
+            (x, y, width, height, 1 if collapsed else 0, color, scale, window_id)
         )
 
 
@@ -130,17 +144,17 @@ def delete_window(window_id):
 def get_tasks(window_id):
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM tasks WHERE window_id=? ORDER BY CASE WHEN deadline='' THEN 1 ELSE 0 END, deadline ASC",
+            "SELECT * FROM tasks WHERE window_id=? ORDER BY priority DESC, CASE WHEN deadline='' THEN 1 ELSE 0 END, deadline ASC",
             (window_id,)
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def add_task(window_id, name, deadline, strikethrough=0):
+def add_task(window_id, name, deadline, strikethrough=0, priority=0, recurrence=''):
     with _connect() as conn:
         conn.execute(
-            'INSERT INTO tasks (window_id, name, deadline, strikethrough) VALUES (?, ?, ?, ?)',
-            (window_id, name, deadline, strikethrough)
+            'INSERT INTO tasks (window_id, name, deadline, strikethrough, priority, recurrence) VALUES (?,?,?,?,?,?)',
+            (window_id, name, deadline, strikethrough, priority, recurrence)
         )
 
 
@@ -149,17 +163,45 @@ def delete_task(task_id):
         conn.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
 
 
-def update_task(task_id, name, deadline, strikethrough=0):
-    with _connect() as conn:
-        conn.execute('UPDATE tasks SET name=?, deadline=?, strikethrough=? WHERE id=?', (name, deadline, strikethrough, task_id))
-
-
-def add_task_history(window_id, name, deadline, strikethrough=0):
+def update_task(task_id, name, deadline, strikethrough=0, priority=0, recurrence=''):
     with _connect() as conn:
         conn.execute(
-            'INSERT INTO task_history (window_id, name, deadline, strikethrough) VALUES (?, ?, ?, ?)',
-            (window_id, name, deadline, strikethrough)
+            'UPDATE tasks SET name=?, deadline=?, strikethrough=?, priority=?, recurrence=? WHERE id=?',
+            (name, deadline, strikethrough, priority, recurrence, task_id)
         )
+
+
+def add_task_history(window_id, name, deadline, strikethrough=0, priority=0, recurrence=''):
+    with _connect() as conn:
+        conn.execute(
+            'INSERT INTO task_history (window_id, name, deadline, strikethrough, priority, recurrence) VALUES (?,?,?,?,?,?)',
+            (window_id, name, deadline, strikethrough, priority, recurrence)
+        )
+
+
+def set_task_priority(task_id, priority):
+    with _connect() as conn:
+        conn.execute('UPDATE tasks SET priority=? WHERE id=?', (priority, task_id))
+
+
+def set_task_recurrence(task_id, recurrence):
+    with _connect() as conn:
+        conn.execute('UPDATE tasks SET recurrence=? WHERE id=?', (recurrence, task_id))
+
+
+def search_tasks_all(query):
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.id, t.window_id, t.name, t.deadline, t.strikethrough,
+                      t.priority, t.recurrence, w.color
+               FROM tasks t JOIN windows w ON t.window_id = w.id
+               WHERE t.name LIKE ? COLLATE NOCASE
+               ORDER BY t.priority DESC,
+                        CASE WHEN t.deadline='' THEN 1 ELSE 0 END,
+                        t.deadline ASC""",
+            (f'%{query}%',)
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
 def get_task_history(window_id):

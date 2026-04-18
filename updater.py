@@ -68,11 +68,23 @@ def fetch_version_info() -> dict | None:
 
 
 def is_newer_version(remote_tag: str, local_tag: str) -> bool:
-    """'v1.8' > 'v1.7' 형식 비교. 파싱 실패 시 False 반환."""
+    """
+    버전 비교. 소수점 방식과 세마버 방식 혼용 지원.
+      - 양쪽 모두 x.y 형식 (2자리 이하) → float 비교
+          v1.8 > v1.75  (1.8 > 1.75) ✓
+          v2.0 > v1.9   (2.0 > 1.9)  ✓
+      - 어느 한쪽이 x.y.z 형식 (3자리 이상) → 정수 튜플 비교
+          v1.8.1 > v1.8.0  ((1,8,1) > (1,8,0)) ✓
+          v1.9   > v1.8.5  ((1,9)   > (1,8,5)) ✓
+    파싱 실패 시 False 반환.
+    """
     try:
-        def _parse(tag):
-            return tuple(int(x) for x in tag.lstrip('v').split('.'))
-        return _parse(remote_tag) > _parse(local_tag)
+        r_parts = remote_tag.lstrip('v').split('.')
+        l_parts = local_tag.lstrip('v').split('.')
+        if len(r_parts) <= 2 and len(l_parts) <= 2:
+            return float(remote_tag.lstrip('v')) > float(local_tag.lstrip('v'))
+        return (tuple(int(x) for x in r_parts) >
+                tuple(int(x) for x in l_parts))
     except Exception:
         return False
 
