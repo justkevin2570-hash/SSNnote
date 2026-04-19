@@ -33,9 +33,10 @@ PALETTE = [
 # ── Fluent System Icons 폰트 로드 ────────────────────────────────
 _FI_FONT_ID        = -1
 _FI_FILLED_FONT_ID = -1
+_MAT_FONT_ID       = -1
 
 def _load_fluent_icons():
-    global _FI_FONT_ID, _FI_FILLED_FONT_ID
+    global _FI_FONT_ID, _FI_FILLED_FONT_ID, _MAT_FONT_ID
     base = os.path.dirname(os.path.abspath(__file__))
     if _FI_FONT_ID == -1:
         _FI_FONT_ID = QFontDatabase.addApplicationFont(
@@ -43,6 +44,9 @@ def _load_fluent_icons():
     if _FI_FILLED_FONT_ID == -1:
         _FI_FILLED_FONT_ID = QFontDatabase.addApplicationFont(
             os.path.join(base, 'assets', 'FluentSystemIcons-Filled.ttf'))
+    if _MAT_FONT_ID == -1:
+        _MAT_FONT_ID = QFontDatabase.addApplicationFont(
+            os.path.join(base, 'assets', 'MaterialIcons-Regular.ttf'))
 
 def mi_font(size=14):
     """Fluent System Icons Regular QFont 반환."""
@@ -55,6 +59,12 @@ def mi_font_filled(size=14):
     _load_fluent_icons()
     families = QFontDatabase.applicationFontFamilies(_FI_FILLED_FONT_ID)
     return QFont(families[0] if families else 'FluentSystemIcons-Filled', size)
+
+def mat_font(size=14):
+    """Material Icons QFont 반환."""
+    _load_fluent_icons()
+    families = QFontDatabase.applicationFontFamilies(_MAT_FONT_ID)
+    return QFont(families[0] if families else 'Material Icons', size)
 
 def mi_icon(codepoint, size=18, color='#555555'):
     """Fluent Icons 코드포인트를 QIcon으로 변환."""
@@ -73,8 +83,11 @@ def mi_icon(codepoint, size=18, color='#555555'):
 class MI:
     STAR          = '\uebaa'   # star_emphasis_20_regular (삐침 별) — Regular 폰트용
     STAR_BORDER   = '\uf70f'   # star_20_regular (아웃라인 별) — Regular 폰트용
-    AUTORENEW     = '\uf13d'   # arrow_clockwise
     CHECK         = '\uf294'   # checkmark
+
+# Material Icons 코드포인트
+class MAT:
+    REPEAT        = '\ue040'   # repeat
 
 
 class AddDateButton(QLabel):
@@ -583,10 +596,12 @@ class TaskRow(QWidget):
 
         layout.addWidget(self.name_edit, 1)
         if task.get('recurrence', ''):
-            lbl_recur = QLabel(MI.AUTORENEW)
-            lbl_recur.setFont(mi_font(int(13 * scale)))
-            lbl_recur.setStyleSheet('color: #333; background: transparent; padding-top: 3px; padding-left: 4px;')
-            lbl_recur.setFixedWidth(int(28 * scale))
+            lbl_recur = QLabel(MAT.REPEAT)
+            _recur_font = mat_font(int(13 * scale))
+            lbl_recur.setFont(_recur_font)
+            lbl_recur.setStyleSheet('color: #333; background: transparent; padding-top: 3px;')
+            _fm = QFontMetrics(_recur_font)
+            lbl_recur.setFixedWidth(max(_fm.boundingRect(MAT.REPEAT).width(), _fm.horizontalAdvance(MAT.REPEAT)) + 8)
             layout.addWidget(lbl_recur, 0, Qt.AlignTop)
         if dday_lbl:
             layout.addWidget(dday_lbl, 0, Qt.AlignTop)
@@ -628,14 +643,12 @@ class TaskRow(QWidget):
             QMenu::item { padding: 6px 16px 6px 12px; }
             QMenu::item:selected { background: rgba(212,184,0,0.3); }
         """)
-        is_starred = bool(self.task.get('priority', 0))
-        act_star = QAction((MI.STAR + ' 우선순위 해제(P)' if is_starred else MI.STAR_BORDER + ' 우선순위 설정(P)'), self)
-        act_star.setFont(mi_font(10))
-        menu.addAction(act_star)
-
-        sub_recur = QMenu(MI.AUTORENEW + ' 반복 설정', self)
+        sub_recur = QMenu('반복 설정', self)
         sub_recur.setFont(mi_font(10))
-        sub_recur.setStyleSheet(menu.styleSheet())
+        sub_recur.setStyleSheet(menu.styleSheet().replace('min-width: 120px', 'min-width: 0px').replace(
+            'QMenu::item { padding: 6px 16px 6px 12px; }',
+            'QMenu::item { padding: 6px 16px 6px 16px; text-align: center; }'
+        ))
         cur_recur = self.task.get('recurrence', '')
         for _label, _val in [('없음', ''), ('매주', 'weekly'), ('격주', 'biweekly'), ('매월', 'monthly'), ('매년', 'yearly')]:
             _act = QAction((MI.CHECK + ' ' if cur_recur == _val else '    ') + _label, self)
@@ -649,15 +662,11 @@ class TaskRow(QWidget):
         menu.addAction(act_strike)
         menu.addAction(act_delete)
 
-        act_star.triggered.connect(self._toggle_priority)
         act_strike.triggered.connect(self._toggle_strikethrough)
         act_delete.triggered.connect(lambda: on_delete(task))
 
         def _key_press(e):
-            if e.key() == Qt.Key_P:
-                act_star.trigger()
-                menu.close()
-            elif e.key() == Qt.Key_C:
+            if e.key() == Qt.Key_C:
                 act_strike.trigger()
                 menu.close()
             elif e.key() in (Qt.Key_Delete, Qt.Key_D):
@@ -1206,17 +1215,21 @@ class UrgentToast(QWidget):
         """)
         self.setObjectName('toast')
 
-        # 유자 이미지 로드 (팝업 밖으로 튀어나올 별도 위젯용) - yuju_1~3 랜덤
+        # 팝업 이미지 로드 (assets/popup_images/ 폴더에서 랜덤 선택)
         import random as _random
         _base = os.path.dirname(os.path.abspath(__file__))
-        _candidates = (
-            [os.path.join(_base, 'assets', f'yuju_{i}.png') for i in range(1, 8)]
-            + [os.path.join(_base, 'assets', '위화살표.jpg')]
-        )
-        _candidates = [p for p in _candidates if os.path.exists(p)]
-        _yuju_path = _random.choice(_candidates) if _candidates else os.path.join(_base, 'assets', 'yuju.png')
+        _popup_dir = os.path.join(_base, 'assets', 'popup_images')
+        _exts = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
+        _candidates = sorted([
+            os.path.join(_popup_dir, f)
+            for f in os.listdir(_popup_dir)
+            if os.path.splitext(f)[1].lower() in _exts
+        ]) if os.path.isdir(_popup_dir) else []
+        _yuju_path = _random.choice(_candidates) if _candidates else None
         face_pix = None
         try:
+            if not _yuju_path:
+                raise FileNotFoundError
             from PIL import Image, ImageEnhance
             import io
             _pil = Image.open(_yuju_path).convert('RGBA')
@@ -1230,11 +1243,12 @@ class UrgentToast(QWidget):
             _yuju_pix.loadFromData(buf.getvalue())
             face_pix = _yuju_pix.scaledToHeight(130, Qt.SmoothTransformation)
         except Exception:
-            _yuju_pix = QPixmap(_yuju_path)
-            if not _yuju_pix.isNull():
-                face_h = int(_yuju_pix.height() * 0.72)
-                _tmp = _yuju_pix.copy(0, 0, _yuju_pix.width(), face_h)
-                face_pix = _tmp.scaledToHeight(130, Qt.SmoothTransformation)
+            if _yuju_path:
+                _yuju_pix = QPixmap(_yuju_path)
+                if not _yuju_pix.isNull():
+                    face_h = int(_yuju_pix.height() * 0.72)
+                    _tmp = _yuju_pix.copy(0, 0, _yuju_pix.width(), face_h)
+                    face_pix = _tmp.scaledToHeight(130, Qt.SmoothTransformation)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(27, 18, 27, 22)
