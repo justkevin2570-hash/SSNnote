@@ -1,5 +1,5 @@
 {
-  "version": "v2.3",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.3/SSNnote_Setup.exe",
-  "changelog": "- 도움말 메뉴명 '단축키'로 변경\n- 아이콘 assets 폴더로 정리\n- 유자 이미지 랜덤 표시 (yuju_1~3)\n- 알림 팝업 테두리 개선\n- 단축키 켬/끔 상태 관리 개선\n- 공문 에디터 WebChannel 적용"
+  "version": "v2.31",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.31/SSNnote_Setup.exe",
+  "changelog": "- 단축키 도움말 레이아웃 개선 (왼쪽 정렬)"
 }

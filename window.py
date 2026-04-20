@@ -2558,9 +2558,12 @@ class MemoWindow(QMainWindow):
 
 
     def show_help(self):
-        msg = QMessageBox(self)
-        msg.setWindowTitle('단축키')
-        msg.setText(
+        dlg = QDialog(self)
+        dlg.setWindowTitle('단축키')
+        dlg.setMinimumWidth(370)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(12, 12, 12, 12)
+        lbl = QLabel(
             '<p style="line-height: 195%; font-family: Malgun Gothic; font-size: 11pt;">'
             '① Tab키, Enter키만 잘 쓰면 편하게 쓰실 수 있습니다.<br>'
             '② 단축키: <b>Ctrl + Shift</b> 를 누른 후<br>'
@@ -2571,11 +2574,12 @@ class MemoWindow(QMainWindow):
             '③ 캡처는 공문을 전체화면으로 키워야 정확합니다.'
             '</p>'
         )
-        msg.setStyleSheet(
-            "font-family: 'Malgun Gothic'; font-size: 11pt;"
-            "QMessageBox { min-width: 370px; }"
-        )
-        msg.exec_()
+        lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        layout.addWidget(lbl)
+        btn = QPushButton('확인', dlg)
+        btn.clicked.connect(dlg.accept)
+        layout.addWidget(btn, alignment=Qt.AlignRight)
+        dlg.exec_()
 
     def delete_memo(self):
         confirm = QMessageBox(self)
