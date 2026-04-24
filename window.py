@@ -16,7 +16,8 @@ from db import (update_window, delete_window, get_tasks, add_task, delete_task, 
                 add_task_history, get_task_history, delete_task_history,
                 set_task_priority, set_task_recurrence, search_tasks_all,
                 get_documents, add_document, update_document, delete_document,
-                get_official_documents, delete_official_document)
+                get_official_documents, delete_official_document,
+                get_window_memo, set_window_memo, get_all_windows)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
 import updater
@@ -458,6 +459,18 @@ class TitleBar(QWidget):
             }}
             QPushButton:hover {{ background: rgba(0,0,0,0.12); border-radius: 3px; }}
             QPushButton:pressed {{ background: rgba(0,0,0,0.22); border-radius: 3px; padding: 2px 0 0 2px; }}
+            QPushButton#btn_mode {{
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #5a4000;
+                font-family: 'Malgun Gothic';
+                font-size: 10pt;
+                font-weight: bold;
+            }}
+            QPushButton#btn_mode:hover {{ background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.12); }}
+            QPushButton#btn_mode:pressed {{ background: rgba(0,0,0,0.20); border-color: rgba(0,0,0,0.20); }}
         """)
 
         layout = QHBoxLayout(self)
@@ -489,8 +502,13 @@ class TitleBar(QWidget):
             QPushButton:pressed { background: rgba(0,0,0,0.22); border-radius: 3px; padding: 2px 0 0 2px; }
         """)
 
+        self.btn_mode = QPushButton('메모 mode')
+        self.btn_mode.setObjectName('btn_mode')
+        self.btn_mode.clicked.connect(parent._toggle_memo_mode)
+
         layout.addWidget(self.label)
         layout.addStretch()
+        layout.addWidget(self.btn_mode)
         layout.addWidget(btn_menu)
         layout.addWidget(self.btn_pin)
         layout.addWidget(self.btn_close)
@@ -944,10 +962,15 @@ class _FixedDotBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedHeight(10)
+        self._color = '#d4b800'
+
+    def set_color(self, hex_color):
+        self._color = hex_color
+        self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor('#d4b800'))
+        painter.fillRect(self.rect().adjusted(1, 0, -1, 0), QColor(self._color))
         painter.end()
 
 
@@ -1544,6 +1567,8 @@ class MemoWindow(QMainWindow):
         self._bg_color       = '#FEFFA7'  # 기본값
         self._capture_hint_shown = False
         self._scale          = 1.0
+        self._memo_mode      = False
+        self._memo_save_timer = None
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -1599,7 +1624,7 @@ class MemoWindow(QMainWindow):
         self.content = QWidget()
         self.content.setStyleSheet('background: transparent;')
         _outer_layout = QVBoxLayout(self.content)
-        _outer_layout.setContentsMargins(0, 0, 8, 0)
+        _outer_layout.setContentsMargins(0, 0, 0, 0)
         _outer_layout.setSpacing(0)
 
         _splitter = QWidget()
@@ -1653,7 +1678,9 @@ class MemoWindow(QMainWindow):
         lbl_css  = 'color: #5a4000; background: transparent;'
 
         # 1행: 업무
-        row1 = QHBoxLayout()
+        self.task_input_row = QWidget()
+        self.task_input_row.setStyleSheet('background: transparent;')
+        row1 = QHBoxLayout(self.task_input_row)
         row1.setContentsMargins(16, 0, 8, 0)
         row1.setSpacing(4)
         lbl_name = QLabel('업무:')
@@ -1670,7 +1697,7 @@ class MemoWindow(QMainWindow):
         self.input_name.textChanged.connect(self._on_name_cleared)
         row1.addWidget(lbl_name)
         row1.addWidget(self.input_name, 1)
-        content_layout.addLayout(row1)
+        content_layout.addWidget(self.task_input_row)
 
         # 2행: 마감일 (기본 숨김)
         self.date_row_widget = QWidget()
@@ -1803,11 +1830,6 @@ class MemoWindow(QMainWindow):
         row2.addWidget(btn_history)
         content_layout.addWidget(self.date_row_widget)
 
-        # 구분선
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet('color: #d4b800; background: #d4b800; max-height: 1px; margin: 2px 8px;')
-        content_layout.addWidget(line)
 
         # 업무 목록
         self.task_list_widget = QWidget()
@@ -1817,17 +1839,33 @@ class MemoWindow(QMainWindow):
         self.task_list_layout.setSpacing(0)
         self.task_list_layout.addStretch()
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setWidget(self.task_list_widget)
-        scroll.setStyleSheet("""
+        self.task_scroll = QScrollArea()
+        self.task_scroll.setWidgetResizable(True)
+        self.task_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.task_scroll.setWidget(self.task_list_widget)
+        self.task_scroll.setStyleSheet("""
             QScrollArea { border: none; background: transparent; }
             QScrollBar:vertical { width: 6px; background: transparent; }
             QScrollBar::handle:vertical { background: #d4b800; border-radius: 3px; }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
-        content_layout.addWidget(scroll)
+        content_layout.addWidget(self.task_scroll)
+
+        # 메모 모드 자유 편집기 (기본 숨김)
+        self.memo_editor = QPlainTextEdit()
+        self.memo_editor.setPlaceholderText('여기에 바로 메모를 적으세요...')
+        self.memo_editor.setFont(QFont('Malgun Gothic', 11))
+        self.memo_editor.setStyleSheet("""
+            QPlainTextEdit {
+                background: transparent;
+                border: none;
+                color: #333;
+                padding: 4px 8px;
+            }
+        """)
+        self.memo_editor.textChanged.connect(self._on_memo_text_changed)
+        self.memo_editor.hide()
+        content_layout.addWidget(self.memo_editor)
         _splitter_layout.addWidget(_top_panel, stretch=1)
 
         # ── 하단 패널: 공문 작성 버튼 ──────────────────────────────
@@ -1870,8 +1908,11 @@ class MemoWindow(QMainWindow):
         self.doc_list_layout.addStretch()
         self.doc_list_widget.hide()
 
-        _splitter_layout.addWidget(_FixedDotBar())
         _splitter_layout.addWidget(_bottom_panel, stretch=0)
+
+        _all_ids = [w['id'] for w in get_all_windows()]
+        if _all_ids and self.window_id != min(_all_ids):
+            _bottom_panel.hide()
 
         root.addWidget(self.content)
         self._apply_color(self._bg_color)
@@ -1880,6 +1921,17 @@ class MemoWindow(QMainWindow):
         self._refresh_documents()
         self._schedule_midnight_refresh()
         self._setup_resize_handles()
+
+        # 메모 저장 타이머 (디바운스 500ms)
+        self._memo_save_timer = QTimer(self)
+        self._memo_save_timer.setSingleShot(True)
+        self._memo_save_timer.timeout.connect(self._flush_memo_save)
+
+        # 저장된 메모 모드 및 텍스트 복원
+        _saved_mode, _saved_text = get_window_memo(self.window_id)
+        self.memo_editor.setPlainText(_saved_text)
+        if _saved_mode:
+            self._apply_memo_mode(True)
 
     def eventFilter(self, obj, event):
         if hasattr(self, '_cal_popup') and (obj is self.input_date or self.input_date.isAncestorOf(obj)) and event.type() == QEvent.MouseButtonPress:
@@ -1972,6 +2024,33 @@ class MemoWindow(QMainWindow):
             self._date_touched = False
             self._time_touched = False
             self.input_date.setStyleSheet(self._field_style_date_empty)
+
+    def _toggle_memo_mode(self):
+        self._apply_memo_mode(not self._memo_mode)
+        self._flush_memo_save()
+
+    def _apply_memo_mode(self, on: bool):
+        self._memo_mode = on
+        self.task_input_row.setVisible(not on)
+        self.date_row_widget.setVisible(not on)
+        self.task_scroll.setVisible(not on)
+        self.memo_editor.setVisible(on)
+        if on:
+            self.memo_editor.setFocus()
+            self.title_bar.btn_mode.setText('업무 mode')
+            self.title_bar.btn_mode.setToolTip('업무 모드로 전환')
+        else:
+            self.input_name.setFocus()
+            self.title_bar.btn_mode.setText('메모 mode')
+            self.title_bar.btn_mode.setToolTip('메모 모드로 전환')
+
+    def _on_memo_text_changed(self):
+        if self._memo_save_timer is not None:
+            self._memo_save_timer.start(500)
+
+    def _flush_memo_save(self):
+        text = self.memo_editor.toPlainText()
+        set_window_memo(self.window_id, 1 if self._memo_mode else 0, text)
 
     def _add_task(self):
         name = self.input_name.text().strip()
@@ -2437,8 +2516,10 @@ class MemoWindow(QMainWindow):
         menu.addAction(act_sc)
         menu.addAction(act_help)
         menu.addAction(act_update)
-        menu.addSeparator()
-        menu.addAction(act_delete)
+        _all_ids = [w['id'] for w in get_all_windows()]
+        if not _all_ids or self.window_id != min(_all_ids):
+            menu.addSeparator()
+            menu.addAction(act_delete)
 
         act_search.triggered.connect(self._open_global_search)
         act_new.triggered.connect(lambda: self.on_new(offset_from=self, on_toggle_hotkey=self._on_toggle_hotkey,
@@ -2474,6 +2555,18 @@ class MemoWindow(QMainWindow):
                 border-radius: 4px;
             }}
             QPushButton:hover {{ background: rgba(0,0,0,0.12); }}
+            QPushButton#btn_mode {{
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #5a4000;
+                font-family: 'Malgun Gothic';
+                font-size: 10pt;
+                font-weight: bold;
+            }}
+            QPushButton#btn_mode:hover {{ background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.12); }}
+            QPushButton#btn_mode:pressed {{ background: rgba(0,0,0,0.20); border-color: rgba(0,0,0,0.20); }}
         """)
 
     def _set_alarm_interval(self, minutes, menu=None):
@@ -2856,13 +2949,13 @@ class MemoWindow(QMainWindow):
         w, h = self.width(), self.height()
 
         def snap_axis(val, lo, hi, size):
-            dist_lo = val - lo          # 왼쪽/상단 끝까지의 거리
-            dist_hi = hi - (val + size) # 오른쪽/하단 끝까지의 거리
+            dist_lo = val - lo
+            dist_hi = hi - (val + size)
             if 0 <= dist_lo < SNAP_ZONE:
                 if dist_lo < SNAP_THRESHOLD:
                     return float(lo)
-                t = 1.0 - dist_lo / SNAP_ZONE   # 가까울수록 t가 커짐
-                return val - dist_lo * t * t     # 2차 곡선으로 서서히 당김
+                t = 1.0 - dist_lo / SNAP_ZONE
+                return val - dist_lo * t * t
             if 0 <= dist_hi < SNAP_ZONE:
                 if dist_hi < SNAP_THRESHOLD:
                     return float(hi - size)
@@ -2872,6 +2965,38 @@ class MemoWindow(QMainWindow):
 
         nx = snap_axis(x, rect.left(), rect.right(),  w)
         ny = snap_axis(y, rect.top(),  rect.bottom(), h)
+
+        # 다른 창과의 자석 스냅
+        for other in self._open_windows:
+            if other is self:
+                continue
+            r = other.geometry()
+            ox, oy = float(r.x()), float(r.y())
+            ow, oh = float(r.width()), float(r.height())
+
+            v_near = (ny < oy + oh + SNAP_ZONE) and (ny + h > oy - SNAP_ZONE)
+            h_near = (nx < ox + ow + SNAP_ZONE) and (nx + w > ox - SNAP_ZONE)
+
+            if v_near:
+                # 내 오른쪽 → 상대 왼쪽
+                d = ox - (nx + w)
+                if 0 <= d < SNAP_ZONE:
+                    nx = ox - w if d < SNAP_THRESHOLD else nx + d * (1.0 - d / SNAP_ZONE) ** 2
+                # 내 왼쪽 → 상대 오른쪽
+                d = nx - (ox + ow)
+                if 0 <= d < SNAP_ZONE:
+                    nx = ox + ow if d < SNAP_THRESHOLD else nx - d * (1.0 - d / SNAP_ZONE) ** 2
+
+            if h_near:
+                # 내 아래쪽 → 상대 위쪽
+                d = oy - (ny + h)
+                if 0 <= d < SNAP_ZONE:
+                    ny = oy - h if d < SNAP_THRESHOLD else ny + d * (1.0 - d / SNAP_ZONE) ** 2
+                # 내 위쪽 → 상대 아래쪽
+                d = ny - (oy + oh)
+                if 0 <= d < SNAP_ZONE:
+                    ny = oy + oh if d < SNAP_THRESHOLD else ny - d * (1.0 - d / SNAP_ZONE) ** 2
+
         return QPoint(int(nx), int(ny))
 
     def _setup_resize_handles(self):
@@ -2932,6 +3057,7 @@ class MemoWindow(QMainWindow):
         self.input_date.setFixedHeight(_row_h)
         self.input_time.setFixedHeight(_row_h)
         self.input_recurrence.setFixedHeight(_row_h)
+        self.memo_editor.setFont(QFont('Malgun Gothic', int(11 * s)))
 
     def _set_scale(self, scale, menu=None):
         self._scale = scale
@@ -2957,9 +3083,12 @@ class MemoWindow(QMainWindow):
         super().showEvent(e)
         if not getattr(self, '_first_shown', False):
             self._first_shown = True
-            QTimer.singleShot(0, lambda: (self.activateWindow(), self.input_name.setFocus()))
+            QTimer.singleShot(0, lambda: (self.activateWindow(), (self.memo_editor if self._memo_mode else self.input_name).setFocus()))
 
     def closeEvent(self, e):
         if not getattr(self, '_deleted', False):
             self.save_state()
+            if self._memo_save_timer and self._memo_save_timer.isActive():
+                self._memo_save_timer.stop()
+                self._flush_memo_save()
         e.accept()

@@ -70,6 +70,10 @@ def init_db():
             conn.execute("ALTER TABLE windows ADD COLUMN color TEXT DEFAULT ''")
         if 'scale' not in wcols:
             conn.execute("ALTER TABLE windows ADD COLUMN scale REAL DEFAULT 1.0")
+        if 'memo_mode' not in wcols:
+            conn.execute("ALTER TABLE windows ADD COLUMN memo_mode INTEGER DEFAULT 0")
+        if 'memo_text' not in wcols:
+            conn.execute("ALTER TABLE windows ADD COLUMN memo_text TEXT DEFAULT ''")
 
         if 'strikethrough' not in cols:
             conn.execute('ALTER TABLE tasks ADD COLUMN strikethrough INTEGER NOT NULL DEFAULT 0')
@@ -202,6 +206,24 @@ def search_tasks_all(query):
             (f'%{query}%',)
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_window_memo(window_id):
+    with _connect() as conn:
+        row = conn.execute(
+            'SELECT memo_mode, memo_text FROM windows WHERE id=?', (window_id,)
+        ).fetchone()
+        if row:
+            return row['memo_mode'] or 0, row['memo_text'] or ''
+        return 0, ''
+
+
+def set_window_memo(window_id, memo_mode, memo_text):
+    with _connect() as conn:
+        conn.execute(
+            'UPDATE windows SET memo_mode=?, memo_text=? WHERE id=?',
+            (memo_mode, memo_text, window_id)
+        )
 
 
 def get_task_history(window_id):
