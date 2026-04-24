@@ -1,6 +1,6 @@
 [Setup]
 AppName=SSNnote
-AppVersion=2.4
+AppVersion=2.41
 AppPublisher=justkevin2570
 DefaultDirName={autopf}\SSNnote
 DefaultGroupName=SSNnote

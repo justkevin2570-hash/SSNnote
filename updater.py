@@ -128,7 +128,7 @@ class UpdateNotifier(QObject):
 
     def _on_notify(self, version: str, download_url: str, changelog: str):
         """메인 스레드에서 실행됨."""
-        show_update_dialog(version, download_url, changelog)
+        show_update_notification(version, changelog)
 
 
 class ManualUpdateSignal(QObject):
@@ -208,8 +208,30 @@ def check_for_update_manual(parent=None):
     threading.Thread(target=_check, daemon=True).start()
 
 
+def show_update_notification(version: str, changelog: str = '', parent=None):
+    """시작 시 새 버전 안내 — 다운로드 없이 메뉴 안내만."""
+    msg = QMessageBox(parent)
+    msg.setWindowTitle('SSNnote 업데이트')
+    msg.setText(
+        f'SSNnote 새로운 버전이 있습니다.\n\n'
+        f'현재 버전: {APP_VERSION}\n'
+        f'최신 버전: {version}\n\n'
+        f'메뉴의 \'업데이트 확인\'을 누르시면 업데이트 가능합니다.'
+    )
+    msg.setDetailedText(changelog if changelog else '업데이트 내역 없음')
+    msg.setStandardButtons(QMessageBox.Ok)
+    ok_btn = msg.button(QMessageBox.Ok)
+    if ok_btn:
+        ok_btn.setText('확인')
+    for btn in msg.buttons():
+        if 'Show Details' in btn.text() or 'Details' in btn.text():
+            btn.setText('자세히')
+    msg.exec_()
+    _save_notified_version(version)
+
+
 def show_update_dialog(version: str, download_url: str, changelog: str, parent=None):
-    """팝업 표시. 예/아니오 모두 버전 기록."""
+    """메뉴에서 수동 확인 시 팝업 — 다운로드/설치."""
     msg = QMessageBox(parent)
     msg.setWindowTitle('SSNnote 업데이트')
     msg.setText(f'현재 버전: {APP_VERSION}\n최신 버전: {version}\n\n업데이트 하시겠어요?')
