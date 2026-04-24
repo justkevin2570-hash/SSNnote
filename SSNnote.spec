@@ -19,7 +19,6 @@ a = Analysis(
         ('assets/FluentSystemIcons-Filled.ttf', 'assets'),
         ('assets/MaterialIcons-Regular.ttf', 'assets'),
         ('assets/icons.png', 'assets'),
-        ('assets/editor.html', 'assets'),
     ],
     hiddenimports=[
         'PyQt5.sip',
