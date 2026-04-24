@@ -1,5 +1,5 @@
 {
-  "version": "v2.31",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.31/SSNnote_Setup.exe",
-  "changelog": "- 단축키 도움말 레이아웃 개선 (왼쪽 정렬)"
+  "version": "v2.4",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.4/SSNnote_Setup.exe",
+  "changelog": "- Claude, ChatGPT, NVIDIA 외부 AI 제공자 추가\n- 자동 업데이트 다운로드 안정성 개선 (requests 기반)\n- 반복 태스크 사용자 설정 마감일 자동 계산 버그 수정\n- 공문 에디터 경량화 (QTextEdit 복구)"
 }

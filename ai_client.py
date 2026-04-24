@@ -1,13 +1,8 @@
 """
 ai_client.py — AI 제공자 추상화 레이어
 
-나중에 AI 제공자를 바꿀 때 이 파일만 수정하면 됩니다.
-현재 구현: Gemini (google-generativeai)
-
-다른 제공자로 교체 시:
-  - ClaudeAdapter  : anthropic SDK, ask()/ask_with_image() 동일 인터페이스
-  - OpenAIAdapter  : openai SDK, 동일 인터페이스
-  - OllamaAdapter  : 로컬 REST (Gemma4 등), 동일 인터페이스
+지원 제공자: Gemini, Claude, OpenAI(ChatGPT), NVIDIA NIM, Ollama(로컬)
+다른 제공자로 교체 시 이 파일의 어댑터만 수정하면 됩니다.
 """
 
 import os
@@ -20,17 +15,45 @@ KEY_FILE           = os.path.join(APPDATA_DIR, 'gemini_key.txt')
 AI_MODE_FILE       = os.path.join(APPDATA_DIR, 'ai_mode.txt')
 OLLAMA_MODEL_FILE  = os.path.join(APPDATA_DIR, 'ollama_model.txt')
 GEMINI_MODEL_FILE  = os.path.join(APPDATA_DIR, 'gemini_model.txt')
+CLAUDE_KEY_FILE    = os.path.join(APPDATA_DIR, 'claude_key.txt')
+CLAUDE_MODEL_FILE  = os.path.join(APPDATA_DIR, 'claude_model.txt')
+OPENAI_KEY_FILE    = os.path.join(APPDATA_DIR, 'openai_key.txt')
+OPENAI_MODEL_FILE  = os.path.join(APPDATA_DIR, 'openai_model.txt')
+NVIDIA_KEY_FILE    = os.path.join(APPDATA_DIR, 'nvidia_key.txt')
+NVIDIA_MODEL_FILE  = os.path.join(APPDATA_DIR, 'nvidia_model.txt')
 OLLAMA_HOST        = 'http://localhost:11434'
 
-# AI 모드: 'external' | 'internal' | 'none'
-_AI_MODES = ('external', 'internal', 'none')
+# AI 모드: 'gemini'|'claude'|'openai'|'nvidia'|'internal'|'none'
+# 'external'은 하위 호환 (= 'gemini')
+_AI_MODES = ('external', 'internal', 'none', 'gemini', 'claude', 'openai', 'nvidia')
 
-# API 키 없이도 표시할 기본 Gemini 모델 목록
+# 기본 모델 목록 (API 키 없이도 표시)
 GEMINI_DEFAULT_MODELS = [
     "gemini-3-flash-preview",
+    "gemini-2.0-flash",
+    "gemini-2.5-pro-preview-05-06",
 ]
 
-# 외부 AI(Gemini 등 대형 모델): 형식 제약 최소화, 모델 자율성 최대
+CLAUDE_DEFAULT_MODELS = [
+    "claude-sonnet-4-6",
+    "claude-opus-4-7",
+    "claude-haiku-4-5-20251001",
+]
+
+OPENAI_DEFAULT_MODELS = [
+    "gpt-4.1",
+    "gpt-4o",
+    "gpt-4o-mini",
+]
+
+NVIDIA_DEFAULT_MODELS = [
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+    "meta/llama-3.1-405b-instruct",
+    "meta/llama-3.3-70b-instruct",
+    "mistralai/mixtral-8x7b-instruct-v0.1",
+]
+
+# 외부 AI(대형 모델): 형식 제약 최소화, 모델 자율성 최대
 EXTERNAL_DOC_SYSTEM_PROMPT = (
     "당신은 한국 학교 행정 공문 작성 전문가입니다. "
     "공식 공문 문체(개조식, '~함', '~바람', '~고자 함')로 작성하세요. "
@@ -308,8 +331,14 @@ def load_api_key() -> str:
     return ''
 
 
+def save_api_key(key: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(KEY_FILE, 'w', encoding='utf-8') as f:
+        f.write(key.strip())
+    GeminiAdapter.invalidate_client()
+
+
 def load_ai_mode() -> str:
-    """저장된 AI 모드 반환. 기본값: 'external'."""
     if os.path.exists(AI_MODE_FILE):
         with open(AI_MODE_FILE, 'r', encoding='utf-8') as f:
             mode = f.read().strip()
@@ -326,15 +355,7 @@ def save_ai_mode(mode: str):
         f.write(mode)
 
 
-def save_api_key(key: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(KEY_FILE, 'w', encoding='utf-8') as f:
-        f.write(key.strip())
-    GeminiAdapter.invalidate_client()
-
-
 def load_ollama_model() -> str:
-    """저장된 Ollama 모델명 반환. 기본값: 'gemma3:2b'."""
     if os.path.exists(OLLAMA_MODEL_FILE):
         with open(OLLAMA_MODEL_FILE, 'r', encoding='utf-8') as f:
             v = f.read().strip()
@@ -350,7 +371,6 @@ def save_ollama_model(model: str):
 
 
 def load_gemini_model() -> str:
-    """저장된 Gemini 모델명 반환. 기본값: 'gemini-2.0-flash'."""
     if os.path.exists(GEMINI_MODEL_FILE):
         with open(GEMINI_MODEL_FILE, 'r', encoding='utf-8') as f:
             v = f.read().strip()
@@ -365,8 +385,99 @@ def save_gemini_model(model: str):
         f.write(model.strip())
 
 
+def load_claude_key() -> str:
+    if os.path.exists(CLAUDE_KEY_FILE):
+        with open(CLAUDE_KEY_FILE, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    return ''
+
+
+def save_claude_key(key: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(CLAUDE_KEY_FILE, 'w', encoding='utf-8') as f:
+        f.write(key.strip())
+
+
+def load_claude_model() -> str:
+    if os.path.exists(CLAUDE_MODEL_FILE):
+        with open(CLAUDE_MODEL_FILE, 'r', encoding='utf-8') as f:
+            v = f.read().strip()
+            if v:
+                return v
+    return 'claude-sonnet-4-6'
+
+
+def save_claude_model(model: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(CLAUDE_MODEL_FILE, 'w', encoding='utf-8') as f:
+        f.write(model.strip())
+
+
+def load_openai_key() -> str:
+    if os.path.exists(OPENAI_KEY_FILE):
+        with open(OPENAI_KEY_FILE, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    return ''
+
+
+def save_openai_key(key: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(OPENAI_KEY_FILE, 'w', encoding='utf-8') as f:
+        f.write(key.strip())
+
+
+def load_openai_model() -> str:
+    if os.path.exists(OPENAI_MODEL_FILE):
+        with open(OPENAI_MODEL_FILE, 'r', encoding='utf-8') as f:
+            v = f.read().strip()
+            if v:
+                return v
+    return 'gpt-4.1'
+
+
+def save_openai_model(model: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(OPENAI_MODEL_FILE, 'w', encoding='utf-8') as f:
+        f.write(model.strip())
+
+
+def load_nvidia_key() -> str:
+    if os.path.exists(NVIDIA_KEY_FILE):
+        with open(NVIDIA_KEY_FILE, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    return ''
+
+
+def save_nvidia_key(key: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(NVIDIA_KEY_FILE, 'w', encoding='utf-8') as f:
+        f.write(key.strip())
+
+
+def load_nvidia_model() -> str:
+    if os.path.exists(NVIDIA_MODEL_FILE):
+        with open(NVIDIA_MODEL_FILE, 'r', encoding='utf-8') as f:
+            v = f.read().strip()
+            if v:
+                return v
+    return 'nvidia/llama-3.1-nemotron-ultra-253b-v1'
+
+
+def save_nvidia_model(model: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(NVIDIA_MODEL_FILE, 'w', encoding='utf-8') as f:
+        f.write(model.strip())
+
+
 def load_external_model_name() -> str:
-    """외부 AI(Gemini) 모델 표시명 반환."""
+    """현재 외부 AI 제공자의 모델 표시명 반환."""
+    mode = load_ai_mode()
+    if mode == 'claude':
+        return load_claude_model()
+    elif mode == 'openai':
+        return load_openai_model()
+    elif mode == 'nvidia':
+        return load_nvidia_model()
     return load_gemini_model()
 
 
@@ -382,15 +493,28 @@ def _pixmap_to_base64(pixmap: QPixmap) -> str:
     return base64.b64encode(bytes(buf.data())).decode('utf-8')
 
 
+def _parse_json_response(raw: str) -> dict:
+    """AI 응답 텍스트에서 JSON 파싱. 마크다운 코드블록 제거 후 시도."""
+    import json, re
+    cleaned = re.sub(r'^```[a-z]*\n?', '', raw, flags=re.MULTILINE)
+    cleaned = re.sub(r'```$', '', cleaned, flags=re.MULTILINE).strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        return {"title": "", "doc_number": "", "raw": raw}
+
+
 # ── GeminiAdapter ────────────────────────────────────────────────
-# 다른 제공자로 바꿀 때: 아래 클래스만 교체하거나 새 Adapter 추가 후
-# AiStreamThread / ask_with_image_sync 의 import 대상을 변경하면 됩니다.
 
 _gemini_client = None  # 싱글톤 캐시
 
 
 class GeminiAdapter:
     requires_api_key = True
+
+    @staticmethod
+    def get_api_key() -> str:
+        return load_api_key()
 
     @staticmethod
     def _client():
@@ -411,7 +535,6 @@ class GeminiAdapter:
 
     @classmethod
     def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
-        """텍스트 스트리밍. on_chunk(str), on_done(full_str), on_error(msg)."""
         try:
             from google import genai
             from google.genai import types
@@ -438,12 +561,6 @@ class GeminiAdapter:
 
     @classmethod
     def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
-        """
-        이미지 + 텍스트 프롬프트를 보내고 JSON dict 반환.
-        반환 형식: {"title": str, "doc_number": str}
-        인식 실패 시: {"title": "", "doc_number": "", "raw": str}
-        """
-        import json, re
         try:
             from google import genai
             from google.genai import types
@@ -459,17 +576,137 @@ class GeminiAdapter:
                 contents=[prompt, image_part],
                 config=config,
             )
-            raw = response.text.strip()
-
-            # JSON 파싱 (마크다운 코드블록 제거 후 시도)
-            cleaned = re.sub(r'^```[a-z]*\n?', '', raw, flags=re.MULTILINE)
-            cleaned = re.sub(r'```$', '', cleaned, flags=re.MULTILINE).strip()
-            try:
-                return json.loads(cleaned)
-            except json.JSONDecodeError:
-                return {"title": "", "doc_number": "", "raw": raw}
+            return _parse_json_response(response.text.strip())
         except Exception as e:
             return {"title": "", "doc_number": "", "error": str(e)}
+
+
+# ── ClaudeAdapter ─────────────────────────────────────────────────
+
+class ClaudeAdapter:
+    requires_api_key = True
+
+    @staticmethod
+    def get_api_key() -> str:
+        return load_claude_key()
+
+    @classmethod
+    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=cls.get_api_key())
+            full = ""
+            with client.messages.stream(
+                model=load_claude_model(),
+                max_tokens=1500,
+                system=[{"type": "text", "text": system,
+                         "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": prompt}]
+            ) as stream:
+                for text in stream.text_stream:
+                    full += text
+                    on_chunk(text)
+            on_done(full)
+        except Exception as e:
+            on_error(str(e))
+
+    @classmethod
+    def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=cls.get_api_key())
+            response = client.messages.create(
+                model=load_claude_model(),
+                max_tokens=256,
+                system=[{"type": "text", "text": OCR_SYSTEM_PROMPT,
+                         "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/png", "data": image_b64
+                    }},
+                    {"type": "text", "text": prompt}
+                ]}]
+            )
+            return _parse_json_response(response.content[0].text.strip())
+        except Exception as e:
+            return {"title": "", "doc_number": "", "error": str(e)}
+
+
+# ── OpenAIAdapter ─────────────────────────────────────────────────
+
+class OpenAIAdapter:
+    requires_api_key = True
+    _base_url = None  # None → 기본 OpenAI endpoint
+
+    @classmethod
+    def get_api_key(cls) -> str:
+        return load_openai_key()
+
+    @classmethod
+    def _model(cls) -> str:
+        return load_openai_model()
+
+    @classmethod
+    def _make_client(cls):
+        from openai import OpenAI
+        kwargs = {"api_key": cls.get_api_key()}
+        if cls._base_url:
+            kwargs["base_url"] = cls._base_url
+        return OpenAI(**kwargs)
+
+    @classmethod
+    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
+        try:
+            client = cls._make_client()
+            full = ""
+            with client.chat.completions.create(
+                model=cls._model(),
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1500,
+                stream=True
+            ) as stream:
+                for chunk in stream:
+                    text = chunk.choices[0].delta.content or ""
+                    full += text
+                    if text:
+                        on_chunk(text)
+            on_done(full)
+        except Exception as e:
+            on_error(str(e))
+
+    @classmethod
+    def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
+        try:
+            client = cls._make_client()
+            response = client.chat.completions.create(
+                model=cls._model(),
+                messages=[{"role": "user", "content": [
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+                    {"type": "text", "text": prompt}
+                ]}],
+                max_tokens=256
+            )
+            return _parse_json_response(response.choices[0].message.content.strip())
+        except Exception as e:
+            return {"title": "", "doc_number": "", "error": str(e)}
+
+
+# ── NvidiaAdapter (OpenAI 호환 API) ──────────────────────────────
+
+class NvidiaAdapter(OpenAIAdapter):
+    _base_url = 'https://integrate.api.nvidia.com/v1'
+
+    @classmethod
+    def get_api_key(cls) -> str:
+        return load_nvidia_key()
+
+    @classmethod
+    def _model(cls) -> str:
+        return load_nvidia_model()
 
 
 # ── OllamaAdapter ────────────────────────────────────────────────
@@ -478,12 +715,15 @@ class OllamaAdapter:
     requires_api_key = False
 
     @staticmethod
+    def get_api_key() -> str:
+        return 'ollama'  # 키 불필요 — 항상 통과
+
+    @staticmethod
     def _model():
         return load_ollama_model()
 
     @classmethod
     def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=INTERNAL_DOC_SYSTEM_PROMPT):
-        """Ollama /api/generate 스트리밍."""
         import json, requests
         url = f'{OLLAMA_HOST}/api/generate'
         model = cls._model()
@@ -491,7 +731,7 @@ class OllamaAdapter:
             'model': model,
             'prompt': f'{system}\n\n{prompt}',
             'stream': True,
-            'think': False,   # qwen3 등 thinking 모드 비활성화 (빠른 응답)
+            'think': False,
         }
         try:
             with requests.post(url, json=payload, stream=True, timeout=120) as resp:
@@ -504,7 +744,6 @@ class OllamaAdapter:
                     if not line:
                         continue
                     data = json.loads(line)
-                    # Ollama가 스트림 중 오류를 내는 경우
                     if 'error' in data:
                         on_error(data['error'])
                         return
@@ -522,7 +761,6 @@ class OllamaAdapter:
 
     @classmethod
     def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
-        """Ollama /api/generate — 이미지 지원(비전 모델인 경우)."""
         import json, requests
         url = f'{OLLAMA_HOST}/api/generate'
         payload = {
@@ -534,27 +772,27 @@ class OllamaAdapter:
         try:
             resp = requests.post(url, json=payload, timeout=60)
             resp.raise_for_status()
-            raw = resp.json().get('response', '').strip()
-            cleaned = __import__('re').sub(r'^```[a-z]*\n?', '', raw, flags=__import__('re').MULTILINE)
-            cleaned = __import__('re').sub(r'```$', '', cleaned, flags=__import__('re').MULTILINE).strip()
-            try:
-                return json.loads(cleaned)
-            except json.JSONDecodeError:
-                return {'title': '', 'doc_number': '', 'raw': raw}
+            return _parse_json_response(resp.json().get('response', '').strip())
         except requests.exceptions.ConnectionError:
             return {'title': '', 'doc_number': '', 'error': 'Ollama 서버에 연결할 수 없습니다.'}
         except Exception as e:
             return {'title': '', 'doc_number': '', 'error': str(e)}
 
 
-# ── 현재 사용할 어댑터 (여기만 바꾸면 전체 교체) ──────────────────
-_ADAPTER = GeminiAdapter
-
+# ── 어댑터 선택 ──────────────────────────────────────────────────
 
 def _get_adapter():
-    """현재 AI 모드에 맞는 어댑터 반환."""
+    """현재 AI 모드에 맞는 어댑터 클래스 반환."""
     mode = load_ai_mode()
-    if mode == 'internal':
+    if mode in ('external', 'gemini'):
+        return GeminiAdapter
+    elif mode == 'claude':
+        return ClaudeAdapter
+    elif mode == 'openai':
+        return OpenAIAdapter
+    elif mode == 'nvidia':
+        return NvidiaAdapter
+    elif mode == 'internal':
         return OllamaAdapter
     return GeminiAdapter
 
@@ -562,10 +800,6 @@ def _get_adapter():
 # ── 공개 인터페이스 ──────────────────────────────────────────────
 
 class AiStreamThread(QThread):
-    """
-    텍스트 스트리밍 스레드.
-    document_editor.py 의 OllamaThread 를 대체합니다.
-    """
     new_text_signal  = pyqtSignal(str)
     finished_signal  = pyqtSignal(str)
     error_signal     = pyqtSignal(str)
@@ -581,7 +815,7 @@ class AiStreamThread(QThread):
 
     def run(self):
         adapter = _get_adapter()
-        if getattr(adapter, 'requires_api_key', True) and not load_api_key():
+        if getattr(adapter, 'requires_api_key', True) and not adapter.get_api_key():
             self.error_signal.emit("API 키가 설정되지 않았습니다. 설정 버튼을 눌러 키를 입력하세요.")
             return
 
@@ -600,10 +834,7 @@ class AiStreamThread(QThread):
 
 
 class AiImageWorker(QThread):
-    """
-    이미지 → 공문 제목/번호 추출 스레드.
-    finished 시그널: {"title": str, "doc_number": str} 딕셔너리 전달.
-    """
+    """이미지 → 공문 제목/번호 추출 스레드."""
     finished = pyqtSignal(dict)
     error    = pyqtSignal(str)
 
@@ -620,7 +851,7 @@ class AiImageWorker(QThread):
 
     def run(self):
         adapter = _get_adapter()
-        if getattr(adapter, 'requires_api_key', True) and not load_api_key():
+        if getattr(adapter, 'requires_api_key', True) and not adapter.get_api_key():
             self.error.emit("API 키가 설정되지 않았습니다.")
             return
         result = adapter.ask_with_image(self._PROMPT, self._image_b64)

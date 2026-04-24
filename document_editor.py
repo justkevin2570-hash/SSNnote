@@ -1,22 +1,26 @@
 import re
 import sys
-import json
 import qtawesome as qta
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QPushButton,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QLineEdit,
-    QMessageBox, QInputDialog, QFrame, QSpinBox
+    QMessageBox, QInputDialog, QFrame, QGraphicsDropShadowEffect, QSpinBox
 )
-from PyQt5.QtCore import Qt, QTimer, QSize, QEvent, QObject, QUrl, pyqtSlot
-from PyQt5.QtGui import QFont, QIcon, QPixmap
-from PyQt5.QtCore import QMimeData
-from PyQt5.QtWebChannel import QWebChannel
-from ai_client import (AiStreamThread, load_api_key, save_api_key,
+from PyQt5.QtCore import Qt, QTimer, QSize, QEvent
+from PyQt5.QtGui import QFont, QIcon, QPixmap, QColor
+from ai_client import (AiStreamThread,
                         load_ai_mode, save_ai_mode,
                         load_ollama_model, save_ollama_model, OLLAMA_HOST,
                         load_external_model_name,
+                        load_api_key, save_api_key,
                         load_gemini_model, save_gemini_model,
-                        GEMINI_DEFAULT_MODELS, GeminiAdapter)
+                        GEMINI_DEFAULT_MODELS, GeminiAdapter,
+                        load_claude_key, save_claude_key,
+                        load_claude_model, save_claude_model, CLAUDE_DEFAULT_MODELS,
+                        load_openai_key, save_openai_key,
+                        load_openai_model, save_openai_model, OPENAI_DEFAULT_MODELS,
+                        load_nvidia_key, save_nvidia_key,
+                        load_nvidia_model, save_nvidia_model, NVIDIA_DEFAULT_MODELS)
 from db import save_official_document, get_official_documents
 
 
@@ -40,6 +44,13 @@ STYLE = """
     QLineEdit:focus {
         border: 2px solid #6366F1;
         background-color: #FAFAFA;
+    }
+    QTextEdit#editor {
+        background-color: #FFFFFF;
+        border: 5px solid #6366F1;
+        border-radius: 10px;
+        padding: 28px 32px;
+        color: #374151;
     }
     QFrame#AIInputFrame {
         background-color: #FFFFFF;
@@ -140,7 +151,6 @@ _DOC_TYPE_LABELS = {
     'recruit_announce': '채용 공고',
     'recruit_result':   '채용 결정',
     'purchase':         '품의/지출',
-    'announce':         '안내/지원',
     'general':          '일반 계획/운영',
 }
 
@@ -153,8 +163,6 @@ def _detect_doc_type(title: str) -> str:
         return 'recruit_announce'
     if '[채용]' in t:
         return 'recruit_result'
-    if '[안내' in t or re.search(r'안내\s*$', t):
-        return 'announce'
     if '가정통신문 발송' in t:
         return 'home_letter'
     if '결과 보고' in t or re.search(r'결과\s*$', t):
@@ -204,7 +212,7 @@ def _get_template(title: str, doc_type: str, ref: str = '', attach_count: int = 
     ref_line = f"1. 관련: {ref}\n" if ref else "1. 관련: \n"
 
     if doc_type == 'result_report':
-        attach = re.sub(r'\s*(결과\s*보고|결과)\s*$', '', title).strip()
+        attach = re.sub(r'\s*(결과\s*보고|결과)\s*$', '', subject).strip()
         attach_block = _make_attach_block(f"{attach} 결과 1부", attach_count)
         body = (
             f"{ref_line}"
@@ -216,16 +224,15 @@ def _get_template(title: str, doc_type: str, ref: str = '', attach_count: int = 
         )
         return body + ("\n" + attach_block if attach_block else "")
     elif doc_type == 'home_letter':
-        attach = re.sub(r'\s*가정통신문\s*발송\s*$', '', title).strip()
-        title_clean = re.sub(r'\s*발송\s*$', '', title).strip()
+        attach = re.sub(r'\s*가정통신문\s*발송\s*$', '', subject).strip()
         attach_block = _make_attach_block(f"{attach} 가정통신문 1부", attach_count)
         body = (
             f"{ref_line}"
-            f"2. {title_clean}{_eul_reul(title_clean)} 붙임과 같이 발송하고자 합니다.\n"
+            f"2. {title}{josa} 붙임과 같이 발송하고자 합니다.\n"
         )
         return body + ("\n" + attach_block if attach_block else "")
     elif doc_type == 'submit':
-        attach_word = re.sub(r'\s*제출\s*$', '', title).strip()
+        attach_word = re.sub(r'\s*제출\s*$', '', subject).strip()
         josa_submit = _eul_reul(attach_word)
         attach_block = _make_attach_block(f"{attach_word} 1부", attach_count)
         body = (
@@ -234,7 +241,7 @@ def _get_template(title: str, doc_type: str, ref: str = '', attach_count: int = 
         )
         return body + ("\n" + attach_block if attach_block else "")
     elif doc_type == 'recruit_announce':
-        attach = re.sub(r'\s*(채용\s*계획\s*(재)?공고(\(.+?\))?|공고(\(.+?\))?)$', '', title).strip()
+        attach = re.sub(r'\s*(채용\s*계획\s*(재)?공고(\(.+?\))?|공고(\(.+?\))?)$', '', subject).strip()
         return (
             f"{ref_line}"
             f"2. {title}{josa} 다음과 같이 공고하고자 합니다.\n"
@@ -273,26 +280,8 @@ def _get_template(title: str, doc_type: str, ref: str = '', attach_count: int = 
             "  마. 내역: \n"
             "  바. 예상금액: 원.  끝."
         )
-    elif doc_type == 'announce':
-        attach_block = _make_attach_block(f"{title} 1부", attach_count)
-        _tbl = (
-            '<table border="1" style="border-collapse:collapse;width:100%">\n'
-            '<tr><th>구분</th><th>방법</th><th>서식</th><th>기한</th></tr>\n'
-            '<tr><td></td><td></td><td></td><td></td></tr>\n'
-            '<tr><td></td><td></td><td></td><td></td></tr>\n'
-            '</table>'
-        )
-        body = (
-            f"{ref_line}"
-            f"2. {subject}{josa} 다음과 같이 안내하니, 관련 담당자는 협조해 주시기 바랍니다.\n"
-            "  가. 대상: \n"
-            "  나. 내용:\n"
-            f"{_tbl}\n"
-            "  다. 행정사항: \n"
-        )
-        return body + ("\n" + attach_block if attach_block else "")
     else:  # general
-        attach = re.sub(r'\s*(운영\s*)?계획\s*$', '', title).strip()
+        attach = re.sub(r'\s*(운영\s*)?계획\s*$', '', subject).strip()
         attach_block = _make_attach_block(f"{attach} 계획 1부", attach_count)
         body = (
             f"{ref_line}"
@@ -305,32 +294,10 @@ def _get_template(title: str, doc_type: str, ref: str = '', attach_count: int = 
         return body + ("\n" + attach_block if attach_block else "")
 
 
-class EditorBridge(QObject):
-    """Python ↔ JS 브릿지: JS에서 HTML 변경 사항을 Python으로 전달."""
-
-    def __init__(self):
-        super().__init__()
-        self._html = ''
-
-    @pyqtSlot(str)
-    def on_content_change(self, html: str):
-        self._html = html
-
-    def current_html(self) -> str:
-        return self._html
-
-    def current_text(self) -> str:
-        """HTML에서 태그를 제거한 plain text 반환."""
-        return re.sub(r'<[^>]+>', '', self._html).strip()
-
-
-
 class DocumentEditorWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ai_thread = None
-        self._streaming_buffer = ''
-        self._editor_ready = False
         self.init_ui()
 
     def init_ui(self):
@@ -390,10 +357,10 @@ class DocumentEditorWindow(QMainWindow):
         self.spin_attach.setValue(1)
         self.spin_attach.setFixedHeight(_input_h)
         self.spin_attach.setFixedWidth(52)
-        self.spin_attach.lineEdit().setAlignment(Qt.AlignCenter)
+        self.spin_attach.setToolTip("붙임 항목 수 (0 = 붙임 없음)")
         self.spin_attach.lineEdit().returnPressed.connect(self._try_generate_draft)
         ref_row.addWidget(QLabel("관련 번호"))
-        ref_row.addWidget(self.ref_input, stretch=3)
+        ref_row.addWidget(self.ref_input, stretch=1)
         ref_row.addWidget(btn_move_to_title)
         ref_row.addSpacing(10)
         ref_row.addWidget(lbl_attach)
@@ -401,22 +368,23 @@ class DocumentEditorWindow(QMainWindow):
         ref_row.addStretch(1)
         ref_row.addWidget(btn_help)
 
-        # ── 본문 편집 영역 (TipTap 웹 에디터) ──
-        from PyQt5.QtWebEngineWidgets import QWebEngineView
-
-        self._bridge = EditorBridge()
-        self._channel = QWebChannel()
-        self._channel.registerObject('bridge', self._bridge)
-
-        self.editor = QWebEngineView()
-        self.editor.page().setWebChannel(self._channel)
-        self.editor.loadFinished.connect(self._on_editor_loaded)
-        import os as _os
-        _editor_html = _os.path.join(
-            _os.path.dirname(_os.path.abspath(__file__)), 'assets', 'editor.html'
+        # ── 본문 편집 영역 ──
+        self.editor = QTextEdit()
+        self.editor.setObjectName("editor")
+        _editor_font = QFont('굴림체', 12)
+        _editor_font.setStretch(100)
+        _editor_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
+        self.editor.setFont(_editor_font)
+        self.editor.document().blockCountChanged.connect(self._apply_editor_line_height)
+        self.editor.setPlaceholderText(
+            "자동 초안 생성 버튼을 누르거나, 아래 채팅창에 요청을 입력하세요."
         )
-        self.editor.load(QUrl.fromLocalFile(_editor_html))
-        self.editor.setMinimumHeight(300)
+        _shadow = QGraphicsDropShadowEffect()
+        _shadow.setBlurRadius(20)
+        _shadow.setXOffset(0)
+        _shadow.setYOffset(2)
+        _shadow.setColor(QColor(0, 0, 0, 30))
+        self.editor.setGraphicsEffect(_shadow)
 
         # ── AI 채팅바 (캡슐 프레임) ──
         chat_row = QHBoxLayout()
@@ -430,6 +398,7 @@ class DocumentEditorWindow(QMainWindow):
         self.ai_input.setPlaceholderText("AI에게 요청")
         self.ai_input.setFixedHeight(_input_h * 2)
         self.ai_input.installEventFilter(self)
+        self.editor.installEventFilter(self)
         self.btn_send = QPushButton()
         self.btn_send.setObjectName("AIPrimaryButton")
         self.btn_send.setIcon(qta.icon('fa5s.paper-plane', color='white'))
@@ -479,17 +448,7 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage("준비 완료")
         self._apply_ai_mode()
         self._update_draft_button()  # 초기 상태: 빈칸이면 비활성
-
-    # ── 웹 에디터 로드 완료 ──
-    def _on_editor_loaded(self, ok):
-        self._editor_ready = ok
-
-    # ── JS 호출 헬퍼 ──
-    def _js(self, func, *args):
-        if not self._editor_ready:
-            return
-        args_str = ', '.join(json.dumps(a) for a in args)
-        self.editor.page().runJavaScript(f"{func}({args_str})")
+        self._apply_editor_line_height()
 
     # ── AI 초안 생성 ──
     def generate_draft(self):
@@ -504,9 +463,9 @@ class DocumentEditorWindow(QMainWindow):
         template   = _get_template(title, doc_type, ref, self.spin_attach.value())
         mode       = load_ai_mode()
 
-        # 1단계: 뼈대 템플릿 즉시 표시 (AI 없이도 바로 사용 가능)
-        self._streaming_buffer = template
-        self._js('setContent', template)
+        # 1단계: 뼈대 템플릿 즉시 삽입 (AI 없이도 바로 사용 가능)
+        self.editor.setPlainText(template)
+        self._apply_editor_line_height()
 
         if mode == 'none':
             self.statusBar().showMessage(f'템플릿 삽입 완료 — {type_label}')
@@ -514,22 +473,18 @@ class DocumentEditorWindow(QMainWindow):
 
         # 2단계: AI가 빈칸 채우기
         from ai_client import (FEWSHOT_PLAN_SYSTEM, FEWSHOT_PURCHASE_SYSTEM,
-                                FEWSHOT_DEFAULT_SYSTEM, FEWSHOT_SUBMIT_SYSTEM,
-                                FEWSHOT_ANNOUNCE_SYSTEM)
+                                FEWSHOT_DEFAULT_SYSTEM, FEWSHOT_SUBMIT_SYSTEM)
         if doc_type == 'purchase':
             system = FEWSHOT_PURCHASE_SYSTEM
         elif doc_type == 'submit':
             system = FEWSHOT_SUBMIT_SYSTEM
         elif doc_type == 'general':
             system = FEWSHOT_PLAN_SYSTEM
-        elif doc_type == 'announce':
-            system = FEWSHOT_ANNOUNCE_SYSTEM
         else:
             system = FEWSHOT_DEFAULT_SYSTEM
         ref_line = f"관련: {ref}\n" if ref else ""
         prompt = f"제목: {title}\n{ref_line}"
-        self._streaming_buffer = ''
-        self._js('setContent', '')
+        self.editor.clear()
         self._start_ai(prompt, system=system)
 
     # ── AI 입력창 Enter 키 → 전송 ──
@@ -538,6 +493,20 @@ class DocumentEditorWindow(QMainWindow):
             if event.key() in (Qt.Key_Return, Qt.Key_Enter) and not (event.modifiers() & Qt.ShiftModifier):
                 self.ask_ai()
                 return True
+        if obj is self.editor and event.type() == QEvent.KeyPress:
+            if event.modifiers() == Qt.ControlModifier:
+                if event.key() == Qt.Key_C:
+                    selected = self.editor.textCursor().selectedText().replace('\u2029', '\n')
+                    if selected:
+                        QApplication.clipboard().setText(selected)
+                    return True
+                if event.key() == Qt.Key_X:
+                    cursor = self.editor.textCursor()
+                    selected = cursor.selectedText().replace('\u2029', '\n')
+                    if selected:
+                        QApplication.clipboard().setText(selected)
+                        cursor.removeSelectedText()
+                    return True
         return super().eventFilter(obj, event)
 
     # ── 자유 AI 채팅 ──
@@ -546,14 +515,13 @@ class DocumentEditorWindow(QMainWindow):
         if not user_text:
             return
 
-        current = self._bridge.current_text()
+        current = self.editor.toPlainText()
         if current:
             prompt = f"현재 작성된 공문:\n{current}\n\n사용자 요청: {user_text}"
         else:
             prompt = user_text
 
-        self._streaming_buffer = ''
-        self._js('setContent', '')
+        self.editor.clear()
         self._start_ai(prompt)
 
     # ── 공통 AI 실행 ──
@@ -571,19 +539,10 @@ class DocumentEditorWindow(QMainWindow):
         self.ai_thread.start()
 
     def _append_text(self, text):
-        self._streaming_buffer += text
-        if '<table' in self._streaming_buffer:
-            # 표 앞 plain text 부분을 <p> 태그로 변환하여 HTML 모드로 렌더링
-            idx = self._streaming_buffer.index('<table')
-            before = self._streaming_buffer[:idx]
-            after  = self._streaming_buffer[idx:]
-            before_html = ''.join(
-                f'<p>{line if line.strip() else "<br>"}</p>'
-                for line in before.split('\n')
-            )
-            self._js('setHtmlContent', before_html + after)
-        else:
-            self._js('setStreamContent', self._streaming_buffer)
+        cursor = self.editor.textCursor()
+        cursor.movePosition(cursor.End)
+        cursor.insertText(text)
+        self.editor.setTextCursor(cursor)
 
     def _on_finished(self, _):
         self.statusBar().showMessage("완료")
@@ -626,26 +585,12 @@ class DocumentEditorWindow(QMainWindow):
         QTimer.singleShot(1500, lambda: self.statusBar().showMessage(''))
 
     def _copy_body(self):
-        """본문을 HTML+텍스트 형식으로 클립보드에 복사 (한글 붙여넣기 호환)."""
-        if not self._bridge.current_text():
+        """본문 텍스트를 클립보드에 복사."""
+        content = self.editor.toPlainText().strip()
+        if not content:
             self.statusBar().showMessage('복사할 내용이 없습니다.')
             return
-        # 표 스타일을 인라인으로 변환한 HTML을 JS에서 받아서 복사
-        self.editor.page().runJavaScript("getHWPHtml()", self._do_copy_to_clipboard)
-
-    def _do_copy_to_clipboard(self, html):
-        plain = re.sub(r'<[^>]+>', '', html or '').strip()
-        if not plain:
-            return
-        full_html = (
-            "<html><meta charset='utf-8'>"
-            "<body style=\"font-family:'굴림체',Gulim;font-size:12pt;line-height:1.5;\">"
-            f"{html}</body></html>"
-        )
-        mime = QMimeData()
-        mime.setHtml(full_html)
-        mime.setText(plain)
-        QApplication.clipboard().setMimeData(mime)
+        QApplication.clipboard().setText(content)
         self.statusBar().showMessage('본문이 클립보드에 복사되었습니다.')
         QTimer.singleShot(1500, lambda: self.statusBar().showMessage(''))
 
@@ -705,11 +650,20 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage('AI 생성이 취소되었습니다.')
             self._set_controls_enabled(True)
 
+    def _apply_editor_line_height(self):
+        """에디터 본문 줄간격 123% 적용."""
+        from PyQt5.QtGui import QTextCursor, QTextBlockFormat
+        cursor = self.editor.textCursor()
+        cursor.select(QTextCursor.Document)
+        fmt = QTextBlockFormat()
+        fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
+        cursor.mergeBlockFormat(fmt)
+
     def _apply_ai_mode(self):
         """현재 AI 모드에 따라 AI 관련 버튼 활성/비활성."""
         mode = load_ai_mode()
         ai_available = mode != 'none'
-        self._update_draft_button()       # 입력값 + 모드 조합으로 판단
+        self._update_draft_button()
         self.btn_send.setEnabled(ai_available)
         self.ai_input.setEnabled(ai_available)
         if not ai_available:
@@ -729,25 +683,38 @@ class DocumentEditorWindow(QMainWindow):
         mode = load_ai_mode()
         menu = QMenu(self)
 
-        act_external = menu.addAction('외부 AI 이용')
-        act_internal = menu.addAction('내부 AI 이용')
+        act_gemini  = menu.addAction('Gemini')
+        act_claude  = menu.addAction('Claude')
+        act_openai  = menu.addAction('ChatGPT')
+        act_nvidia  = menu.addAction('NVIDIA')
+        menu.addSeparator()
+        act_internal = menu.addAction('내부 AI (Ollama)')
         menu.addSeparator()
         act_none = menu.addAction('AI 이용 안함')
 
-        # 현재 선택된 항목에 체크 표시
-        act_external.setCheckable(True)
-        act_internal.setCheckable(True)
-        act_none.setCheckable(True)
-        act_external.setChecked(mode == 'external')
-        act_internal.setChecked(mode == 'internal')
-        act_none.setChecked(mode == 'none')
+        for act, modes in [
+            (act_gemini,  ('external', 'gemini')),
+            (act_claude,  ('claude',)),
+            (act_openai,  ('openai',)),
+            (act_nvidia,  ('nvidia',)),
+            (act_internal, ('internal',)),
+            (act_none,    ('none',)),
+        ]:
+            act.setCheckable(True)
+            act.setChecked(mode in modes)
 
         action = menu.exec_(self.btn_apikey.mapToGlobal(
             self.btn_apikey.rect().bottomLeft()
         ))
 
-        if action == act_external:
-            self._setup_external_ai()
+        if action == act_gemini:
+            self._setup_gemini_ai()
+        elif action == act_claude:
+            self._setup_claude_ai()
+        elif action == act_openai:
+            self._setup_openai_ai()
+        elif action == act_nvidia:
+            self._setup_nvidia_ai()
         elif action == act_internal:
             self._setup_internal_ai()
         elif action == act_none:
@@ -755,11 +722,10 @@ class DocumentEditorWindow(QMainWindow):
             self._apply_ai_mode()
             self.statusBar().showMessage('AI 이용 안함 — OCR(winrt)만 사용합니다.')
 
-    def _setup_external_ai(self):
-        # 1단계: API 키 입력
+    def _setup_gemini_ai(self):
         current_key = load_api_key()
         key, ok = QInputDialog.getText(
-            self, '외부 AI 설정', 'Gemini API 키를 입력하세요:',
+            self, 'Gemini 설정', 'Gemini API 키를 입력하세요:',
             text=current_key
         )
         if not ok:
@@ -767,13 +733,11 @@ class DocumentEditorWindow(QMainWindow):
         if key.strip():
             save_api_key(key.strip())
 
-        # 2단계: 모델 목록 조회
         self.statusBar().showMessage('모델 목록 조회 중...')
         QApplication.processEvents()
         models = GeminiAdapter.fetch_models() if load_api_key() else GEMINI_DEFAULT_MODELS
 
-        # 3단계: 모델 선택 다이얼로그
-        dlg = _GeminiModelDialog(models, load_gemini_model(), self)
+        dlg = _ModelSelectDialog('Gemini 모델 선택', models, load_gemini_model(), self)
         if dlg.exec_() != dlg.Accepted:
             return
         model = dlg.selected_model()
@@ -781,9 +745,75 @@ class DocumentEditorWindow(QMainWindow):
             return
 
         save_gemini_model(model)
-        save_ai_mode('external')
+        save_ai_mode('gemini')
         self._apply_ai_mode()
-        self.statusBar().showMessage(f'외부 AI(Gemini · {model}) 설정 완료.')
+        self.statusBar().showMessage(f'Gemini · {model} 설정 완료.')
+
+    def _setup_claude_ai(self):
+        key, ok = QInputDialog.getText(
+            self, 'Claude 설정', 'Anthropic API 키를 입력하세요:',
+            text=load_claude_key()
+        )
+        if not ok:
+            return
+        if key.strip():
+            save_claude_key(key.strip())
+
+        dlg = _ModelSelectDialog('Claude 모델 선택', CLAUDE_DEFAULT_MODELS, load_claude_model(), self)
+        if dlg.exec_() != dlg.Accepted:
+            return
+        model = dlg.selected_model()
+        if not model:
+            return
+
+        save_claude_model(model)
+        save_ai_mode('claude')
+        self._apply_ai_mode()
+        self.statusBar().showMessage(f'Claude · {model} 설정 완료.')
+
+    def _setup_openai_ai(self):
+        key, ok = QInputDialog.getText(
+            self, 'ChatGPT 설정', 'OpenAI API 키를 입력하세요:',
+            text=load_openai_key()
+        )
+        if not ok:
+            return
+        if key.strip():
+            save_openai_key(key.strip())
+
+        dlg = _ModelSelectDialog('OpenAI 모델 선택', OPENAI_DEFAULT_MODELS, load_openai_model(), self)
+        if dlg.exec_() != dlg.Accepted:
+            return
+        model = dlg.selected_model()
+        if not model:
+            return
+
+        save_openai_model(model)
+        save_ai_mode('openai')
+        self._apply_ai_mode()
+        self.statusBar().showMessage(f'OpenAI · {model} 설정 완료.')
+
+    def _setup_nvidia_ai(self):
+        key, ok = QInputDialog.getText(
+            self, 'NVIDIA 설정', 'NVIDIA API 키를 입력하세요:',
+            text=load_nvidia_key()
+        )
+        if not ok:
+            return
+        if key.strip():
+            save_nvidia_key(key.strip())
+
+        dlg = _ModelSelectDialog('NVIDIA 모델 선택', NVIDIA_DEFAULT_MODELS, load_nvidia_model(), self)
+        if dlg.exec_() != dlg.Accepted:
+            return
+        model = dlg.selected_model()
+        if not model:
+            return
+
+        save_nvidia_model(model)
+        save_ai_mode('nvidia')
+        self._apply_ai_mode()
+        self.statusBar().showMessage(f'NVIDIA · {model} 설정 완료.')
 
     def _setup_internal_ai(self):
         # Ollama 연결 및 모델 목록 가져오기
@@ -816,7 +846,7 @@ class DocumentEditorWindow(QMainWindow):
     # ── 저장 ──
     def save_document(self):
         title = self.title_input.text().strip()
-        content = self._bridge.current_text()
+        content = self.editor.toPlainText().strip()
 
         if not title:
             QMessageBox.warning(self, '저장 실패', '제목을 입력하세요.')
@@ -1051,19 +1081,19 @@ class _OllamaModelDialog(
         return item.text() if item else ''
 
 
-class _GeminiModelDialog(
+class _ModelSelectDialog(
     __import__('PyQt5.QtWidgets', fromlist=['QDialog']).QDialog
 ):
-    """Gemini 모델 목록에서 클릭으로 선택하는 다이얼로그."""
+    """AI 모델 목록에서 클릭으로 선택하는 범용 다이얼로그."""
 
-    def __init__(self, models: list, current: str, parent=None):
+    def __init__(self, title: str, models: list, current: str, parent=None):
         from PyQt5.QtWidgets import (QVBoxLayout, QHBoxLayout,
                                      QListWidget, QListWidgetItem,
                                      QLineEdit, QPushButton, QLabel)
         from PyQt5.QtCore import Qt
         from PyQt5.QtGui import QFont
         super().__init__(parent)
-        self.setWindowTitle('외부 AI 모델 선택 (Gemini)')
+        self.setWindowTitle(title)
         self.setMinimumWidth(360)
         self.setMinimumHeight(360)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
@@ -1075,16 +1105,14 @@ class _GeminiModelDialog(
         layout.setSpacing(8)
         layout.setContentsMargins(14, 14, 14, 14)
 
-        layout.addWidget(QLabel('사용할 Gemini 모델을 선택하세요.'))
+        layout.addWidget(QLabel('사용할 모델을 선택하세요.'))
 
-        # 검색창
         self._search = QLineEdit()
         self._search.setPlaceholderText('모델 검색...')
         self._search.setMinimumHeight(32)
         self._search.textChanged.connect(self._filter)
         layout.addWidget(self._search)
 
-        # 모델 목록
         self._list = QListWidget()
         self._list.setFont(_font)
         self._list.setSpacing(2)
@@ -1093,7 +1121,6 @@ class _GeminiModelDialog(
         self._populate(models, current)
         layout.addWidget(self._list, stretch=1)
 
-        # 버튼
         btn_row = QHBoxLayout()
         btn_ok = QPushButton('선택')
         btn_ok.setMinimumHeight(34)
@@ -1128,6 +1155,10 @@ class _GeminiModelDialog(
     def selected_model(self) -> str:
         item = self._list.currentItem()
         return item.text() if item else ''
+
+
+# 하위 호환 별칭
+_GeminiModelDialog = _ModelSelectDialog
 
 
 if __name__ == "__main__":

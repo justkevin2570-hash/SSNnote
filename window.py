@@ -1,5 +1,6 @@
 import os
 import ctypes
+from PyQt5.QtSvg import QSvgRenderer
 from datetime import date, datetime, timedelta
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -161,6 +162,20 @@ class DdayLabel(QLabel):
         super().leaveEvent(event)
 
 
+
+def _svg_icon(svg_path, color, size) -> 'QIcon':
+    with open(svg_path, 'r', encoding='utf-8') as f:
+        data = f.read()
+    data = data.replace('#000000', color)
+    renderer = QSvgRenderer(data.encode('utf-8'))
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    renderer.render(p)
+    p.end()
+    return QIcon(pm)
+
+
 def calc_dday(deadline_str):
     try:
         if len(deadline_str) > 10:  # 'yyyy-MM-dd HH:MM'
@@ -187,6 +202,8 @@ def _next_recurrence_deadline(deadline_str, recurrence):
         base = date.fromisoformat(deadline_str[:10])
     except ValueError:
         return ''
+
+    next_date = None
     if recurrence == 'weekly':
         next_date = base + timedelta(weeks=1)
     elif recurrence == 'biweekly':
@@ -200,10 +217,124 @@ def _next_recurrence_deadline(deadline_str, recurrence):
         year = base.year + 1
         day = min(base.day, _cal.monthrange(year, base.month)[1])
         next_date = date(year, base.month, day)
+    elif recurrence.startswith('custom:'):
+        # custom:month|week|weekday (month 0=매월, 1~12 / week 1~4 / weekday 0=월~6=일)
+        try:
+            _, parts = recurrence.split(':')
+            m_target, w_target, wd_target = map(int, parts.split('|'))
+            
+            # 기준일 다음날부터 탐색
+            curr = base + timedelta(days=1)
+            found = False
+            # 최대 12년치 탐색 (특정 월 반복의 경우 고려)
+            for _ in range(365 * 12):
+                # 월 체크
+                if m_target != 0 and curr.month != m_target:
+                    # 월이 다르면 다음 달 1일로 점프 (최적화)
+                    if curr.month == 12:
+                        curr = date(curr.year + 1, 1, 1)
+                    else:
+                        curr = date(curr.year, curr.month + 1, 1)
+                    continue
+                
+                # 요일 체크
+                if curr.weekday() == wd_target:
+                    # 몇째주인지 계산 (해당 월의 n번째 요일)
+                    # 1일의 요일을 구해서 계산
+                    first_day_of_month = date(curr.year, curr.month, 1)
+                    first_wd = first_day_of_month.weekday()
+                    # curr.day가 해당 월의 몇 번째 wd_target 인지 계산
+                    # 예: 1일이 월(0)이고 8일도 월(0)이면, (8-1)//7 + 1 = 2번째
+                    nth = (curr.day - 1) // 7 + 1
+                    
+                    if nth == w_target:
+                        next_date = curr
+                        found = True
+                        break
+                
+                curr += timedelta(days=1)
+            if not found:
+                return ''
+        except:
+            return ''
     else:
         return ''
+    
+    if not next_date:
+        return ''
+        
     time_suffix = deadline_str[10:] if len(deadline_str) > 10 else ''
     return next_date.isoformat() + time_suffix
+
+
+class CustomRecurrenceDialog(QDialog):
+    """월/주/요일 사용자 설정 다이얼로그"""
+    def __init__(self, parent=None, current=''):
+        super().__init__(parent)
+        self.setWindowTitle('사용자 설정 반복')
+        self.setMinimumWidth(300)
+        self.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 10pt;")
+        
+        layout = QVBoxLayout(self)
+        
+        # 월 선택
+        row_m = QHBoxLayout()
+        row_m.addWidget(QLabel('반복 월:'))
+        self.combo_m = QComboBox()
+        self.combo_m.addItem('매월', 0)
+        for i in range(1, 13):
+            self.combo_m.addItem(f'{i}월', i)
+        row_m.addWidget(self.combo_m, 1)
+        layout.addLayout(row_m)
+        
+        # 주 선택
+        row_w = QHBoxLayout()
+        row_w.addWidget(QLabel('반복 주:'))
+        self.combo_w = QComboBox()
+        for i in range(1, 5):
+            self.combo_w.addItem(f'{i}째주', i)
+        row_w.addWidget(self.combo_w, 1)
+        layout.addLayout(row_w)
+        
+        # 요일 선택
+        row_wd = QHBoxLayout()
+        row_wd.addWidget(QLabel('반복 요일:'))
+        self.combo_wd = QComboBox()
+        weekdays = ['월요일', '화요일', '수요일', '목요일', '금요일', '토요일', '일요일']
+        for i, name in enumerate(weekdays):
+            self.combo_wd.addItem(name, i)
+        row_wd.addWidget(self.combo_wd, 1)
+        layout.addLayout(row_wd)
+        
+        # 현재 값 적용
+        if current.startswith('custom:'):
+            try:
+                _, parts = current.split(':')
+                m, w, wd = map(int, parts.split('|'))
+                idx_m = self.combo_m.findData(m)
+                if idx_m >= 0: self.combo_m.setCurrentIndex(idx_m)
+                idx_w = self.combo_w.findData(w)
+                if idx_w >= 0: self.combo_w.setCurrentIndex(idx_w)
+                idx_wd = self.combo_wd.findData(wd)
+                if idx_wd >= 0: self.combo_wd.setCurrentIndex(idx_wd)
+            except: pass
+
+        # 버튼
+        btns = QHBoxLayout()
+        btn_ok = QPushButton('확인')
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton('취소')
+        btn_cancel.clicked.connect(self.reject)
+        btns.addStretch()
+        btns.addWidget(btn_ok)
+        btns.addWidget(btn_cancel)
+        layout.addLayout(btns)
+
+    def get_value(self):
+        m = self.combo_m.currentData()
+        w = self.combo_w.currentData()
+        wd = self.combo_wd.currentData()
+        return f'custom:{m}|{w}|{wd}'
 
 
 class EdgeHandle(QWidget):
@@ -400,16 +531,20 @@ class TitleBar(QWidget):
 
 class RotatedMenuButton(QPushButton):
     """'…' 을 90도 회전해서 세로로 표시하는 버튼"""
+    hovered = pyqtSignal(bool)
+
     def __init__(self, parent=None):
         super().__init__('…', parent)
         self._hovered = False
 
     def enterEvent(self, e):
         self._hovered = True
+        self.hovered.emit(True)
         self.update()
 
     def leaveEvent(self, e):
         self._hovered = False
+        self.hovered.emit(False)
         self.update()
 
     def paintEvent(self, e):
@@ -485,25 +620,39 @@ class TaskRow(QWidget):
         self.task      = task
         self.on_update = on_update
         self._scale    = scale
-        self.setStyleSheet('background: transparent;')
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName('TaskRow')
+        self.setStyleSheet('QWidget#TaskRow { background: transparent; }')
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 0, 8, 0)
         layout.setSpacing(4)
 
-        # 별 버튼 (우선순위) — Fluent Icons 폰트 렌더링
+        # 별 버튼 (우선순위)
         _is_starred = bool(task.get('priority', 0))
-        _star_sz = int(22 * scale)
+        self._star_sz = int(22 * scale)
         _star_pt = int(15 * scale)
-        self.btn_star = QPushButton(MI.STAR if _is_starred else MI.STAR_BORDER)
-        self.btn_star.setFixedSize(_star_sz, _star_sz)
+        self._star_svg = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'ic_fluent_star_emphasis_20_filled.svg')
+        self.btn_star = QPushButton()
+        self.btn_star.setFixedSize(self._star_sz, self._star_sz)
         self.btn_star.setFlat(True)
-        self.btn_star.setFont(mi_font(_star_pt))
-        self.btn_star.setStyleSheet(
-            f"color: {'#D4A800' if _is_starred else '#AAAAAA'}; border: none; padding: 0;"
-        )
+        self.btn_star.setStyleSheet("""
+            QPushButton { border: none; padding: 0; }
+            QPushButton:pressed { padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }
+        """)
+        if _is_starred:
+            self.btn_star.setIcon(_svg_icon(self._star_svg, '#D4A800', self._star_sz))
+            self.btn_star.setIconSize(QSize(self._star_sz, self._star_sz))
+        else:
+            self.btn_star.setText(MI.STAR_BORDER)
+            self.btn_star.setFont(mi_font(_star_pt))
+            self.btn_star.setStyleSheet("""
+                QPushButton { color: #AAAAAA; border: none; padding: 0; }
+                QPushButton:pressed { padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }
+            """)
         self.btn_star.clicked.connect(self._toggle_priority)
-        layout.addWidget(self.btn_star, 0, Qt.AlignVCenter)
+        layout.addWidget(self.btn_star, 0, Qt.AlignTop)
+        layout.setAlignment(self.btn_star, Qt.AlignTop)
 
         deadline = task['deadline']
         overdue = False
@@ -536,10 +685,9 @@ class TaskRow(QWidget):
         self.name_edit = _AutoHeightEdit(task['name'])
         _base_pt = 12 * scale
         name_font = QFont('Malgun Gothic', 12)
-        name_font.setPointSizeF((10.5 / 12) * _base_pt if overdue else _base_pt)
+        name_font.setPointSizeF((11 / 12) * _base_pt if overdue else _base_pt)
         if overdue:
-            name_font.setItalic(True)
-            name_font.setBold(True)
+            pass
         elif urgent:
             name_font.setBold(True)
         elif _is_starred:
@@ -577,9 +725,7 @@ class TaskRow(QWidget):
                 date_text = suffix
             dday_lbl = DdayLabel(suffix, date_text)
             dday_font = QFont('Malgun Gothic', 12, QFont.Bold)
-            dday_font.setPointSizeF((10.5 / 12) * _base_pt if overdue else _base_pt)
-            if overdue:
-                dday_font.setItalic(True)
+            dday_font.setPointSizeF((11 / 12) * _base_pt if overdue else _base_pt)
             dday_lbl.setFont(dday_font)
             dday_lbl.setStyleSheet(f'color: {dday_color}; background: transparent; margin-bottom: 3px;')
         else:
@@ -593,6 +739,7 @@ class TaskRow(QWidget):
         btn_menu.setFont(_f)
         btn_menu.setStyleSheet('background: transparent; border: none; padding: 4px 6px; border-radius: 4px;')
         btn_menu.clicked.connect(lambda: self._open_task_menu(btn_menu, task, on_delete))
+        btn_menu.hovered.connect(self._set_row_highlight)
 
         layout.addWidget(self.name_edit, 1)
         if task.get('recurrence', ''):
@@ -601,13 +748,20 @@ class TaskRow(QWidget):
             lbl_recur.setFont(_recur_font)
             lbl_recur.setStyleSheet('color: #333; background: transparent; padding-top: 3px;')
             _fm = QFontMetrics(_recur_font)
-            lbl_recur.setFixedWidth(max(_fm.boundingRect(MAT.REPEAT).width(), _fm.horizontalAdvance(MAT.REPEAT)) + 8)
+            _tb = _fm.tightBoundingRect(MAT.REPEAT)
+            lbl_recur.setFixedWidth(_tb.right() + 9)
             layout.addWidget(lbl_recur, 0, Qt.AlignTop)
         if dday_lbl:
             layout.addWidget(dday_lbl, 0, Qt.AlignTop)
         elif hasattr(self, '_add_date_btn'):
             layout.addWidget(self._add_date_btn, 0, Qt.AlignTop)
         layout.addWidget(btn_menu, 0, Qt.AlignTop)
+
+    def _set_row_highlight(self, on: bool):
+        if on:
+            self.setStyleSheet('QWidget#TaskRow { background: rgba(0,0,0,18); }')
+        else:
+            self.setStyleSheet('QWidget#TaskRow { background: transparent; }')
 
     def eventFilter(self, watched, event):
         if watched is self.name_edit and event.type() == QEvent.FocusOut:
@@ -654,6 +808,10 @@ class TaskRow(QWidget):
             _act = QAction((MI.CHECK + ' ' if cur_recur == _val else '    ') + _label, self)
             _act.triggered.connect(lambda _, v=_val: self._set_recurrence(v))
             sub_recur.addAction(_act)
+        _is_custom = cur_recur.startswith('custom:')
+        _act_custom = QAction((MI.CHECK + ' ' if _is_custom else '    ') + '사용자 설정...', self)
+        _act_custom.triggered.connect(self._open_custom_recurrence)
+        sub_recur.addAction(_act_custom)
         menu.addMenu(sub_recur)
 
         menu.addSeparator()
@@ -750,12 +908,22 @@ class TaskRow(QWidget):
     def _toggle_priority(self):
         new = 0 if self.task.get('priority', 0) else 1
         self.task['priority'] = new
-        _pt = self.btn_star.font().pointSize()
-        self.btn_star.setText(MI.STAR if new else MI.STAR_BORDER)
-        self.btn_star.setFont(mi_font(_pt))
-        self.btn_star.setStyleSheet(
-            f"color: {'#D4A800' if new else '#AAAAAA'}; border: none; padding: 0;"
-        )
+        if new:
+            self.btn_star.setText('')
+            self.btn_star.setIcon(_svg_icon(self._star_svg, '#D4A800', self._star_sz))
+            self.btn_star.setIconSize(QSize(self._star_sz, self._star_sz))
+            self.btn_star.setStyleSheet("""
+                QPushButton { border: none; padding: 0; }
+                QPushButton:pressed { padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }
+            """)
+        else:
+            self.btn_star.setIcon(QIcon())
+            self.btn_star.setText(MI.STAR_BORDER)
+            self.btn_star.setFont(mi_font(int(15 * self._scale)))
+            self.btn_star.setStyleSheet("""
+                QPushButton { color: #AAAAAA; border: none; padding: 0; }
+                QPushButton:pressed { padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }
+            """)
         set_task_priority(self.task['id'], new)
         self.on_update()
 
@@ -763,6 +931,11 @@ class TaskRow(QWidget):
         self.task['recurrence'] = recurrence
         set_task_recurrence(self.task['id'], recurrence)
         self.on_update()
+
+    def _open_custom_recurrence(self):
+        dlg = CustomRecurrenceDialog(self, current=self.task.get('recurrence', ''))
+        if dlg.exec_() == QDialog.Accepted:
+            self._set_recurrence(dlg.get_value())
 
 
 class _FixedDotBar(QWidget):
@@ -1600,7 +1773,7 @@ class MemoWindow(QMainWindow):
         btn_history.clicked.connect(self._show_history)
 
         self.input_recurrence = QComboBox()
-        self.input_recurrence.addItems(['반복 없음', '매주', '격주', '매월', '매년'])
+        self.input_recurrence.addItems(['반복 없음', '매주', '격주', '매월', '매년', '사용자 설정...'])
         for _i in range(self.input_recurrence.count()):
             self.input_recurrence.setItemData(_i, Qt.AlignCenter, Qt.TextAlignmentRole)
         self.input_recurrence.installEventFilter(self)
@@ -1613,6 +1786,8 @@ class MemoWindow(QMainWindow):
             "QComboBox::drop-down { border: none; width: 0px; }"
             "QComboBox QAbstractItemView { font-family: 'Malgun Gothic'; font-size: 10pt; }"
         )
+        self._custom_recurrence_val = ''
+        self.input_recurrence.currentIndexChanged.connect(self._on_recurrence_index_changed)
 
         _row_h = self.input_name.sizeHint().height()
         self.input_date.setFixedHeight(_row_h)
@@ -1749,6 +1924,13 @@ class MemoWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def _on_date_changed(self, qdate):
+        if self.input_recurrence.currentIndex() == 5:
+            self._date_touched = False
+            self.input_time.setEnabled(False)
+            self.input_time.setTime(QTime(9, 0))
+            self._time_touched = False
+            self.input_date.setStyleSheet(self._field_style_date_empty)
+            return
         if qdate != QDate(1900, 1, 1):
             self._date_touched = True
             self.input_time.setEnabled(True)
@@ -1768,6 +1950,28 @@ class MemoWindow(QMainWindow):
             self._date_touched = False
             self._time_touched = False
 
+    def _on_recurrence_index_changed(self, idx):
+        if idx == 5:
+            dlg = CustomRecurrenceDialog(self, current=self._custom_recurrence_val)
+            if dlg.exec_() == QDialog.Accepted:
+                self._custom_recurrence_val = dlg.get_value()
+            else:
+                self.input_recurrence.blockSignals(True)
+                self.input_recurrence.setCurrentIndex(0)
+                self.input_recurrence.blockSignals(False)
+        self._update_deadline_enabled_state()
+
+    def _update_deadline_enabled_state(self):
+        is_custom = self.input_recurrence.currentIndex() == 5
+        self.input_date.setEnabled(not is_custom)
+        self.input_time.setEnabled((not is_custom) and self._date_touched)
+        if is_custom:
+            self.input_date.setDate(QDate(1900, 1, 1))
+            self.input_time.setTime(QTime(9, 0))
+            self._date_touched = False
+            self._time_touched = False
+            self.input_date.setStyleSheet(self._field_style_date_empty)
+
     def _add_task(self):
         name = self.input_name.text().strip()
         if not name:
@@ -1781,13 +1985,22 @@ class MemoWindow(QMainWindow):
         else:
             deadline = ''
         _RECUR_MAP = {0: '', 1: 'weekly', 2: 'biweekly', 3: 'monthly', 4: 'yearly'}
-        recurrence = _RECUR_MAP.get(self.input_recurrence.currentIndex(), '')
+        idx = self.input_recurrence.currentIndex()
+        if idx == 5:
+            recurrence = self._custom_recurrence_val if self._custom_recurrence_val.startswith('custom:') else ''
+            if recurrence and not self._date_touched:
+                # 날짜 미지정 시 오늘 기준 다음 해당일을 자동 계산
+                yesterday = (date.today() - timedelta(days=1)).isoformat()
+                deadline = _next_recurrence_deadline(yesterday, recurrence) or ''
+        else:
+            recurrence = _RECUR_MAP.get(idx, '')
         add_task(self.window_id, name, deadline, recurrence=recurrence)
         self.input_name.clear()
         self.input_date.setDate(QDate(1900, 1, 1))
         self.input_time.setEnabled(False)
         self.input_time.setTime(QTime(9, 0))
         self.input_recurrence.setCurrentIndex(0)
+        self._custom_recurrence_val = ''
         self._date_touched = False
         self._time_touched = False
         self.input_name.setFocus()

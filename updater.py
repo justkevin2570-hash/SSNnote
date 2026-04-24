@@ -13,8 +13,6 @@ import ssl
 import subprocess
 import threading
 import tempfile
-import urllib.request
-import urllib.error
 
 from PyQt5.QtCore import QObject, pyqtSignal, Qt, QTimer
 from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
@@ -262,7 +260,13 @@ def download_and_install(version: str, download_url: str, changelog: str, parent
     QApplication.processEvents()
 
     try:
-        urllib.request.urlretrieve(download_url, tmp_setup)
+        import requests as _requests
+        with _requests.get(download_url, stream=True, timeout=(10, 120)) as r:
+            r.raise_for_status()
+            with open(tmp_setup, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=65536):
+                    if chunk:
+                        f.write(chunk)
     except Exception as e:
         progress.close()
         QMessageBox.warning(parent, '다운로드 실패',
