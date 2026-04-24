@@ -272,8 +272,9 @@ class CustomRecurrenceDialog(QDialog):
     def __init__(self, parent=None, current=''):
         super().__init__(parent)
         self.setWindowTitle('사용자 설정 반복')
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setMinimumWidth(300)
-        self.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 10pt;")
+        self.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 10pt; background-color: #ffffff; color: #111111;")
         
         layout = QVBoxLayout(self)
         
