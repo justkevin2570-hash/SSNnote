@@ -19,6 +19,7 @@ a = Analysis(
         ('assets/FluentSystemIcons-Filled.ttf', 'assets'),
         ('assets/MaterialIcons-Regular.ttf', 'assets'),
         ('assets/Pretendard-Regular.ttf', 'assets'),
+        ('assets/ic_fluent_star_emphasis_20_filled.svg', 'assets'),
         ('assets/icons.png', 'assets'),
     ],
     hiddenimports=[

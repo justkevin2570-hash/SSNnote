@@ -28,7 +28,7 @@ import updater
 def _base_path():
     if getattr(sys, 'frozen', False):
         return sys._MEIPASS
-    return _base_path()
+    return os.path.dirname(os.path.abspath(__file__))
 
 TITLE_BAR_HEIGHT = 33
 TITLE_COLOR      = '#f7c948'
