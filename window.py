@@ -10,8 +10,8 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit, QSizePolicy, QGraphicsColorizeEffect, QTimeEdit,
     QListWidget, QAbstractItemView, QComboBox, QListWidgetItem
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF
+from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
                 set_task_priority, set_task_recurrence, search_tasks_all,
@@ -24,8 +24,12 @@ import updater
 
 TITLE_BAR_HEIGHT = 33
 TITLE_COLOR      = '#f7c948'
-SNAP_THRESHOLD   = 20  # 완전히 붙는 거리(px)
-SNAP_ZONE        = 50  # 당기기 시작하는 거리(px)
+SNAP_THRESHOLD   = 12  # 완전히 붙는 거리(px)
+SNAP_ZONE        = 30  # 당기기 시작하는 거리(px)
+ALIGN_THRESHOLD  = 12  # 정렬 스냅 확정 거리(px)
+ALIGN_ZONE       = 30  # 정렬 스냅 인력 시작 거리(px)
+SNAP_RESIST      = 18  # 정렬 스냅 탈출 거리(px)
+BREAKAWAY_DIST   = 25  # 인접 스냅 탈출 거리(px) - 유클리드 거리 기준
 
 PALETTE = [
     '#FDD663', '#FEFFA7', '#CCFF90', '#A8F0E8',
@@ -369,7 +373,55 @@ class EdgeHandle(QWidget):
         if e.button() == Qt.LeftButton:
             self._drag_start = e.globalPos()
             self._start_geom = self.window().geometry()
+            g = self._start_geom
+            self._right_anchor = g.x() + g.width()   # 왼쪽 드래그 시 고정되는 오른쪽 끝
+            self._bottom_anchor = g.y() + g.height()  # 위쪽 드래그 시 고정되는 아래쪽 끝
             self.grabKeyboard()
+            # 리사이즈 중 합체 파트너가 딸려오지 않도록 양쪽 동기화 일시 정지
+            win = self.window()
+            if getattr(win, '_link_group', None):
+                for m in win._link_group:
+                    m._is_syncing_move = True
+
+    def _anchor_partner(self, win):
+        """파트너가 리사이즈로 움직이는 쪽 모서리에 붙어 있을 때만 따라붙게 한다.
+        고정된 모서리 쪽에 파트너가 있으면 아무것도 하지 않는다."""
+        if not win._link_group:
+            return
+        # 리사이즈 방향에 인접한 그룹 멤버를 파트너로 선택
+        partner = None
+        if self.edge in ('right', 'top-right', 'bottom-right'):
+            cands = [m for m in win._link_group if m is not win and m.x() > win.x()]
+            if cands: partner = min(cands, key=lambda m: m.x())
+        elif self.edge in ('left', 'top-left', 'bottom-left'):
+            cands = [m for m in win._link_group if m is not win and m.x() < win.x()]
+            if cands: partner = max(cands, key=lambda m: m.x())
+        elif self.edge in ('bottom', 'bottom-left', 'bottom-right'):
+            cands = [m for m in win._link_group if m is not win and m.y() > win.y()]
+            if cands: partner = min(cands, key=lambda m: m.y())
+        elif self.edge in ('top', 'top-left', 'top-right'):
+            cands = [m for m in win._link_group if m is not win and m.y() < win.y()]
+            if cands: partner = max(cands, key=lambda m: m.y())
+        if partner is None:
+            return
+        partner_on_right = win.x() < partner.x()
+        partner_on_bottom = win.y() < partner.y()
+        nx, ny = partner.x(), partner.y()
+        need_move = False
+        if self.edge in ('right', 'top-right', 'bottom-right') and partner_on_right:
+            nx = win.x() + win.width()
+            need_move = True
+        elif self.edge in ('left', 'top-left', 'bottom-left') and not partner_on_right:
+            nx = win.x() - partner.width()
+            need_move = True
+        if self.edge in ('bottom', 'bottom-left', 'bottom-right') and partner_on_bottom:
+            ny = win.y() + win.height()
+            need_move = True
+        elif self.edge in ('top', 'top-left', 'top-right') and not partner_on_bottom:
+            ny = win.y() - partner.height()
+            need_move = True
+        if need_move:
+            partner.move(nx, ny)
 
     def mouseMoveEvent(self, e):
         if not (e.buttons() == Qt.LeftButton and self._drag_start):
@@ -379,57 +431,76 @@ class EdgeHandle(QWidget):
         win = self.window()
 
         if self.edge == 'left':
-            new_w = g.width() - d.x()
-            if new_w >= self.MIN_W:
-                win.setGeometry(g.x() + d.x(), g.y(), new_w, g.height())
+            temp_x = g.x() + d.x()
+            max_x = self._right_anchor - self.MIN_W
+            new_x = min(temp_x, max_x)
+            new_w = self._right_anchor - new_x
+            win.setGeometry(new_x, g.y(), new_w, g.height())
+            self._anchor_partner(win)
 
         elif self.edge == 'right':
             win.resize(max(self.MIN_W, g.width() + d.x()), g.height())
+            self._anchor_partner(win)
 
         elif self.edge == 'bottom':
             win.resize(g.width(), max(self.MIN_H, g.height() + d.y()))
+            self._anchor_partner(win)
 
         elif self.edge == 'bottom-right':
             win.resize(
                 max(self.MIN_W, g.width() + d.x()),
                 max(self.MIN_H, g.height() + d.y()),
             )
+            self._anchor_partner(win)
 
         elif self.edge == 'bottom-left':
-            new_w = g.width() - d.x()
+            temp_x = g.x() + d.x()
+            max_x = self._right_anchor - self.MIN_W
+            new_x = min(temp_x, max_x)
+            new_w = self._right_anchor - new_x
             new_h = max(self.MIN_H, g.height() + d.y())
-            if new_w >= self.MIN_W:
-                win.setGeometry(g.x() + d.x(), g.y(), new_w, new_h)
-            else:
-                win.resize(g.width(), new_h)
+            win.setGeometry(new_x, g.y(), new_w, new_h)
+            self._anchor_partner(win)
 
         elif self.edge == 'top':
-            new_h = g.height() - d.y()
-            if new_h >= self.MIN_H:
-                win.setGeometry(g.x(), g.y() + d.y(), g.width(), new_h)
+            temp_y = g.y() + d.y()
+            max_y = self._bottom_anchor - self.MIN_H
+            new_y = min(temp_y, max_y)
+            new_h = self._bottom_anchor - new_y
+            win.setGeometry(g.x(), new_y, g.width(), new_h)
+            self._anchor_partner(win)
 
         elif self.edge == 'top-left':
-            new_w = g.width() - d.x()
-            new_h = g.height() - d.y()
-            new_x = g.x() + d.x() if new_w >= self.MIN_W else g.x()
-            new_y = g.y() + d.y() if new_h >= self.MIN_H else g.y()
-            new_w = max(self.MIN_W, new_w)
-            new_h = max(self.MIN_H, new_h)
+            temp_x = g.x() + d.x()
+            max_x = self._right_anchor - self.MIN_W
+            new_x = min(temp_x, max_x)
+            new_w = self._right_anchor - new_x
+            temp_y = g.y() + d.y()
+            max_y = self._bottom_anchor - self.MIN_H
+            new_y = min(temp_y, max_y)
+            new_h = self._bottom_anchor - new_y
             win.setGeometry(new_x, new_y, new_w, new_h)
+            self._anchor_partner(win)
 
         elif self.edge == 'top-right':
             new_w = max(self.MIN_W, g.width() + d.x())
-            new_h = g.height() - d.y()
-            if new_h >= self.MIN_H:
-                win.setGeometry(g.x(), g.y() + d.y(), new_w, new_h)
-            else:
-                win.resize(new_w, g.height())
+            temp_y = g.y() + d.y()
+            max_y = self._bottom_anchor - self.MIN_H
+            new_y = min(temp_y, max_y)
+            new_h = self._bottom_anchor - new_y
+            win.setGeometry(g.x(), new_y, new_w, new_h)
+            self._anchor_partner(win)
 
     def mouseReleaseEvent(self, e):
         self.releaseKeyboard()
         self._drag_start = None
         self._start_geom = None
-        self.window().save_state()
+        # 리사이즈 완료 후 offset 재계산 후 동기화 재개
+        win = self.window()
+        if getattr(win, '_link_group', None):
+            for m in win._link_group:
+                m._is_syncing_move = False
+        win.save_state()
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Escape and self._drag_start:
@@ -437,6 +508,88 @@ class EdgeHandle(QWidget):
             self.releaseKeyboard()
             self._drag_start = None
             self._start_geom = None
+
+
+class MergeButton(QWidget):
+    """두 창 경계선에 떠있는 합체/분리 토글 버튼."""
+    SIZE = 56
+
+    def __init__(self):
+        super().__init__(None)
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self._merged = False
+        self._win_a  = None
+        self._win_b  = None
+        self._raise_timer = QTimer(self)
+        self._raise_timer.setInterval(150)
+        self._raise_timer.timeout.connect(self._do_raise)
+
+    def set_windows(self, win_a, win_b):
+        self._win_a = win_a
+        self._win_b = win_b
+
+    def set_merged(self, merged: bool):
+        self._merged = merged
+        self.update()
+
+    def update_position(self, win_a, win_b):
+        ga = win_a.geometry()
+        gb = win_b.geometry()
+        top_y = min(ga.top(), gb.top())
+        if ga.right() <= gb.left() + SNAP_THRESHOLD:
+            bx = ga.right()
+        else:
+            bx = gb.right()
+        self.move(bx - self.SIZE // 2, top_y + TITLE_BAR_HEIGHT - self.SIZE // 2 + 12)
+
+    def _do_raise(self):
+        try:
+            ctypes.windll.user32.SetWindowPos(
+                int(self.winId()), 0, 0, 0, 0, 0,
+                0x0010 | 0x0001 | 0x0002)
+        except Exception:
+            pass
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        s = self.SIZE
+        bw, bh = 20, 16
+        by = (s - bh) // 2
+        f = QFont('Arial', 11, QFont.Bold)
+        p.setFont(f)
+        if self._merged:
+            nx, sx = 8, 28
+        else:
+            nx, sx = 3, 33
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor('#e74c3c'))
+        p.drawRoundedRect(nx, by, bw, bh, 4, 4)
+        p.setBrush(QColor('#3498db'))
+        p.drawRoundedRect(sx, by, bw, bh, 4, 4)
+        p.setPen(QColor(255, 255, 255))
+        p.drawText(QRectF(nx, by, bw, bh), Qt.AlignCenter, 'N')
+        p.drawText(QRectF(sx, by, bw, bh), Qt.AlignCenter, 'S')
+        p.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self._win_a and self._win_b:
+            self._win_a.toggle_merge(self._win_b)
+
+    def enterEvent(self, event):
+        self.setCursor(Qt.PointingHandCursor)
+        super().enterEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._raise_timer.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._raise_timer.stop()
 
 
 class TitleBar(QWidget):
@@ -453,21 +606,17 @@ class TitleBar(QWidget):
             QPushButton {{
                 background: transparent;
                 border: none;
-                font-size: 19px;
-                padding: 4px 6px 0px 6px;
                 border-radius: 4px;
+                padding: 0;
             }}
             QPushButton:hover {{ background: rgba(0,0,0,0.12); border-radius: 3px; }}
-            QPushButton:pressed {{ background: rgba(0,0,0,0.22); border-radius: 3px; padding: 2px 0 0 2px; }}
+            QPushButton:pressed {{ background: rgba(0,0,0,0.22); border-radius: 3px; }}
             QPushButton#btn_mode {{
                 background: transparent;
                 border: 1px solid transparent;
                 border-radius: 6px;
-                padding: 4px 8px;
-                color: #5a4000;
-                font-family: 'Malgun Gothic';
-                font-size: 10pt;
-                font-weight: bold;
+                padding: 0px 6px;
+                color: #2979ff;
             }}
             QPushButton#btn_mode:hover {{ background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.12); }}
             QPushButton#btn_mode:pressed {{ background: rgba(0,0,0,0.20); border-color: rgba(0,0,0,0.20); }}
@@ -483,9 +632,11 @@ class TitleBar(QWidget):
 
         btn_menu  = QPushButton('…')
         btn_menu.setToolTip('메뉴')
-        btn_menu.setStyleSheet('font-size: 19px; letter-spacing: 0px; padding: 4px 6px 0px 6px;')
+        btn_menu.setStyleSheet('font-size: 19px; letter-spacing: 0px; padding: 0px 6px 0px 6px;')
         self.btn_pin   = QPushButton('📌')
         self.btn_pin.setToolTip('항상 위 꺼짐')
+        self.btn_pin.setFixedSize(26, 26)
+        self.btn_pin.setFont(QFont('Segoe UI Emoji', 12))
         _gray = QGraphicsColorizeEffect()
         _gray.setColor(QColor('#888888'))
         _gray.setStrength(1.0)
@@ -502,8 +653,17 @@ class TitleBar(QWidget):
             QPushButton:pressed { background: rgba(0,0,0,0.22); border-radius: 3px; padding: 2px 0 0 2px; }
         """)
 
-        self.btn_mode = QPushButton('메모 mode')
+        _edit_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', '수정 아이콘.png')
+        self.btn_mode = QPushButton()
         self.btn_mode.setObjectName('btn_mode')
+        self.btn_mode.setIcon(QIcon(QPixmap(_edit_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+        self.btn_mode.setIconSize(QSize(18, 18))
+        self.btn_mode.setFixedSize(26, 26)
+        self.btn_mode.setToolTip('메모 모드로 전환')
+        _gray_mode = QGraphicsColorizeEffect()
+        _gray_mode.setColor(QColor('#888888'))
+        _gray_mode.setStrength(1.0)
+        self.btn_mode.setGraphicsEffect(_gray_mode)
         self.btn_mode.clicked.connect(parent._toggle_memo_mode)
 
         layout.addWidget(self.label)
@@ -533,14 +693,79 @@ class TitleBar(QWidget):
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
             self._drag_pos = e.globalPos() - self.parent.frameGeometry().topLeft()
+            self.parent._snapped_pos = None
+            self.parent._current_snap_edges = []
+            self.parent._snap_is_adj = False
 
     def mouseMoveEvent(self, e):
-        if e.buttons() == Qt.LeftButton and self._drag_pos:
-            new_pos = e.globalPos() - self._drag_pos
-            self.parent.move(self.parent._snap_to_screen(new_pos))
+        if not (e.buttons() == Qt.LeftButton and self._drag_pos):
+            return
+        raw_pos = e.globalPos() - self._drag_pos
+        p = self.parent
+        new_pos, snap_edges, adj_snapped, x_snap_partner = p._snap_full(raw_pos)
+
+        if p._snapped_pos is not None:
+            threshold = BREAKAWAY_DIST if p._snap_is_adj else SNAP_RESIST
+            dx = raw_pos.x() - p._snapped_pos.x()
+            dy = raw_pos.y() - p._snapped_pos.y()
+            if (dx*dx + dy*dy) ** 0.5 < threshold:
+                if adj_snapped:
+                    p._snapped_pos = new_pos
+                    p._current_snap_edges = snap_edges
+                    p._snap_is_adj = True
+                else:
+                    new_pos = p._snapped_pos
+                    snap_edges = p._current_snap_edges
+                    adj_snapped = p._snap_is_adj
+            else:
+                p._snapped_pos = None
+                p._current_snap_edges = []
+                p._snap_is_adj = False
+
+        if p._snapped_pos is None:
+            if adj_snapped:
+                p._snapped_pos = new_pos
+                p._current_snap_edges = snap_edges
+                p._snap_is_adj = True
+            elif snap_edges:
+                p._snapped_pos = new_pos
+                p._current_snap_edges = snap_edges
+                p._snap_is_adj = False
+            else:
+                p._snapped_pos = None
+                p._current_snap_edges = []
+
+        p.move(new_pos)
+
+        # 합체 버튼 노출 / 갱신 (좌우 모서리 + 상단 또는 하단 라인 일치)
+        y_aligned = (x_snap_partner is not None and (
+            abs(p.y() - x_snap_partner.y()) < SNAP_THRESHOLD or
+            abs((p.y() + p.height()) - (x_snap_partner.y() + x_snap_partner.height())) < SNAP_THRESHOLD
+        ))
+        already_linked = p._link_group is not None and x_snap_partner in p._link_group
+        if x_snap_partner is not None and not already_linked and y_aligned:
+            left_win = p if p.x() <= x_snap_partner.x() else x_snap_partner
+            right_win = x_snap_partner if left_win is p else p
+            if left_win._merge_btn is None or left_win._merge_btn._win_b is not right_win:
+                if left_win._merge_btn is not None and not left_win._merge_btn._merged:
+                    left_win._merge_btn.hide()
+                btn = MergeButton()
+                btn.set_windows(left_win, right_win)
+                left_win._merge_btn = btn
+            btn = left_win._merge_btn
+            btn.set_merged(False)
+            btn.update_position(btn._win_a, btn._win_b)
+            btn.show()
+        elif x_snap_partner is None:
+            if p._merge_btn is not None and not p._merge_btn._merged:
+                p._merge_btn.hide()
+                p._merge_btn = None
 
     def mouseReleaseEvent(self, e):
         self._drag_pos = None
+        self.parent._snapped_pos = None
+        self.parent._current_snap_edges = []
+        self.parent._snap_is_adj = False
         self.parent.save_state()
 
     def mouseDoubleClickEvent(self, e):
@@ -1545,6 +1770,70 @@ class UrgentToast(QWidget):
         self._click_fade()
 
 
+class SnapGuideOverlay(QWidget):
+    """드래그 중 정렬 가이드라인을 전체 화면 위에 그리는 투명 오버레이."""
+
+    def __init__(self):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._lines = []
+        self._fade_timer = QTimer(self)
+        self._fade_timer.setSingleShot(True)
+        self._fade_timer.timeout.connect(self._start_fade)
+        self._anim = QPropertyAnimation(self, b'windowOpacity')
+        self._anim.setDuration(350)
+        self._anim.finished.connect(self.hide)
+        screens = QApplication.screens()
+        total = screens[0].geometry()
+        for s in screens[1:]:
+            total = total.united(s.geometry())
+        self.setGeometry(total)
+
+    def show_lines(self, lines):
+        self._lines = lines
+        if not lines:
+            return
+        self._fade_timer.stop()
+        self._anim.stop()
+        self.setWindowOpacity(1.0)
+        self.update()
+        self.show()
+        self.raise_()
+
+    def hide_lines(self):
+        self._lines = []
+        self._fade_timer.start(250)
+
+    def _start_fade(self):
+        self._anim.setStartValue(self.windowOpacity())
+        self._anim.setEndValue(0.0)
+        self._anim.start()
+
+    def paintEvent(self, event):
+        if not self._lines:
+            return
+        painter = QPainter(self)
+        pen = painter.pen()
+        pen.setColor(QColor(41, 121, 255, 180))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        for x1, y1, x2, y2 in self._lines:
+            painter.drawLine(x1, y1, x2, y2)
+        painter.end()
+
+
+_snap_guide_overlay = None
+
+
+def _get_snap_guide_overlay():
+    global _snap_guide_overlay
+    if _snap_guide_overlay is None:
+        _snap_guide_overlay = SnapGuideOverlay()
+    return _snap_guide_overlay
+
+
 class MemoWindow(QMainWindow):
     def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None,
                  on_alarm_interval_change=None, get_alarm_interval=None,
@@ -1569,11 +1858,17 @@ class MemoWindow(QMainWindow):
         self._scale          = 1.0
         self._memo_mode      = False
         self._memo_save_timer = None
+        self._snapped_pos        = None
+        self._current_snap_edges = []
+        self._snap_is_adj        = False  # 현재 인접 스냅 상태
+        self._link_group         = None   # 합체된 창들의 set (자신 포함)
+        self._is_syncing_move    = False  # moveEvent 무한루프 방지
+        self._merge_btn          = None   # MergeButton 위젯 참조
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setMinimumWidth(360)
+        self.setMinimumWidth(EdgeHandle.MIN_W)
         self._build_ui()
         from PyQt5.QtWidgets import QShortcut
         from PyQt5.QtGui import QKeySequence
@@ -2035,14 +2330,18 @@ class MemoWindow(QMainWindow):
         self.date_row_widget.setVisible(not on)
         self.task_scroll.setVisible(not on)
         self.memo_editor.setVisible(on)
+        btn = self.title_bar.btn_mode
         if on:
             self.memo_editor.setFocus()
-            self.title_bar.btn_mode.setText('업무 mode')
-            self.title_bar.btn_mode.setToolTip('업무 모드로 전환')
+            btn.setToolTip('업무 모드로 전환')
+            btn.setGraphicsEffect(None)
         else:
             self.input_name.setFocus()
-            self.title_bar.btn_mode.setText('메모 mode')
-            self.title_bar.btn_mode.setToolTip('메모 모드로 전환')
+            btn.setToolTip('메모 모드로 전환')
+            _gray = QGraphicsColorizeEffect()
+            _gray.setColor(QColor('#888888'))
+            _gray.setStrength(1.0)
+            btn.setGraphicsEffect(_gray)
 
     def _on_memo_text_changed(self):
         if self._memo_save_timer is not None:
@@ -2550,9 +2849,8 @@ class MemoWindow(QMainWindow):
             QPushButton {{
                 background: transparent;
                 border: none;
-                font-size: 19px;
-                padding: 4px 6px 0px 6px;
                 border-radius: 4px;
+                padding: 0;
             }}
             QPushButton:hover {{ background: rgba(0,0,0,0.12); }}
             QPushButton#btn_mode {{
@@ -2942,7 +3240,8 @@ class MemoWindow(QMainWindow):
             _gray.setStrength(1.0)
             btn.setGraphicsEffect(_gray)
 
-    def _snap_to_screen(self, pos):
+    def _snap_full(self, pos):
+        """스냅 위치와 정렬 엣지 정보를 함께 반환."""
         screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
         rect = screen.availableGeometry()
         x, y = float(pos.x()), float(pos.y())
@@ -2963,41 +3262,182 @@ class MemoWindow(QMainWindow):
                 return val + dist_hi * t * t
             return val
 
-        nx = snap_axis(x, rect.left(), rect.right(),  w)
+        nx = snap_axis(x, rect.left(), rect.right(), w)
         ny = snap_axis(y, rect.top(),  rect.bottom(), h)
+        nx, ny, snap_edges, adj_snapped, x_snap_partner = self._snap_to_windows(nx, ny, w, h)
+        # 타이틀바가 화면 밖으로 나가지 않도록 상단 클램핑
+        ny = max(float(rect.top()), ny)
+        return QPoint(int(nx), int(ny)), snap_edges, adj_snapped, x_snap_partner
 
-        # 다른 창과의 자석 스냅
+    def _snap_to_screen(self, pos):
+        result, _, _, _ = self._snap_full(pos)
+        return result
+
+    def _snap_to_windows(self, nx, ny, w, h):
+        """바깥쪽 인접 스냅 + 상단 정렬 스냅 — AABB 절대 거리, 방향 무관."""
+        my_r = nx + w
+        my_b = ny + h
+
+        min_dx        = float('inf')
+        min_dy        = float('inf')
+        min_align_dy  = float('inf')
+        result_nx     = nx
+        result_ny     = ny
+        best_x_guide  = None
+        best_y_guide  = None
+        align_y_guide  = None
+        align_y_result = None
+        align_partner  = None
+        x_snap_partner = None
+
         for other in self._open_windows:
             if other is self:
                 continue
-            r = other.geometry()
-            ox, oy = float(r.x()), float(r.y())
-            ow, oh = float(r.width()), float(r.height())
+            r   = other.geometry()
+            ox  = float(r.x());   oy  = float(r.y())
+            ow  = float(r.width()); oh = float(r.height())
+            o_r = ox + ow;  o_b = oy + oh
 
-            v_near = (ny < oy + oh + SNAP_ZONE) and (ny + h > oy - SNAP_ZONE)
-            h_near = (nx < ox + ow + SNAP_ZONE) and (nx + w > ox - SNAP_ZONE)
-
-            if v_near:
+            # X 스냅 — Y 범위 겹침 필요 (바깥쪽 모서리만)
+            if ny < o_b and my_b > oy:
                 # 내 오른쪽 → 상대 왼쪽
-                d = ox - (nx + w)
-                if 0 <= d < SNAP_ZONE:
-                    nx = ox - w if d < SNAP_THRESHOLD else nx + d * (1.0 - d / SNAP_ZONE) ** 2
+                d = ox - my_r
+                if abs(d) < SNAP_THRESHOLD and abs(d) < abs(min_dx):
+                    min_dx = d;  result_nx = ox - w;  best_x_guide = int(ox); x_snap_partner = other
                 # 내 왼쪽 → 상대 오른쪽
-                d = nx - (ox + ow)
-                if 0 <= d < SNAP_ZONE:
-                    nx = ox + ow if d < SNAP_THRESHOLD else nx - d * (1.0 - d / SNAP_ZONE) ** 2
+                d = nx - o_r
+                if abs(d) < SNAP_THRESHOLD and abs(d) < abs(min_dx):
+                    min_dx = d;  result_nx = o_r;     best_x_guide = int(o_r); x_snap_partner = other
 
-            if h_near:
-                # 내 아래쪽 → 상대 위쪽
-                d = oy - (ny + h)
-                if 0 <= d < SNAP_ZONE:
-                    ny = oy - h if d < SNAP_THRESHOLD else ny + d * (1.0 - d / SNAP_ZONE) ** 2
-                # 내 위쪽 → 상대 아래쪽
-                d = ny - (oy + oh)
-                if 0 <= d < SNAP_ZONE:
-                    ny = oy + oh if d < SNAP_THRESHOLD else ny - d * (1.0 - d / SNAP_ZONE) ** 2
+            # Y 스냅 — X 범위 겹침 필요 (바깥쪽 모서리만)
+            if nx < o_r and my_r > ox:
+                # 내 아래 → 상대 위
+                d = oy - my_b
+                if abs(d) < SNAP_THRESHOLD and abs(d) < abs(min_dy):
+                    min_dy = d;  result_ny = oy - h;  best_y_guide = int(oy)
+                # 내 위 → 상대 아래
+                d = ny - o_b
+                if abs(d) < SNAP_THRESHOLD and abs(d) < abs(min_dy):
+                    min_dy = d;  result_ny = o_b;     best_y_guide = int(o_b)
 
-        return QPoint(int(nx), int(ny))
+            # 상단/하단 정렬 스냅 — 가로로 인접한 창끼리 상단/하단 라인 맞추기
+            x_adjacent = (abs(nx - o_r) < SNAP_ZONE or abs(my_r - ox) < SNAP_ZONE)
+            if x_adjacent:
+                d_top = abs(ny - oy)
+                if d_top < SNAP_THRESHOLD and d_top < min_align_dy:
+                    min_align_dy   = d_top
+                    align_y_guide  = int(oy)
+                    align_y_result = float(oy)
+                    align_partner  = other
+                d_bot = abs((ny + h) - (oy + oh))
+                if d_bot < SNAP_THRESHOLD and d_bot < min_align_dy:
+                    min_align_dy   = d_bot
+                    align_y_guide  = int(oy + oh)
+                    align_y_result = float(oy + oh - h)
+                    align_partner  = other
+
+        # 바깥쪽 Y 스냅이 없을 때만 정렬 스냅 적용
+        if align_y_guide is not None and best_y_guide is None:
+            result_ny = align_y_result
+            best_y_guide = align_y_guide
+
+        snap_edges  = []
+        adj_snapped = False
+        if best_x_guide is not None:
+            snap_edges.append(('x', best_x_guide));  adj_snapped = True
+        if best_y_guide is not None:
+            snap_edges.append(('y', best_y_guide));  adj_snapped = True
+
+        top_aligned_partner = align_partner if (align_y_guide is not None and best_y_guide == align_y_guide) else None
+        return result_nx, result_ny, snap_edges, adj_snapped, x_snap_partner
+
+    def _compute_guide_lines(self, snap_edges):
+        """스냅 엣지를 전체 화면 폭/높이의 선 좌표로 변환."""
+        if not snap_edges:
+            return []
+        screens = QApplication.screens()
+        total = screens[0].geometry()
+        for s in screens[1:]:
+            total = total.united(s.geometry())
+        lines = []
+        for axis, coord in snap_edges:
+            if axis == 'x':
+                lines.append((coord, total.top(), coord, total.bottom()))
+            else:
+                lines.append((total.left(), coord, total.right(), coord))
+        return lines
+
+    def toggle_merge(self, other):
+        if self._link_group and other in self._link_group:
+            # 해체: 그룹 전체 해산
+            group = list(self._link_group)
+            left = self if self.x() <= other.x() else other
+            clicked_btn = left._merge_btn
+            for member in group:
+                member._link_group = None
+                member._set_inner_handles_enabled(True)
+                if member._merge_btn and member._merge_btn is not clicked_btn:
+                    member._merge_btn.hide()
+                    member._merge_btn = None
+            if clicked_btn:
+                clicked_btn.set_merged(False)
+        else:
+            # 합체: 그룹 합치기
+            if self._link_group and other._link_group:
+                new_group = self._link_group | other._link_group
+            elif self._link_group:
+                new_group = set(self._link_group) | {other}
+            elif other._link_group:
+                new_group = set(other._link_group) | {self}
+            else:
+                new_group = {self, other}
+            for member in new_group:
+                member._link_group = new_group
+                member._set_inner_handles_enabled(False)
+            left = self if self.x() <= other.x() else other
+            if left._merge_btn:
+                left._merge_btn.set_merged(True)
+
+    def _set_inner_handles_enabled(self, enabled):
+        """합체된 안쪽 테두리 핸들 활성화/비활성화."""
+        if not hasattr(self, '_handles'):
+            return
+        if self._link_group is None:
+            for h in self._handles.values():
+                h.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+                h.setCursor(EdgeHandle._CURSORS[h.edge])
+            return
+        inner = []
+        for member in self._link_group:
+            if member is self:
+                continue
+            if member.x() > self.x():
+                inner += ['right', 'top-right', 'bottom-right']
+            elif member.x() < self.x():
+                inner += ['left', 'top-left', 'bottom-left']
+        for edge, h in self._handles.items():
+            if edge in inner:
+                h.setAttribute(Qt.WA_TransparentForMouseEvents, not enabled)
+                h.setCursor(Qt.ArrowCursor if not enabled else EdgeHandle._CURSORS[edge])
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if self._link_group and not self._is_syncing_move:
+            dx = self.x() - event.oldPos().x()
+            dy = self.y() - event.oldPos().y()
+            for member in self._link_group:
+                if member is self:
+                    continue
+                member._is_syncing_move = True
+                member._snapped_pos = None
+                member._current_snap_edges = []
+                member._snap_is_adj = False
+                member.move(member.x() + dx, member.y() + dy)
+                member._is_syncing_move = False
+            for member in self._link_group:
+                if member._merge_btn and member._merge_btn.isVisible():
+                    btn = member._merge_btn
+                    btn.update_position(btn._win_a, btn._win_b)
 
     def _setup_resize_handles(self):
         self._handles = {
@@ -3085,7 +3525,38 @@ class MemoWindow(QMainWindow):
             self._first_shown = True
             QTimer.singleShot(0, lambda: (self.activateWindow(), (self.memo_editor if self._memo_mode else self.input_name).setFocus()))
 
+    def _raise_merge_btn(self):
+        """Win32 SetWindowPos로 합체 버튼을 노트 창보다 위, 다른 앱보다 아래로."""
+        if self._merge_btn is None or not self._merge_btn.isVisible():
+            return
+        try:
+            HWND_TOP = 0
+            SWP_NOACTIVATE = 0x0010
+            SWP_NOSIZE = 0x0001
+            SWP_NOMOVE = 0x0002
+            ctypes.windll.user32.SetWindowPos(
+                int(self._merge_btn.winId()), HWND_TOP,
+                0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
+        except Exception:
+            pass
+
+
     def closeEvent(self, e):
+        if self._link_group:
+            self._link_group.discard(self)
+            remaining = self._link_group
+            self._link_group = None
+            if len(remaining) == 1:
+                sole = next(iter(remaining))
+                sole._link_group = None
+                sole._set_inner_handles_enabled(True)
+            elif len(remaining) > 1:
+                for m in remaining:
+                    m._link_group = remaining
+                    m._set_inner_handles_enabled(False)
+        if self._merge_btn is not None:
+            self._merge_btn.hide()
+            self._merge_btn = None
         if not getattr(self, '_deleted', False):
             self.save_state()
             if self._memo_save_timer and self._memo_save_timer.isActive():
