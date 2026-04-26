@@ -1,5 +1,11 @@
 import re
 import sys
+import os
+
+def _base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
 import qtawesome as qta
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QPushButton,
@@ -338,9 +344,7 @@ class DocumentEditorWindow(QMainWindow):
         btn_move_to_title.setMinimumHeight(_input_h)
         btn_move_to_title.setFixedWidth(_input_h)
         btn_move_to_title.setToolTip("공문 제목으로 이동")
-        _arrow_path = __import__('os').path.join(
-            __import__('os').path.dirname(__import__('os').path.abspath(__file__)), 'assets', '위화살표.png'
-        )
+        _arrow_path = os.path.join(_base_path(), 'assets', '위화살표.png')
         btn_move_to_title.setIcon(QIcon(QPixmap(_arrow_path).scaled(
             _input_h - 8, _input_h - 8, Qt.KeepAspectRatio, Qt.SmoothTransformation
         )))

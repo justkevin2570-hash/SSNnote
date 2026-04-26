@@ -1,4 +1,5 @@
 import os
+import sys
 import ctypes
 from PyQt5.QtSvg import QSvgRenderer
 from datetime import date, datetime, timedelta
@@ -24,6 +25,11 @@ from autostart import is_enabled as autostart_is_enabled, set_enabled as autosta
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
 import updater
 
+def _base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return _base_path()
+
 TITLE_BAR_HEIGHT = 33
 TITLE_COLOR      = '#f7c948'
 SNAP_THRESHOLD   = 12  # 완전히 붙는 거리(px)
@@ -46,7 +52,7 @@ _PR_FONT_ID        = -1
 
 def _load_fluent_icons():
     global _FI_FONT_ID, _FI_FILLED_FONT_ID, _MAT_FONT_ID
-    base = os.path.dirname(os.path.abspath(__file__))
+    base = _base_path()
     if _FI_FONT_ID == -1:
         _FI_FONT_ID = QFontDatabase.addApplicationFont(
             os.path.join(base, 'assets', 'FluentSystemIcons-Regular.ttf'))
@@ -78,7 +84,7 @@ def mat_font(size=14):
 def _load_pretendard():
     global _PR_FONT_ID
     if _PR_FONT_ID == -1:
-        base = os.path.dirname(os.path.abspath(__file__))
+        base = _base_path()
         _PR_FONT_ID = QFontDatabase.addApplicationFont(
             os.path.join(base, 'assets', 'Pretendard-Regular.ttf'))
 
@@ -671,7 +677,7 @@ class TitleBar(QWidget):
         _gray.setColor(QColor('#888888'))
         _gray.setStrength(1.0)
         self.btn_pin.setGraphicsEffect(_gray)
-        _x_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', '엑스아이콘.png')
+        _x_icon_path = os.path.join(_base_path(), 'assets', '엑스아이콘.png')
         self.btn_close = QPushButton()
         self.btn_close.setIcon(QIcon(QPixmap(_x_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         self.btn_close.setIconSize(QSize(18, 18))
@@ -683,7 +689,7 @@ class TitleBar(QWidget):
             QPushButton:pressed { background: rgba(0,0,0,0.22); border-radius: 3px; padding: 2px 0 0 2px; }
         """)
 
-        _edit_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', '수정 아이콘.png')
+        _edit_icon_path = os.path.join(_base_path(), 'assets', '수정 아이콘.png')
         self.btn_mode = QPushButton()
         self.btn_mode.setObjectName('btn_mode')
         self.btn_mode.setIcon(QIcon(QPixmap(_edit_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
@@ -1076,7 +1082,7 @@ class TaskRow(QWidget):
         _is_starred = bool(task.get('priority', 0))
         self._star_sz = int(22 * scale)
         _star_pt = int(15 * scale)
-        self._star_svg = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'ic_fluent_star_emphasis_20_filled.svg')
+        self._star_svg = os.path.join(_base_path(), 'assets', 'ic_fluent_star_emphasis_20_filled.svg')
         self.btn_star = QPushButton()
         self.btn_star.setFixedSize(self._star_sz, self._star_sz)
         self.btn_star.setFlat(True)
@@ -1741,7 +1747,7 @@ class DocumentRow(QWidget):
         import os
         from PyQt5.QtGui import QIcon, QPixmap
         from PyQt5.QtCore import QSize
-        _edit_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', '수정 아이콘.png')
+        _edit_icon_path = os.path.join(_base_path(), 'assets', '수정 아이콘.png')
         btn_edit = QPushButton()
         btn_edit.setIcon(QIcon(QPixmap(_edit_icon_path).scaled(15, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)))
         btn_edit.setIconSize(QSize(15, 16))
@@ -1842,7 +1848,7 @@ class DocumentRow(QWidget):
         import os
         from PyQt5.QtGui import QIcon, QPixmap
         from PyQt5.QtCore import QSize
-        _del_icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', '엑스아이콘.png')
+        _del_icon_path = os.path.join(_base_path(), 'assets', '엑스아이콘.png')
         btn_del = QPushButton()
         btn_del.setIcon(QIcon(QPixmap(_del_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         btn_del.setIconSize(QSize(18, 18))
@@ -1880,7 +1886,7 @@ class UrgentToast(QWidget):
 
         # 팝업 이미지 로드 (assets/popup_images/ 폴더에서 랜덤 선택)
         import random as _random
-        _base = os.path.dirname(os.path.abspath(__file__))
+        _base = _base_path()
         _popup_dir = os.path.join(_base, 'assets', 'popup_images')
         _exts = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
         _candidates = sorted([
