@@ -1,5 +1,5 @@
 {
-  "version": "v2.41",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.41/SSNnote_Setup.exe",
-  "changelog": "- 자동 업데이트 알림을 안내 메시지로 변경 (메뉴에서 수동 설치)\n- 업데이트 다운로드 SSL 안정성 개선"
+  "version": "v2.43",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.43/SSNnote_Setup.exe",
+  "changelog": "- 창 합체 기능 개선: 자석 N/S 버튼, z-order 최적화\n- 좌우 모서리/제목표시줄 정렬 시 합체 버튼 표시\n- 좌측 리사이즈 min() 클램핑으로 안정화\n- 제목표시줄 버튼 정렬 및 연필 아이콘 복원\n- 합체 버튼 Win32 소유 윈도우 등록으로 다른 앱 위에 안 뜸\n- focusInEvent 연동 SetWindowPos로 노트 창 위 유지"
 }

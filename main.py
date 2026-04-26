@@ -235,6 +235,7 @@ if __name__ == '__main__':
     tray.setToolTip('서서니 노트')
 
     menu = QMenu()
+
     act_quit = QAction('종료')
     act_quit.triggered.connect(app.quit)
     menu.addAction(act_quit)
