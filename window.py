@@ -14,10 +14,12 @@ from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QP
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
-                set_task_priority, set_task_recurrence, search_tasks_all,
+                set_task_priority, set_task_recurrence, get_task_notes, set_task_notes,
+                search_tasks_all,
                 get_documents, add_document, update_document, delete_document,
                 get_official_documents, delete_official_document,
-                get_window_memo, set_window_memo, get_all_windows)
+                get_window_memo, set_window_memo, get_all_windows,
+                set_window_merge_group, clear_window_merge_group, get_next_merge_group_id)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
 import updater
@@ -40,6 +42,7 @@ PALETTE = [
 _FI_FONT_ID        = -1
 _FI_FILLED_FONT_ID = -1
 _MAT_FONT_ID       = -1
+_PR_FONT_ID        = -1
 
 def _load_fluent_icons():
     global _FI_FONT_ID, _FI_FILLED_FONT_ID, _MAT_FONT_ID
@@ -72,6 +75,19 @@ def mat_font(size=14):
     families = QFontDatabase.applicationFontFamilies(_MAT_FONT_ID)
     return QFont(families[0] if families else 'Material Icons', size)
 
+def _load_pretendard():
+    global _PR_FONT_ID
+    if _PR_FONT_ID == -1:
+        base = os.path.dirname(os.path.abspath(__file__))
+        _PR_FONT_ID = QFontDatabase.addApplicationFont(
+            os.path.join(base, 'assets', 'Pretendard-Regular.ttf'))
+
+def pr_font(size=11):
+    """Pretendard Regular QFont 반환."""
+    _load_pretendard()
+    families = QFontDatabase.applicationFontFamilies(_PR_FONT_ID)
+    return QFont(families[0] if families else 'Pretendard', size)
+
 def mi_icon(codepoint, size=18, color='#555555'):
     """Fluent Icons 코드포인트를 QIcon으로 변환."""
     _load_fluent_icons()
@@ -103,18 +119,18 @@ class AddDateButton(QLabel):
     _STYLE_NORMAL = (
         'color: #bbb; background: transparent;'
         'border: 1px dashed #ccc; border-radius: 3px;'
-        'padding: 1px 5px; margin-bottom: 3px;'
+        'padding: 1px 5px;'
     )
     _STYLE_HOVER = (
         'color: #888; background: rgba(212,184,0,0.1);'
         'border: 1px dashed #d4b800; border-radius: 3px;'
-        'padding: 1px 5px; margin-bottom: 3px;'
+        'padding: 1px 5px;'
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__('＋날짜', *args, **kwargs)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFont(QFont('Malgun Gothic', 9))
+        self.setFont(pr_font(10))
         self.setStyleSheet(self._STYLE_NORMAL)
 
     def enterEvent(self, event):
@@ -142,10 +158,22 @@ class ClickableLabel(QLabel):
 
 
 class DdayLabel(QLabel):
+    """D‑day 표시 라벨. 텍스트를 2px 위로 당겨서 다른 행 요소들과 시각 중심을 맞춘다."""
+    SHIFT = 2
+
     def __init__(self, dday_text, date_text, *args, **kwargs):
         super().__init__(dday_text, *args, **kwargs)
         self._dday_text = dday_text
         self._date_text = date_text
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setFont(self.font())
+        p.setPen(self.palette().color(self.foregroundRole()))
+        rect = self.rect()
+        rect.translate(0, -self.SHIFT)
+        p.drawText(rect, self.alignment(), self.text())
+        p.end()
 
     def enterEvent(self, event):
         self.setText(self._date_text)
@@ -570,6 +598,9 @@ class MergeButton(QWidget):
         p.drawRoundedRect(nx, by, bw, bh, 4, 4)
         p.setBrush(QColor('#3498db'))
         p.drawRoundedRect(sx, by, bw, bh, 4, 4)
+        if not self._merged:
+            p.setBrush(QColor(255, 255, 255))
+            p.drawRect(nx + bw, by, sx - (nx + bw), bh)
         p.setPen(QColor(255, 255, 255))
         p.drawText(QRectF(nx, by, bw, bh), Qt.AlignCenter, 'N')
         p.drawText(QRectF(sx, by, bw, bh), Qt.AlignCenter, 'S')
@@ -585,7 +616,6 @@ class MergeButton(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._raise_timer.start()
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -668,7 +698,7 @@ class TitleBar(QWidget):
 
         layout.addWidget(self.label)
         layout.addStretch()
-        layout.addWidget(self.btn_mode)
+        layout.addWidget(self.btn_mode, 0, Qt.AlignVCenter)
         layout.addWidget(btn_menu)
         layout.addWidget(self.btn_pin)
         layout.addWidget(self.btn_close)
@@ -756,6 +786,7 @@ class TitleBar(QWidget):
             btn.set_merged(False)
             btn.update_position(btn._win_a, btn._win_b)
             btn.show()
+            btn._raise_timer.start()
         elif x_snap_partner is None:
             if p._merge_btn is not None and not p._merge_btn._merged:
                 p._merge_btn.hide()
@@ -767,6 +798,10 @@ class TitleBar(QWidget):
         self.parent._current_snap_edges = []
         self.parent._snap_is_adj = False
         self.parent.save_state()
+        if self.parent._link_group:
+            for member in self.parent._link_group:
+                if member is not self.parent:
+                    member.save_state()
 
     def mouseDoubleClickEvent(self, e):
         if e.button() == Qt.LeftButton:
@@ -780,6 +815,12 @@ class RotatedMenuButton(QPushButton):
     def __init__(self, parent=None):
         super().__init__('…', parent)
         self._hovered = False
+
+    def sizeHint(self):
+        fm = QFontMetrics(self.font())
+        char_w = fm.horizontalAdvance('…')
+        side = char_w + 12
+        return QSize(side, side)
 
     def enterEvent(self, e):
         self._hovered = True
@@ -822,6 +863,7 @@ class _AutoHeightEdit(QPlainTextEdit):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._fixed_height = 28
         self.document().contentsChanged.connect(self._update_height)
 
     def keyPressEvent(self, e):
@@ -829,6 +871,10 @@ class _AutoHeightEdit(QPlainTextEdit):
             self.clearFocus()
         else:
             super().keyPressEvent(e)
+
+    def sizeHint(self):
+        sh = super().sizeHint()
+        return QSize(sh.width(), self._fixed_height)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -855,7 +901,161 @@ class _AutoHeightEdit(QPlainTextEdit):
         layout.endLayout()
         doc_margin = self.document().documentMargin()
         h = int(y + 2 * doc_margin) + 4
-        self.setFixedHeight(max(h, 28))
+        fixed_h = max(h, 28)
+        self._fixed_height = fixed_h
+        self.setMinimumHeight(fixed_h)
+        self.setMaximumHeight(fixed_h)
+        v_pad = max(0, (fixed_h - int(y)) // 2)
+        self.setViewportMargins(0, v_pad, 0, v_pad)
+
+
+class _NoteButton(QPushButton):
+    """chat_20_regular 아이콘을 x축 대칭(상하 반전)으로 그리는 메모 버튼."""
+    _CODEPOINT = ''
+
+    def __init__(self, scale=1.0):
+        super().__init__()
+        self._color_normal = QColor('#cccccc')
+        self._color_hover  = QColor('#d4b800')
+        self._hovered      = False
+        self.setFlat(True)
+        sz = int(22 * scale)
+        self.setFixedSize(sz, sz)
+        self.setFont(mi_font(int(14 * scale)))
+        self.setCursor(Qt.PointingHandCursor)
+
+    def set_note_color(self, has_note: bool):
+        self._color_normal = QColor('#c8a800' if has_note else '#cccccc')
+        self.update()
+
+    def enterEvent(self, e):
+        self._hovered = True
+        self.update()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(e)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(self._color_hover if self._hovered else self._color_normal)
+        p.setFont(self.font())
+        p.drawText(self.rect(), Qt.AlignCenter, self._CODEPOINT)
+        p.end()
+
+
+class TaskNotePopup(QWidget):
+    """업무별 메모 플로팅 창."""
+
+    def __init__(self, task, scale=1.0, on_note_changed=None):
+        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint)
+        self._task_id = task['id']
+        self._on_note_changed = on_note_changed
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName('TaskNotePopup')
+        self.setStyleSheet('QWidget#TaskNotePopup { background: #fffacd; border: 1px solid #d4b800; }')
+
+        vlay = QVBoxLayout(self)
+        vlay.setContentsMargins(8, 6, 8, 8)
+        vlay.setSpacing(4)
+
+        title_font = pr_font(int(10 * scale))
+        title_font.setBold(True)
+        title = QLabel()
+        title.setFont(title_font)
+        title.setStyleSheet('color: #444; background: transparent; border: none;')
+        fm = QFontMetrics(title_font)
+        title.setText(fm.elidedText(task['name'], Qt.ElideRight, int(150 * scale)))
+
+        btn_done = QPushButton('ctrl+enter')
+        btn_done.setFont(pr_font(int(9 * scale)))
+        btn_done.setFixedHeight(int(20 * scale))
+        btn_done.setCursor(Qt.PointingHandCursor)
+        btn_done.setStyleSheet("""
+            QPushButton { background: #d4b800; color: white; border: none; border-radius: 4px; padding: 0 8px; }
+            QPushButton:hover { background: #b89e00; }
+            QPushButton:pressed { background: #a08800; }
+        """)
+        btn_done.clicked.connect(self.close)
+
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(6)
+        title_row.addWidget(title, 1)
+        title_row.addWidget(btn_done, 0)
+        vlay.addLayout(title_row)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet('border: none; border-top: 1px solid #e0c800; background: transparent;')
+        sep.setFixedHeight(1)
+        vlay.addWidget(sep)
+
+        self._editor = QPlainTextEdit()
+        self._editor.setPlaceholderText('업무 관련 메모를 적으세요...')
+        self._editor.setFont(pr_font(int(10 * scale)))
+        self._editor.setStyleSheet(
+            'QPlainTextEdit { background: transparent; border: none; color: #333; }'
+        )
+        vlay.addWidget(self._editor)
+
+        self.setFixedSize(int(240 * scale), int(160 * scale))
+        self._editor.setPlainText(get_task_notes(self._task_id))
+
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.timeout.connect(self._flush_save)
+        self._editor.textChanged.connect(lambda: self._save_timer.start(500))
+
+        QApplication.instance().focusChanged.connect(self._on_focus_changed)
+
+    def _on_focus_changed(self, old, new):
+        if new is None:
+            return
+        w = new
+        while w is not None:
+            if w is self:
+                return
+            w = w.parent()
+        QTimer.singleShot(100, self._close_if_unfocused)
+
+    def _close_if_unfocused(self):
+        if not self.isVisible():
+            return
+        focused = QApplication.focusWidget()
+        if focused is not None:
+            w = focused
+            while w is not None:
+                if w is self:
+                    return
+                w = w.parent()
+        self.close()
+
+    def _flush_save(self):
+        text = self._editor.toPlainText()
+        set_task_notes(self._task_id, text)
+        if self._on_note_changed:
+            self._on_note_changed(text)
+
+    def closeEvent(self, event):
+        try:
+            QApplication.instance().focusChanged.disconnect(self._on_focus_changed)
+        except Exception:
+            pass
+        self._flush_save()
+        super().closeEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.close()
+        elif event.modifiers() & Qt.ControlModifier and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.close()
+        else:
+            super().keyPressEvent(event)
 
 
 class TaskRow(QWidget):
@@ -869,7 +1069,7 @@ class TaskRow(QWidget):
         self.setStyleSheet('QWidget#TaskRow { background: transparent; }')
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 0, 8, 0)
+        layout.setContentsMargins(9, 0, 8, 0)
         layout.setSpacing(4)
 
         # 별 버튼 (우선순위)
@@ -895,8 +1095,8 @@ class TaskRow(QWidget):
                 QPushButton:pressed { padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }
             """)
         self.btn_star.clicked.connect(self._toggle_priority)
-        layout.addWidget(self.btn_star, 0, Qt.AlignTop)
-        layout.setAlignment(self.btn_star, Qt.AlignTop)
+        layout.addWidget(self.btn_star, 0, Qt.AlignVCenter)
+        layout.setAlignment(self.btn_star, Qt.AlignVCenter)
 
         deadline = task['deadline']
         overdue = False
@@ -928,7 +1128,7 @@ class TaskRow(QWidget):
 
         self.name_edit = _AutoHeightEdit(task['name'])
         _base_pt = 12 * scale
-        name_font = QFont('Malgun Gothic', 12)
+        name_font = pr_font(12)
         name_font.setPointSizeF((11 / 12) * _base_pt if overdue else _base_pt)
         if overdue:
             pass
@@ -968,10 +1168,11 @@ class TaskRow(QWidget):
             except ValueError:
                 date_text = suffix
             dday_lbl = DdayLabel(suffix, date_text)
-            dday_font = QFont('Malgun Gothic', 12, QFont.Bold)
+            dday_font = pr_font(12)
+            dday_font.setBold(urgent or _is_starred)
             dday_font.setPointSizeF((11 / 12) * _base_pt if overdue else _base_pt)
             dday_lbl.setFont(dday_font)
-            dday_lbl.setStyleSheet(f'color: {dday_color}; background: transparent; margin-bottom: 3px;')
+            dday_lbl.setStyleSheet(f'color: {dday_color}; background: transparent;')
         else:
             dday_lbl = None
             self._add_date_btn = AddDateButton()
@@ -985,21 +1186,38 @@ class TaskRow(QWidget):
         btn_menu.clicked.connect(lambda: self._open_task_menu(btn_menu, task, on_delete))
         btn_menu.hovered.connect(self._set_row_highlight)
 
-        layout.addWidget(self.name_edit, 1)
+        _has_note = bool(task.get('notes', ''))
+        self.btn_note = _NoteButton(scale=scale)
+        self.btn_note.set_note_color(_has_note)
+        self.btn_note.setToolTip('업무 메모')
+        self.btn_note.clicked.connect(self._open_note_popup)
+
+        layout.addWidget(self.name_edit, 1, Qt.AlignVCenter)
         if task.get('recurrence', ''):
             lbl_recur = QLabel(MAT.REPEAT)
             _recur_font = mat_font(int(13 * scale))
             lbl_recur.setFont(_recur_font)
-            lbl_recur.setStyleSheet('color: #333; background: transparent; padding-top: 3px;')
+            lbl_recur.setStyleSheet('color: #333; background: transparent;')
             _fm = QFontMetrics(_recur_font)
-            _tb = _fm.tightBoundingRect(MAT.REPEAT)
-            lbl_recur.setFixedWidth(_tb.right() + 9)
-            layout.addWidget(lbl_recur, 0, Qt.AlignTop)
-        if dday_lbl:
-            layout.addWidget(dday_lbl, 0, Qt.AlignTop)
-        elif hasattr(self, '_add_date_btn'):
-            layout.addWidget(self._add_date_btn, 0, Qt.AlignTop)
-        layout.addWidget(btn_menu, 0, Qt.AlignTop)
+            lbl_recur.setFixedWidth(_fm.horizontalAdvance(MAT.REPEAT) + 4)
+            icon_dday_layout = QHBoxLayout()
+            icon_dday_layout.setContentsMargins(0, 0, 0, 0)
+            icon_dday_layout.setSpacing(0)
+            icon_dday_layout.addWidget(lbl_recur, 0, Qt.AlignVCenter)
+            if dday_lbl:
+                icon_dday_layout.addWidget(dday_lbl, 0, Qt.AlignVCenter)
+            elif hasattr(self, '_add_date_btn'):
+                icon_dday_layout.addWidget(self._add_date_btn, 0, Qt.AlignVCenter)
+            icon_dday_widget = QWidget()
+            icon_dday_widget.setLayout(icon_dday_layout)
+            layout.addWidget(icon_dday_widget, 0, Qt.AlignVCenter)
+        else:
+            if dday_lbl:
+                layout.addWidget(dday_lbl, 0, Qt.AlignVCenter)
+            elif hasattr(self, '_add_date_btn'):
+                layout.addWidget(self._add_date_btn, 0, Qt.AlignVCenter)
+        layout.addWidget(self.btn_note, 0, Qt.AlignTop)
+        layout.addWidget(btn_menu, 0, Qt.AlignVCenter)
 
     def _set_row_highlight(self, on: bool):
         if on:
@@ -1092,6 +1310,29 @@ class TaskRow(QWidget):
                     strikethrough=int(self._strikethrough),
                     priority=self.task.get('priority', 0),
                     recurrence=self.task.get('recurrence', ''))
+
+    def _open_note_popup(self):
+        if getattr(self, '_note_popup', None) is not None:
+            self._note_popup.close()
+            return
+        popup = TaskNotePopup(self.task, scale=self._scale, on_note_changed=self._update_note_btn)
+        popup.destroyed.connect(lambda: setattr(self, '_note_popup', None))
+        pos = self.btn_note.mapToGlobal(QPoint(0, self.btn_note.height()))
+        screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
+        sr = screen.availableGeometry()
+        x, y = pos.x(), pos.y()
+        pw, ph = popup.width(), popup.height()
+        if x + pw > sr.right():
+            x = sr.right() - pw
+        if y + ph > sr.bottom():
+            y = self.btn_note.mapToGlobal(QPoint(0, -ph)).y()
+        popup.move(x, y)
+        popup.show()
+        popup._editor.setFocus()
+        self._note_popup = popup
+
+    def _update_note_btn(self, notes_text):
+        self.btn_note.set_note_color(bool(notes_text.strip()))
 
     def _show_date_picker(self):
         if not hasattr(self, '_cal_popup'):
@@ -1916,6 +2157,13 @@ class MemoWindow(QMainWindow):
         self.title_bar = TitleBar(self)
         root.addWidget(self.title_bar)
 
+        self._title_sep = QFrame()
+        self._title_sep.setFrameShape(QFrame.HLine)
+        self._title_sep.setFixedHeight(1)
+        self._title_sep.setStyleSheet('background: #D4AF37; border: none;')
+        self._title_sep.hide()
+        root.addWidget(self._title_sep)
+
         self.content = QWidget()
         self.content.setStyleSheet('background: transparent;')
         _outer_layout = QVBoxLayout(self.content)
@@ -2125,6 +2373,11 @@ class MemoWindow(QMainWindow):
         row2.addWidget(btn_history)
         content_layout.addWidget(self.date_row_widget)
 
+        self._sep_date = QFrame()
+        self._sep_date.setFrameShape(QFrame.HLine)
+        self._sep_date.setFixedHeight(1)
+        self._sep_date.setStyleSheet('background: #D4AF37; border: none;')
+        content_layout.addWidget(self._sep_date)
 
         # 업무 목록
         self.task_list_widget = QWidget()
@@ -2149,7 +2402,7 @@ class MemoWindow(QMainWindow):
         # 메모 모드 자유 편집기 (기본 숨김)
         self.memo_editor = QPlainTextEdit()
         self.memo_editor.setPlaceholderText('여기에 바로 메모를 적으세요...')
-        self.memo_editor.setFont(QFont('Malgun Gothic', 11))
+        self.memo_editor.setFont(pr_font(12))
         self.memo_editor.setStyleSheet("""
             QPlainTextEdit {
                 background: transparent;
@@ -2203,6 +2456,11 @@ class MemoWindow(QMainWindow):
         self.doc_list_layout.addStretch()
         self.doc_list_widget.hide()
 
+        _sep_bottom = QFrame()
+        _sep_bottom.setFrameShape(QFrame.HLine)
+        _sep_bottom.setFixedHeight(1)
+        _sep_bottom.setStyleSheet('background: #D4AF37; border: none;')
+        _splitter_layout.addWidget(_sep_bottom)
         _splitter_layout.addWidget(_bottom_panel, stretch=0)
 
         _all_ids = [w['id'] for w in get_all_windows()]
@@ -2326,6 +2584,8 @@ class MemoWindow(QMainWindow):
 
     def _apply_memo_mode(self, on: bool):
         self._memo_mode = on
+        self._title_sep.setVisible(on)
+        self._sep_date.setVisible(not on)
         self.task_input_row.setVisible(not on)
         self.date_row_widget.setVisible(not on)
         self.task_scroll.setVisible(not on)
@@ -3376,6 +3636,7 @@ class MemoWindow(QMainWindow):
             for member in group:
                 member._link_group = None
                 member._set_inner_handles_enabled(True)
+                clear_window_merge_group(member.window_id)
                 if member._merge_btn and member._merge_btn is not clicked_btn:
                     member._merge_btn.hide()
                     member._merge_btn = None
@@ -3391,12 +3652,34 @@ class MemoWindow(QMainWindow):
                 new_group = set(other._link_group) | {self}
             else:
                 new_group = {self, other}
+            group_id = get_next_merge_group_id()
             for member in new_group:
                 member._link_group = new_group
                 member._set_inner_handles_enabled(False)
+                set_window_merge_group(member.window_id, group_id)
             left = self if self.x() <= other.x() else other
             if left._merge_btn:
                 left._merge_btn.set_merged(True)
+
+    def reestablish_link(self, members):
+        """재시작 시 DB merge_group_id로부터 합체 관계 복원."""
+        if len(members) < 2:
+            return
+        new_group = set(members)
+        for m in new_group:
+            m._link_group = new_group
+            m._set_inner_handles_enabled(False)
+        sorted_members = sorted(new_group, key=lambda w: w.x())
+        for i in range(len(sorted_members) - 1):
+            left = sorted_members[i]
+            right = sorted_members[i + 1]
+            btn = MergeButton()
+            btn.set_windows(left, right)
+            btn.set_merged(True)
+            left._merge_btn = btn
+            btn.update_position(left, right)
+            btn.show()
+            QTimer.singleShot(300, btn._raise_timer.start)
 
     def _set_inner_handles_enabled(self, enabled):
         """합체된 안쪽 테두리 핸들 활성화/비활성화."""
@@ -3497,7 +3780,7 @@ class MemoWindow(QMainWindow):
         self.input_date.setFixedHeight(_row_h)
         self.input_time.setFixedHeight(_row_h)
         self.input_recurrence.setFixedHeight(_row_h)
-        self.memo_editor.setFont(QFont('Malgun Gothic', int(11 * s)))
+        self.memo_editor.setFont(pr_font(int(12 * s)))
 
     def _set_scale(self, scale, menu=None):
         self._scale = scale
@@ -3546,10 +3829,12 @@ class MemoWindow(QMainWindow):
             self._link_group.discard(self)
             remaining = self._link_group
             self._link_group = None
+            clear_window_merge_group(self.window_id)
             if len(remaining) == 1:
                 sole = next(iter(remaining))
                 sole._link_group = None
                 sole._set_inner_handles_enabled(True)
+                clear_window_merge_group(sole.window_id)
             elif len(remaining) > 1:
                 for m in remaining:
                     m._link_group = remaining

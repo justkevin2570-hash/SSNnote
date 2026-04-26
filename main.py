@@ -5,6 +5,7 @@ import socket
 import ctypes
 import ctypes.wintypes
 import threading
+from collections import defaultdict
 
 _SETTINGS_PATH = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'settings.json')
 
@@ -25,7 +26,7 @@ def _save_settings(data):
 
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction, QMessageBox
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor
-from PyQt5.QtCore import Qt, QAbstractNativeEventFilter, QTimer, qInstallMessageHandler, QtMsgType
+from PyQt5.QtCore import Qt, QAbstractNativeEventFilter, QTimer, qInstallMessageHandler, QtMsgType, QRect
 
 
 def _qt_message_handler(msg_type, context, message):
@@ -112,13 +113,36 @@ def _make_tray_icon():
     return QIcon(pix)
 
 
+DEFAULT_W, DEFAULT_H = 320, 400
+GAP = 4
+
+def _is_spot_free(x, y, exclude_win=None):
+    screen = QApplication.primaryScreen().availableGeometry()
+    new_rect = QRect(x, y, DEFAULT_W, DEFAULT_H)
+    if not screen.contains(new_rect):
+        return False
+    for w in _open_windows:
+        if w is exclude_win:
+            continue
+        if new_rect.intersects(w.geometry()):
+            return False
+    return True
+
 def new_window(offset_from=None, on_toggle_hotkey=None, on_shortcut_change=None, get_shortcut_enabled=None):
     x, y = 130, 130
     if offset_from:
-        pos = offset_from.pos()
-        x, y = pos.x() + 30, pos.y() + 30
+        px, py = offset_from.pos().x(), offset_from.pos().y()
+        pw, ph = offset_from.width(), offset_from.height()
+        if _is_spot_free(px + pw + GAP, py, exclude_win=offset_from):
+            x, y = px + pw + GAP, py
+        elif _is_spot_free(px - DEFAULT_W - GAP, py, exclude_win=offset_from):
+            x, y = px - DEFAULT_W - GAP, py
+        elif _is_spot_free(px, py + ph + GAP, exclude_win=offset_from):
+            x, y = px, py + ph + GAP
+        else:
+            x, y = px + 30, py + 30
     wid = create_window(x=x, y=y)
-    _launch_window(wid, x, y, 320, 400, collapsed=False, on_toggle_hotkey=on_toggle_hotkey,
+    _launch_window(wid, x, y, DEFAULT_W, DEFAULT_H, collapsed=False, on_toggle_hotkey=on_toggle_hotkey,
                    on_shortcut_change=on_shortcut_change, get_shortcut_enabled=get_shortcut_enabled)
 
 
@@ -258,11 +282,22 @@ if __name__ == '__main__':
     tray.setContextMenu(menu)
     tray.show()
 
-    for w in get_all_windows():
+    all_db_windows = get_all_windows()
+    for w in all_db_windows:
         _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''), w.get('scale', 1.0),
                        on_toggle_hotkey=_hotkey_filter.set_enabled,
                        on_shortcut_change=_set_shortcut_enabled,
                        get_shortcut_enabled=_get_shortcut_enabled)
+
+    # 합체 그룹 복원
+    groups = defaultdict(list)
+    for i, w in enumerate(all_db_windows):
+        mg = w.get('merge_group_id')
+        if mg is not None:
+            groups[mg].append(_open_windows[i])
+    for group_wins in groups.values():
+        if len(group_wins) >= 2:
+            group_wins[0].reestablish_link(group_wins)
 
     def _cloud_init():
         """백그라운드: 익명 인증 후 전체 데이터 Supabase 동기화."""
