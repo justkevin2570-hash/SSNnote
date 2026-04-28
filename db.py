@@ -58,6 +58,16 @@ def init_db():
                 doc_type   TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
             );
+
+            CREATE TABLE IF NOT EXISTS doc_embeddings (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id      INTEGER NOT NULL,
+                title       TEXT NOT NULL DEFAULT '',
+                content     TEXT NOT NULL DEFAULT '',
+                doc_type    TEXT NOT NULL DEFAULT '',
+                embedding   BLOB,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
         """)
 
         # tasks 테이블에 window_id 컬럼 없으면 추가 (기존 DB 마이그레이션)
@@ -330,3 +340,27 @@ def get_official_documents():
 def delete_official_document(doc_id):
     with _connect() as conn:
         conn.execute('DELETE FROM official_documents WHERE id=?', (doc_id,))
+        conn.execute('DELETE FROM doc_embeddings WHERE doc_id=?', (doc_id,))
+
+
+# ── doc_embeddings CRUD ─────────────────────────────────────────
+
+def save_embedding(doc_id: int, title: str, content: str, doc_type: str, embedding_bytes: bytes):
+    with _connect() as conn:
+        conn.execute(
+            'INSERT INTO doc_embeddings (doc_id, title, content, doc_type, embedding) VALUES (?,?,?,?,?)',
+            (doc_id, title, content, doc_type, embedding_bytes)
+        )
+
+
+def get_all_embeddings():
+    with _connect() as conn:
+        rows = conn.execute(
+            'SELECT * FROM doc_embeddings ORDER BY created_at DESC'
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_embedding(emb_id: int):
+    with _connect() as conn:
+        conn.execute('DELETE FROM doc_embeddings WHERE id=?', (emb_id,))

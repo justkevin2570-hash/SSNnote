@@ -1,5 +1,5 @@
 {
-  "version": "v2.44",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.44/SSNnote_Setup.exe",
-  "changelog": "- 업무별 메모 기능 추가 (말풍선 버튼 클릭 시 팝업)\n- 메모 자동저장, ctrl+enter/ESC 닫기, 한글 입력 지원\n- 합체 버튼 N/S 사이 흰색 채우기\n- 합체 버튼 최상단 노출 감소 (딜레이 개선)\n- UI 세부 조정 (마진, 정렬 등)"
+  "version": "v2.45",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.45/SSNnote_Setup.exe",
+  "changelog": "- OpenCode API 지원 (모델 12종, 미니맥스 제외)\n- API 키 저장 여부 체크박스 (세션 키/파일 저장 선택)\n- Pydantic 스키마 기반 Structured Output\n- 공문 규정 자동 보정 (날짜/들여쓰기/끝./빈필드)\n- AI 응답 JSON 파싱 + 최대 2회 재시도\n- RAG 도입 (임베딩 유사 검색 → 프롬프트 자동 포함)\n- 프롬프트 최적화 (토큰 ~40% 절감)"
 }

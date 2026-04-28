@@ -10,7 +10,8 @@ import qtawesome as qta
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QPushButton,
     QVBoxLayout, QHBoxLayout, QWidget, QLabel, QLineEdit,
-    QMessageBox, QInputDialog, QFrame, QGraphicsDropShadowEffect, QSpinBox
+    QMessageBox, QInputDialog, QFrame, QGraphicsDropShadowEffect, QSpinBox,
+    QCheckBox, QDialog
 )
 from PyQt5.QtCore import Qt, QTimer, QSize, QEvent
 from PyQt5.QtGui import QFont, QIcon, QPixmap, QColor
@@ -26,8 +27,11 @@ from ai_client import (AiStreamThread,
                         load_openai_key, save_openai_key,
                         load_openai_model, save_openai_model, OPENAI_DEFAULT_MODELS,
                         load_nvidia_key, save_nvidia_key,
-                        load_nvidia_model, save_nvidia_model, NVIDIA_DEFAULT_MODELS)
-from db import save_official_document, get_official_documents
+                        load_nvidia_model, save_nvidia_model, NVIDIA_DEFAULT_MODELS,
+                        load_opencode_key, save_opencode_key,
+                        load_opencode_model, save_opencode_model, OPENCODE_DEFAULT_MODELS)
+from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
+from rag import search_similar, make_search_prompt, embedding_to_bytes, encode
 
 
 # ── 전체 QSS 테마 ─────────────────────────────────────────────────
@@ -300,6 +304,92 @@ def _get_template(title: str, doc_type: str, ref: str = '', attach_count: int = 
         return body + ("\n" + attach_block if attach_block else "")
 
 
+# ── 공문 규정 자동 보정 ──────────────────────────────────────────
+
+def _correct_document_format(body: str) -> str:
+    """공문 규정에 따라 본문 자동 보정 (날짜·들여쓰기·끝.·빈필드)."""
+    if not body.strip():
+        return body
+
+    # 1. 날짜 마침표 보정: "2026. 4. 28" → "2026. 4. 28."
+    body = re.sub(
+        r'(?<!\d)(\d{4}\.\s*\d{1,2}\.\s*\d{1,2})(?![.\d])',
+        r'\1.',
+        body
+    )
+
+    # 2. 들여쓰기 보정: 가/나/다/라/마/바 앞 공백 2칸 강제
+    lines = body.split('\n')
+    corrected = []
+    for line in lines:
+        # 가-바 항목: 앞에 공백 2칸
+        if re.match(r'^ {0,1}[가나라다마바]\.\s', line):
+            line = '  ' + line.lstrip()
+        # 1)2)3) 항목: 앞에 공백 4칸
+        elif re.match(r'^ {0,3}\d\)\s', line):
+            line = '    ' + line.lstrip()
+        corrected.append(line)
+    body = '\n'.join(corrected)
+
+    # 3. 빈 필드 마커: ": \n" 또는 ": $" → ": [미입력]"
+    body = re.sub(r':\s*\n', ': [미입력]\n', body)
+    body = re.sub(r':\s*$', ': [미입력]', body)
+
+    # 4. 끝. 보장: 마지막이 "끝."으로 끝나지 않으면 추가
+    stripped = body.rstrip()
+    if not stripped.endswith('끝.'):
+        body = stripped + '\n\n끝.'
+
+    return body
+
+
+class ApiKeyDialog(QDialog):
+    """API 키 입력 + 저장 여부 체크박스 다이얼로그."""
+    def __init__(self, title: str, label: str, current_key: str = '', parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setFixedSize(440, 180)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
+
+        lbl = QLabel(label)
+        lbl.setFont(QFont('Malgun Gothic', 10))
+        layout.addWidget(lbl)
+
+        self._key_edit = QLineEdit()
+        self._key_edit.setPlaceholderText('API 키를 입력하세요')
+        self._key_edit.setText(current_key)
+        self._key_edit.setMinimumHeight(34)
+        layout.addWidget(self._key_edit)
+
+        self._save_cb = QCheckBox('API 키 저장')
+        self._save_cb.setChecked(bool(current_key))
+        self._save_cb.setFont(QFont('Malgun Gothic', 10))
+        layout.addWidget(self._save_cb)
+
+        btn_row = QHBoxLayout()
+        btn_ok = QPushButton('확인')
+        btn_ok.setMinimumHeight(32)
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self.accept)
+        btn_cancel = QPushButton('취소')
+        btn_cancel.setMinimumHeight(32)
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_ok)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+
+    def key(self) -> str:
+        return self._key_edit.text().strip()
+
+    def should_save(self) -> bool:
+        return self._save_cb.isChecked()
+
+
 class DocumentEditorWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -487,9 +577,25 @@ class DocumentEditorWindow(QMainWindow):
         else:
             system = FEWSHOT_DEFAULT_SYSTEM
         ref_line = f"관련: {ref}\n" if ref else ""
-        prompt = f"제목: {title}\n{ref_line}"
+
+        # RAG: 유사 공문 검색하여 컨텍스트 추가
+        rag_context = ''
+        try:
+            embeddings = get_all_embeddings()
+            if embeddings:
+                similar = search_similar(title, embeddings, top_k=2)
+                if similar:
+                    rag_context = make_search_prompt(similar)
+        except Exception:
+            pass  # RAG 실패해도 진행에는 문제 없음
+
+        prompt = (
+            f"제목: {title}\n{ref_line}\n"
+            f"{rag_context}\n"
+            '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
+        )
         self.editor.clear()
-        self._start_ai(prompt, system=system)
+        self._start_ai(prompt, system=system, structured=True)
 
     # ── AI 입력창 Enter 키 → 전송 ──
     def eventFilter(self, obj, event):
@@ -529,14 +635,14 @@ class DocumentEditorWindow(QMainWindow):
         self._start_ai(prompt)
 
     # ── 공통 AI 실행 ──
-    def _start_ai(self, prompt, system=None):
+    def _start_ai(self, prompt, system=None, structured=False):
         if self.ai_thread and self.ai_thread.isRunning():
             return
 
-        self.statusBar().showMessage("AI가 생각 중...")
+        self.statusBar().showMessage("AI가 생각 중..." if not structured else "AI가 공문을 작성 중...")
         self._set_controls_enabled(False)
 
-        self.ai_thread = AiStreamThread(prompt, system=system)
+        self.ai_thread = AiStreamThread(prompt, system=system, structured=structured)
         self.ai_thread.new_text_signal.connect(self._append_text)
         self.ai_thread.finished_signal.connect(self._on_finished)
         self.ai_thread.error_signal.connect(self._on_error)
@@ -549,6 +655,14 @@ class DocumentEditorWindow(QMainWindow):
         self.editor.setTextCursor(cursor)
 
     def _on_finished(self, _):
+        # AI 응답 후 공문 규정 자동 보정
+        raw = self.editor.toPlainText()
+        corrected = _correct_document_format(raw)
+        if corrected != raw:
+            self.editor.blockSignals(True)
+            self.editor.setPlainText(corrected)
+            self.editor.blockSignals(False)
+            self._apply_editor_line_height()
         self.statusBar().showMessage("완료")
         self._set_controls_enabled(True)
         self.ai_input.clear()
@@ -676,6 +790,10 @@ class DocumentEditorWindow(QMainWindow):
             self.ai_input.setPlaceholderText(
                 f"AI에게 요청 ({load_ollama_model()} 사용중)"
             )
+        elif mode == 'opencode':
+            self.ai_input.setPlaceholderText(
+                f"AI에게 요청 (OpenCode · {load_opencode_model()} 사용중)"
+            )
         else:
             self.ai_input.setPlaceholderText(
                 f"AI에게 요청 ({load_external_model_name()} 사용중)"
@@ -691,6 +809,7 @@ class DocumentEditorWindow(QMainWindow):
         act_claude  = menu.addAction('Claude')
         act_openai  = menu.addAction('ChatGPT')
         act_nvidia  = menu.addAction('NVIDIA')
+        act_opencode = menu.addAction('OpenCode')
         menu.addSeparator()
         act_internal = menu.addAction('내부 AI (Ollama)')
         menu.addSeparator()
@@ -701,6 +820,7 @@ class DocumentEditorWindow(QMainWindow):
             (act_claude,  ('claude',)),
             (act_openai,  ('openai',)),
             (act_nvidia,  ('nvidia',)),
+            (act_opencode, ('opencode',)),
             (act_internal, ('internal',)),
             (act_none,    ('none',)),
         ]:
@@ -719,6 +839,8 @@ class DocumentEditorWindow(QMainWindow):
             self._setup_openai_ai()
         elif action == act_nvidia:
             self._setup_nvidia_ai()
+        elif action == act_opencode:
+            self._setup_opencode_ai()
         elif action == act_internal:
             self._setup_internal_ai()
         elif action == act_none:
@@ -727,15 +849,12 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage('AI 이용 안함 — OCR(winrt)만 사용합니다.')
 
     def _setup_gemini_ai(self):
-        current_key = load_api_key()
-        key, ok = QInputDialog.getText(
-            self, 'Gemini 설정', 'Gemini API 키를 입력하세요:',
-            text=current_key
-        )
-        if not ok:
+        dlg = ApiKeyDialog('Gemini 설정', 'Gemini API 키를 입력하세요:', load_api_key(), self)
+        if dlg.exec_() != dlg.Accepted:
             return
-        if key.strip():
-            save_api_key(key.strip())
+        key = dlg.key()
+        if key:
+            save_api_key(key, persist=dlg.should_save())
 
         self.statusBar().showMessage('모델 목록 조회 중...')
         QApplication.processEvents()
@@ -754,14 +873,12 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage(f'Gemini · {model} 설정 완료.')
 
     def _setup_claude_ai(self):
-        key, ok = QInputDialog.getText(
-            self, 'Claude 설정', 'Anthropic API 키를 입력하세요:',
-            text=load_claude_key()
-        )
-        if not ok:
+        dlg = ApiKeyDialog('Claude 설정', 'Anthropic API 키를 입력하세요:', load_claude_key(), self)
+        if dlg.exec_() != dlg.Accepted:
             return
-        if key.strip():
-            save_claude_key(key.strip())
+        key = dlg.key()
+        if key:
+            save_claude_key(key, persist=dlg.should_save())
 
         dlg = _ModelSelectDialog('Claude 모델 선택', CLAUDE_DEFAULT_MODELS, load_claude_model(), self)
         if dlg.exec_() != dlg.Accepted:
@@ -776,14 +893,12 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage(f'Claude · {model} 설정 완료.')
 
     def _setup_openai_ai(self):
-        key, ok = QInputDialog.getText(
-            self, 'ChatGPT 설정', 'OpenAI API 키를 입력하세요:',
-            text=load_openai_key()
-        )
-        if not ok:
+        dlg = ApiKeyDialog('ChatGPT 설정', 'OpenAI API 키를 입력하세요:', load_openai_key(), self)
+        if dlg.exec_() != dlg.Accepted:
             return
-        if key.strip():
-            save_openai_key(key.strip())
+        key = dlg.key()
+        if key:
+            save_openai_key(key, persist=dlg.should_save())
 
         dlg = _ModelSelectDialog('OpenAI 모델 선택', OPENAI_DEFAULT_MODELS, load_openai_model(), self)
         if dlg.exec_() != dlg.Accepted:
@@ -798,14 +913,12 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage(f'OpenAI · {model} 설정 완료.')
 
     def _setup_nvidia_ai(self):
-        key, ok = QInputDialog.getText(
-            self, 'NVIDIA 설정', 'NVIDIA API 키를 입력하세요:',
-            text=load_nvidia_key()
-        )
-        if not ok:
+        dlg = ApiKeyDialog('NVIDIA 설정', 'NVIDIA API 키를 입력하세요:', load_nvidia_key(), self)
+        if dlg.exec_() != dlg.Accepted:
             return
-        if key.strip():
-            save_nvidia_key(key.strip())
+        key = dlg.key()
+        if key:
+            save_nvidia_key(key, persist=dlg.should_save())
 
         dlg = _ModelSelectDialog('NVIDIA 모델 선택', NVIDIA_DEFAULT_MODELS, load_nvidia_model(), self)
         if dlg.exec_() != dlg.Accepted:
@@ -818,6 +931,29 @@ class DocumentEditorWindow(QMainWindow):
         save_ai_mode('nvidia')
         self._apply_ai_mode()
         self.statusBar().showMessage(f'NVIDIA · {model} 설정 완료.')
+
+    def _setup_opencode_ai(self):
+        dlg = ApiKeyDialog('OpenCode 설정', 'OpenCode API 키를 입력하세요:', load_opencode_key(), self)
+        if dlg.exec_() != dlg.Accepted:
+            return
+        key = dlg.key()
+        if key:
+            save_opencode_key(key, persist=dlg.should_save())
+
+        self.statusBar().showMessage('OpenCode 모델 목록 조회 중...')
+        QApplication.processEvents()
+
+        dlg = _ModelSelectDialog('OpenCode 모델 선택', OPENCODE_DEFAULT_MODELS, load_opencode_model(), self)
+        if dlg.exec_() != dlg.Accepted:
+            return
+        model = dlg.selected_model()
+        if not model:
+            return
+
+        save_opencode_model(model)
+        save_ai_mode('opencode')
+        self._apply_ai_mode()
+        self.statusBar().showMessage(f'OpenCode · {model} 설정 완료.')
 
     def _setup_internal_ai(self):
         # Ollama 연결 및 모델 목록 가져오기
@@ -870,9 +1006,17 @@ class DocumentEditorWindow(QMainWindow):
                 QTimer.singleShot(1000, lambda: self.statusBar().showMessage(''))
                 return
 
-        save_official_document(title, doc_number, content, '')
+        doc_id = save_official_document(title, doc_number, content, '')
         self.statusBar().showMessage('저장되었습니다.')
         QTimer.singleShot(1000, lambda: self.statusBar().showMessage(''))
+
+        # RAG: 저장한 문서 자동 임베딩
+        try:
+            vec = encode(f"{title}\n{content}")
+            save_embedding(doc_id, title, content, '', embedding_to_bytes(vec))
+        except Exception:
+            pass
+
         return True
 
     def save_and_close(self):
