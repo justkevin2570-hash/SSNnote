@@ -8,11 +8,11 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QApplication,
     QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QMenu, QAction, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
-    QPlainTextEdit, QSizePolicy, QGraphicsColorizeEffect, QTimeEdit,
+    QPlainTextEdit, QTextEdit, QSizePolicy, QGraphicsColorizeEffect, QGraphicsOpacityEffect, QTimeEdit,
     QListWidget, QAbstractItemView, QComboBox, QListWidgetItem
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF
-from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen
+from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
                 set_task_priority, set_task_recurrence, get_task_notes, set_task_notes,
@@ -460,70 +460,47 @@ class EdgeHandle(QWidget):
     def mouseMoveEvent(self, e):
         if not (e.buttons() == Qt.LeftButton and self._drag_start):
             return
-        d = e.globalPos() - self._drag_start
-        g = self._start_geom
+        d   = e.globalPos() - self._drag_start
+        g   = self._start_geom
         win = self.window()
 
+        nx, ny = g.x(), g.y()
+        nw, nh = g.width(), g.height()
+
         if self.edge == 'left':
-            temp_x = g.x() + d.x()
-            max_x = self._right_anchor - self.MIN_W
-            new_x = min(temp_x, max_x)
-            new_w = self._right_anchor - new_x
-            win.setGeometry(new_x, g.y(), new_w, g.height())
-            self._anchor_partner(win)
-
+            nx = min(g.x() + d.x(), self._right_anchor - self.MIN_W)
+            nw = self._right_anchor - nx
         elif self.edge == 'right':
-            win.resize(max(self.MIN_W, g.width() + d.x()), g.height())
-            self._anchor_partner(win)
-
+            nw = g.width() + d.x()
         elif self.edge == 'bottom':
-            win.resize(g.width(), max(self.MIN_H, g.height() + d.y()))
-            self._anchor_partner(win)
-
-        elif self.edge == 'bottom-right':
-            win.resize(
-                max(self.MIN_W, g.width() + d.x()),
-                max(self.MIN_H, g.height() + d.y()),
-            )
-            self._anchor_partner(win)
-
-        elif self.edge == 'bottom-left':
-            temp_x = g.x() + d.x()
-            max_x = self._right_anchor - self.MIN_W
-            new_x = min(temp_x, max_x)
-            new_w = self._right_anchor - new_x
-            new_h = max(self.MIN_H, g.height() + d.y())
-            win.setGeometry(new_x, g.y(), new_w, new_h)
-            self._anchor_partner(win)
-
+            nh = g.height() + d.y()
         elif self.edge == 'top':
-            temp_y = g.y() + d.y()
-            max_y = self._bottom_anchor - self.MIN_H
-            new_y = min(temp_y, max_y)
-            new_h = self._bottom_anchor - new_y
-            win.setGeometry(g.x(), new_y, g.width(), new_h)
-            self._anchor_partner(win)
-
-        elif self.edge == 'top-left':
-            temp_x = g.x() + d.x()
-            max_x = self._right_anchor - self.MIN_W
-            new_x = min(temp_x, max_x)
-            new_w = self._right_anchor - new_x
-            temp_y = g.y() + d.y()
-            max_y = self._bottom_anchor - self.MIN_H
-            new_y = min(temp_y, max_y)
-            new_h = self._bottom_anchor - new_y
-            win.setGeometry(new_x, new_y, new_w, new_h)
-            self._anchor_partner(win)
-
+            ny = min(g.y() + d.y(), self._bottom_anchor - self.MIN_H)
+            nh = self._bottom_anchor - ny
+        elif self.edge == 'bottom-right':
+            nw = g.width() + d.x()
+            nh = g.height() + d.y()
+        elif self.edge == 'bottom-left':
+            nx = min(g.x() + d.x(), self._right_anchor - self.MIN_W)
+            nw = self._right_anchor - nx
+            nh = g.height() + d.y()
         elif self.edge == 'top-right':
-            new_w = max(self.MIN_W, g.width() + d.x())
-            temp_y = g.y() + d.y()
-            max_y = self._bottom_anchor - self.MIN_H
-            new_y = min(temp_y, max_y)
-            new_h = self._bottom_anchor - new_y
-            win.setGeometry(g.x(), new_y, new_w, new_h)
-            self._anchor_partner(win)
+            nw = g.width() + d.x()
+            ny = min(g.y() + d.y(), self._bottom_anchor - self.MIN_H)
+            nh = self._bottom_anchor - ny
+        elif self.edge == 'top-left':
+            nx = min(g.x() + d.x(), self._right_anchor - self.MIN_W)
+            nw = self._right_anchor - nx
+            ny = min(g.y() + d.y(), self._bottom_anchor - self.MIN_H)
+            nh = self._bottom_anchor - ny
+
+        nw = max(self.MIN_W, nw)
+        nh = max(self.MIN_H, nh)
+
+        nx, ny, nw, nh = win._snap_resize(nx, ny, nw, nh, self.edge)
+
+        win.setGeometry(nx, ny, nw, nh)
+        self._anchor_partner(win)
 
     def mouseReleaseEvent(self, e):
         self.releaseKeyboard()
@@ -545,21 +522,45 @@ class EdgeHandle(QWidget):
 
 
 class MergeButton(QWidget):
-    """두 창 경계선에 떠있는 합체/분리 토글 버튼."""
-    SIZE = 56
+    """두 창 경계선에 떠있는 합체/분리 토글 버튼. 호버 시에만 표시."""
+    SIZE_W = 45
+    SIZE_H = 56
+    _HOVER_RADIUS = 38
 
     def __init__(self):
         super().__init__(None)
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setFixedSize(self.SIZE, self.SIZE)
-        self._merged = False
-        self._win_a  = None
-        self._win_b  = None
+        self.setFixedSize(self.SIZE_W, self.SIZE_H)
+        self._merged  = False
+        self._win_a   = None
+        self._win_b   = None
+        self._visible = False
+
         self._raise_timer = QTimer(self)
         self._raise_timer.setInterval(150)
         self._raise_timer.timeout.connect(self._do_raise)
+
+        self._opacity_eff = QGraphicsOpacityEffect(self)
+        self._opacity_eff.setOpacity(0.0)
+        self.setGraphicsEffect(self._opacity_eff)
+        self._opacity_anim = QPropertyAnimation(self._opacity_eff, b'opacity')
+        self._opacity_anim.setDuration(150)
+
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setInterval(80)
+        self._hover_timer.timeout.connect(self._check_proximity)
+
+        self._hide_delay = QTimer(self)
+        self._hide_delay.setSingleShot(True)
+        self._hide_delay.setInterval(1000)
+        self._hide_delay.timeout.connect(self._do_fade_out)
+
+        self._auto_hide_timer = QTimer(self)
+        self._auto_hide_timer.setSingleShot(True)
+        self._auto_hide_timer.setInterval(2000)
+        self._auto_hide_timer.timeout.connect(self._auto_hide)
 
     def set_windows(self, win_a, win_b):
         self._win_a = win_a
@@ -572,12 +573,42 @@ class MergeButton(QWidget):
     def update_position(self, win_a, win_b):
         ga = win_a.geometry()
         gb = win_b.geometry()
-        top_y = min(ga.top(), gb.top())
         if ga.right() <= gb.left() + SNAP_THRESHOLD:
             bx = ga.right()
         else:
             bx = gb.right()
-        self.move(bx - self.SIZE // 2, top_y + TITLE_BAR_HEIGHT - self.SIZE // 2 + 12)
+        overlap_top    = max(ga.top(), gb.top())
+        overlap_bottom = min(ga.bottom(), gb.bottom())
+        center_y = (overlap_top + overlap_bottom) // 2
+        self.move(bx - self.SIZE_W // 2, center_y - self.SIZE_H // 2)
+
+    def _do_fade_out(self):
+        cursor = QCursor.pos()
+        center = self.mapToGlobal(QPoint(self.SIZE_W // 2, self.SIZE_H // 2))
+        dx = cursor.x() - center.x()
+        dy = cursor.y() - center.y()
+        if (dx * dx + dy * dy) > self._HOVER_RADIUS ** 2:
+            self._visible = False
+            self._opacity_anim.stop()
+            self._opacity_anim.setEndValue(0.0)
+            self._opacity_anim.start()
+
+    def _check_proximity(self):
+        cursor = QCursor.pos()
+        center = self.mapToGlobal(QPoint(self.SIZE_W // 2, self.SIZE_H // 2))
+        dx = cursor.x() - center.x()
+        dy = cursor.y() - center.y()
+        near = (dx * dx + dy * dy) <= self._HOVER_RADIUS ** 2
+        if near and not self._visible:
+            self._hide_delay.stop()
+            self._visible = True
+            self._opacity_anim.stop()
+            self._opacity_anim.setEndValue(1.0)
+            self._opacity_anim.start()
+            self.setCursor(Qt.PointingHandCursor)
+        elif not near and self._visible and not self._hide_delay.isActive():
+            self._hide_delay.start()
+            self._opacity_anim.start()
 
     def _do_raise(self):
         try:
@@ -590,15 +621,14 @@ class MergeButton(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        s = self.SIZE
-        bw, bh = 20, 16
-        by = (s - bh) // 2
-        f = QFont('Arial', 11, QFont.Bold)
+        bw, bh = 16, 16
+        by = (self.SIZE_H - bh) // 2
+        f = QFont('Arial', 10, QFont.Bold)
         p.setFont(f)
         if self._merged:
-            nx, sx = 8, 28
+            nx, sx = 6, 22
         else:
-            nx, sx = 3, 33
+            nx, sx = 2, 27
         p.setPen(Qt.NoPen)
         p.setBrush(QColor('#e74c3c'))
         p.drawRoundedRect(nx, by, bw, bh, 4, 4)
@@ -616,16 +646,31 @@ class MergeButton(QWidget):
         if event.button() == Qt.LeftButton and self._win_a and self._win_b:
             self._win_a.toggle_merge(self._win_b)
 
-    def enterEvent(self, event):
-        self.setCursor(Qt.PointingHandCursor)
-        super().enterEvent(event)
+    def _auto_hide(self):
+        cursor = QCursor.pos()
+        center = self.mapToGlobal(QPoint(self.SIZE_W // 2, self.SIZE_H // 2))
+        dx = cursor.x() - center.x()
+        dy = cursor.y() - center.y()
+        if (dx * dx + dy * dy) > self._HOVER_RADIUS ** 2:
+            self._visible = False
+            self._opacity_anim.stop()
+            self._opacity_anim.setEndValue(0.0)
+            self._opacity_anim.start()
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._visible = True
+        self._opacity_anim.stop()
+        self._opacity_anim.setEndValue(1.0)
+        self._opacity_anim.start()
+        self._hover_timer.start()
+        QTimer.singleShot(2000, self._auto_hide)
 
     def hideEvent(self, event):
         super().hideEvent(event)
         self._raise_timer.stop()
+        self._hover_timer.stop()
+        self._visible = False
 
 
 class TitleBar(QWidget):
@@ -774,12 +819,13 @@ class TitleBar(QWidget):
         p.move(new_pos)
 
         # 합체 버튼 노출 / 갱신 (좌우 모서리 + 상단 또는 하단 라인 일치)
-        y_aligned = (x_snap_partner is not None and (
-            abs(p.y() - x_snap_partner.y()) < SNAP_THRESHOLD or
-            abs((p.y() + p.height()) - (x_snap_partner.y() + x_snap_partner.height())) < SNAP_THRESHOLD
-        ))
         already_linked = p._link_group is not None and x_snap_partner in p._link_group
-        if x_snap_partner is not None and not already_linked and y_aligned:
+        has_overlap = False
+        if x_snap_partner is not None and not already_linked:
+            overlap_top    = max(p.y(), x_snap_partner.y())
+            overlap_bottom = min(p.y() + p.height(), x_snap_partner.y() + x_snap_partner.height())
+            has_overlap    = (overlap_bottom - overlap_top) >= 30
+        if x_snap_partner is not None and not already_linked and has_overlap:
             left_win = p if p.x() <= x_snap_partner.x() else x_snap_partner
             right_win = x_snap_partner if left_win is p else p
             if left_win._merge_btn is None or left_win._merge_btn._win_b is not right_win:
@@ -868,19 +914,32 @@ class _AutoHeightEdit(QPlainTextEdit):
         self.document().setDefaultTextOption(opt)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._fixed_height = 28
+        self._preferred_width = 40
         self.document().contentsChanged.connect(self._update_height)
+        self.document().contentsChanged.connect(self._update_width)
+        self._update_width()
 
     def keyPressEvent(self, e):
-        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Escape):
             self.clearFocus()
         else:
             super().keyPressEvent(e)
 
     def sizeHint(self):
-        sh = super().sizeHint()
-        return QSize(sh.width(), self._fixed_height)
+        return QSize(self._preferred_width, self._fixed_height)
+
+    def _update_width(self):
+        fm = QFontMetrics(self.font())
+        w = fm.horizontalAdvance(self.toPlainText() or ' ') + 2
+        self._preferred_width = max(w, 40)
+        self.updateGeometry()
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() == QEvent.FontChange:
+            self._update_width()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -921,17 +980,25 @@ class _NoteButton(QPushButton):
 
     def __init__(self, scale=1.0):
         super().__init__()
-        self._color_normal = QColor('#cccccc')
+        self._color_normal = QColor('#555555')
         self._color_hover  = QColor('#d4b800')
         self._hovered      = False
+        self._has_note     = False
+        self._overdue      = False
         self.setFlat(True)
         sz = int(22 * scale)
         self.setFixedSize(sz, sz)
         self.setFont(mi_font(int(14 * scale)))
         self.setCursor(Qt.PointingHandCursor)
 
-    def set_note_color(self, has_note: bool):
-        self._color_normal = QColor('#c8a800' if has_note else '#cccccc')
+    def set_note_color(self, has_note: bool, overdue: bool = None):
+        self._has_note = has_note
+        if overdue is not None:
+            self._overdue = overdue
+        if self._overdue:
+            self._color_normal = QColor(102, 102, 102, 80)
+        else:
+            self._color_normal = QColor(85, 85, 85, 255) if has_note else QColor(85, 85, 85, 80)
         self.update()
 
     def enterEvent(self, e):
@@ -947,8 +1014,9 @@ class _NoteButton(QPushButton):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
+        sz = self.font().pointSize()
+        p.setFont(mi_font(sz))
         p.setPen(self._color_hover if self._hovered else self._color_normal)
-        p.setFont(self.font())
         p.drawText(self.rect(), Qt.AlignCenter, self._CODEPOINT)
         p.end()
 
@@ -978,7 +1046,7 @@ class TaskNotePopup(QWidget):
         title.setText(fm.elidedText(task['name'], Qt.ElideRight, int(150 * scale)))
 
         btn_done = QPushButton('ctrl+enter')
-        btn_done.setFont(pr_font(int(9 * scale)))
+        btn_done.setFont(pr_font(int(10 * scale)))
         btn_done.setFixedHeight(int(20 * scale))
         btn_done.setCursor(Qt.PointingHandCursor)
         btn_done.setStyleSheet("""
@@ -1111,7 +1179,7 @@ class TaskRow(QWidget):
             dday = calc_dday(deadline)
             if dday.startswith('D+'):
                 overdue = True
-                dday_color = '#aaa'
+                dday_color = '#666'
             elif dday == 'D-day' or '시간' in dday:
                 dday_color = '#e74c3c'
                 urgent = True
@@ -1129,8 +1197,14 @@ class TaskRow(QWidget):
             dday_color = '#333'
             suffix = ''
 
+        if overdue:
+            _eff = QGraphicsOpacityEffect()
+            _eff.setOpacity(0.0)
+            self.btn_star.setGraphicsEffect(_eff)
+            self.btn_star.setEnabled(False)
+
         self._strikethrough = bool(task.get('strikethrough', 0))
-        name_color = '#aaa' if overdue else '#111'
+        name_color = '#666' if overdue else '#111'
 
         self.name_edit = _AutoHeightEdit(task['name'])
         _base_pt = 12 * scale
@@ -1194,11 +1268,17 @@ class TaskRow(QWidget):
 
         _has_note = bool(task.get('notes', ''))
         self.btn_note = _NoteButton(scale=scale)
-        self.btn_note.set_note_color(_has_note)
+        self.btn_note.set_note_color(_has_note, overdue)
         self.btn_note.setToolTip('업무 메모')
         self.btn_note.clicked.connect(self._open_note_popup)
 
-        layout.addWidget(self.name_edit, 1, Qt.AlignVCenter)
+        name_note_layout = QHBoxLayout()
+        name_note_layout.setContentsMargins(0, 0, 0, 0)
+        name_note_layout.setSpacing(0)
+        name_note_layout.addWidget(self.name_edit, 0, Qt.AlignVCenter)
+        name_note_layout.addWidget(self.btn_note, 0, Qt.AlignTop)
+        layout.addLayout(name_note_layout)
+        layout.addStretch(1)
         if task.get('recurrence', ''):
             lbl_recur = QLabel(MAT.REPEAT)
             _recur_font = mat_font(int(13 * scale))
@@ -1222,7 +1302,6 @@ class TaskRow(QWidget):
                 layout.addWidget(dday_lbl, 0, Qt.AlignVCenter)
             elif hasattr(self, '_add_date_btn'):
                 layout.addWidget(self._add_date_btn, 0, Qt.AlignVCenter)
-        layout.addWidget(self.btn_note, 0, Qt.AlignTop)
         layout.addWidget(btn_menu, 0, Qt.AlignVCenter)
 
     def _set_row_highlight(self, on: bool):
@@ -1334,6 +1413,8 @@ class TaskRow(QWidget):
             y = self.btn_note.mapToGlobal(QPoint(0, -ph)).y()
         popup.move(x, y)
         popup.show()
+        popup.activateWindow()
+        popup.raise_()
         popup._editor.setFocus()
         self._note_popup = popup
 
@@ -2185,7 +2266,7 @@ class MemoWindow(QMainWindow):
         _top_panel = QWidget()
         _top_panel.setStyleSheet('background: transparent;')
         content_layout = QVBoxLayout(_top_panel)
-        content_layout.setContentsMargins(0, 6, 0, 0)
+        content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(4)
 
         field_style_line = """
@@ -2209,7 +2290,7 @@ class MemoWindow(QMainWindow):
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: #aaa;
-                qproperty-alignment: AlignCenter;
+                qproperty-alignment: AlignLeft;
             }
         """ + _date_base
         self._field_style_date_filled = """
@@ -2223,8 +2304,6 @@ class MemoWindow(QMainWindow):
             }
         """ + _date_base
         field_style_date = self._field_style_date_empty
-        lbl_font = QFont('Malgun Gothic', 11)
-        lbl_css  = 'color: #5a4000; background: transparent;'
 
         # 1행: 업무
         self.task_input_row = QWidget()
@@ -2232,9 +2311,6 @@ class MemoWindow(QMainWindow):
         row1 = QHBoxLayout(self.task_input_row)
         row1.setContentsMargins(16, 0, 8, 0)
         row1.setSpacing(4)
-        lbl_name = QLabel('업무:')
-        lbl_name.setFont(lbl_font)
-        lbl_name.setStyleSheet(lbl_css)
         self.input_name = QLineEdit()
         self.input_name.setPlaceholderText('업무명')
         self.input_name.setFont(QFont('Malgun Gothic', 11))
@@ -2244,7 +2320,6 @@ class MemoWindow(QMainWindow):
         self.input_name.installEventFilter(self)
         self.input_name.returnPressed.connect(self._add_task)
         self.input_name.textChanged.connect(self._on_name_cleared)
-        row1.addWidget(lbl_name)
         row1.addWidget(self.input_name, 1)
         content_layout.addWidget(self.task_input_row)
 
@@ -2254,14 +2329,11 @@ class MemoWindow(QMainWindow):
         row2 = QHBoxLayout(self.date_row_widget)
         row2.setContentsMargins(16, 0, 8, 0)
         row2.setSpacing(4)
-        lbl_date = QLabel('마감일:')
-        lbl_date.setFont(lbl_font)
-        lbl_date.setStyleSheet(lbl_css)
         self.input_date = QDateEdit()
         self.input_date.setDisplayFormat('yyyy-MM-dd')
         self.input_date.setCalendarPopup(False)
         self.input_date.setMinimumDate(QDate(1900, 1, 1))
-        self.input_date.setSpecialValueText(' ')
+        self.input_date.setSpecialValueText('마감일')
         self.input_date.setDate(QDate(1900, 1, 1))  # 빈 칸으로 표시
         self.input_date.setFixedWidth(115)
         self.input_date.setFont(QFont('Malgun Gothic', 11))
@@ -2348,6 +2420,7 @@ class MemoWindow(QMainWindow):
             QPushButton:hover { background: rgba(212,184,0,0.25); }
         """)
         btn_history.clicked.connect(self._show_history)
+        row1.addWidget(btn_history)
 
         self.input_recurrence = QComboBox()
         self.input_recurrence.addItems(['반복 없음', '매주', '격주', '매월', '매년', '사용자 설정...'])
@@ -2355,14 +2428,15 @@ class MemoWindow(QMainWindow):
             self.input_recurrence.setItemData(_i, Qt.AlignCenter, Qt.TextAlignmentRole)
         self.input_recurrence.installEventFilter(self)
         self.input_recurrence.setFixedWidth(90)
-        self.input_recurrence.setFont(QFont('Malgun Gothic', 10))
-        self.input_recurrence.setStyleSheet(
-            "QComboBox { border: 1px solid #d4b800; border-radius: 4px; padding: 0 4px; "
-            "background: #fffde7; color: #333; }"
-            "QComboBox:focus { border: 2px solid #4a90d9; background: rgba(255,255,255,0.85); }"
-            "QComboBox::drop-down { border: none; width: 0px; }"
-            "QComboBox QAbstractItemView { font-family: 'Malgun Gothic'; font-size: 10pt; }"
+        self.input_recurrence.setFont(QFont('Malgun Gothic', 11))
+        self._recurrence_style_base = (
+            "QComboBox {{ border: 1px solid #d4b800; border-radius: 4px; padding: 0 4px; "
+            "background: #fffde7; color: {color}; }}"
+            "QComboBox:focus {{ border: 2px solid #4a90d9; background: rgba(255,255,255,0.85); }}"
+            "QComboBox::drop-down {{ border: none; width: 0px; }}"
+            "QComboBox QAbstractItemView {{ font-family: 'Malgun Gothic'; font-size: 11pt; }}"
         )
+        self.input_recurrence.setStyleSheet(self._recurrence_style_base.format(color='#aaa'))
         self._custom_recurrence_val = ''
         self.input_recurrence.currentIndexChanged.connect(self._on_recurrence_index_changed)
 
@@ -2371,12 +2445,10 @@ class MemoWindow(QMainWindow):
         self.input_time.setFixedHeight(_row_h)
         self.input_recurrence.setFixedHeight(_row_h)
 
-        row2.addWidget(lbl_date)
         row2.addWidget(self.input_date)
         row2.addWidget(self.input_time)
         row2.addWidget(self.input_recurrence)
         row2.addStretch()
-        row2.addWidget(btn_history)
         content_layout.addWidget(self.date_row_widget)
 
         self._sep_date = QFrame()
@@ -2406,11 +2478,11 @@ class MemoWindow(QMainWindow):
         content_layout.addWidget(self.task_scroll)
 
         # 메모 모드 자유 편집기 (기본 숨김)
-        self.memo_editor = QPlainTextEdit()
+        self.memo_editor = QTextEdit()
         self.memo_editor.setPlaceholderText('여기에 바로 메모를 적으세요...')
         self.memo_editor.setFont(pr_font(12))
         self.memo_editor.setStyleSheet("""
-            QPlainTextEdit {
+            QTextEdit {
                 background: transparent;
                 border: none;
                 color: #333;
@@ -2462,11 +2534,11 @@ class MemoWindow(QMainWindow):
         self.doc_list_layout.addStretch()
         self.doc_list_widget.hide()
 
-        _sep_bottom = QFrame()
-        _sep_bottom.setFrameShape(QFrame.HLine)
-        _sep_bottom.setFixedHeight(1)
-        _sep_bottom.setStyleSheet('background: #D4AF37; border: none;')
-        _splitter_layout.addWidget(_sep_bottom)
+        self._sep_bottom = QFrame()
+        self._sep_bottom.setFrameShape(QFrame.HLine)
+        self._sep_bottom.setFixedHeight(1)
+        self._sep_bottom.setStyleSheet('background: #D4AF37; border: none;')
+        _splitter_layout.addWidget(self._sep_bottom)
         _splitter_layout.addWidget(_bottom_panel, stretch=0)
 
         _all_ids = [w['id'] for w in get_all_windows()]
@@ -2489,6 +2561,7 @@ class MemoWindow(QMainWindow):
         # 저장된 메모 모드 및 텍스트 복원
         _saved_mode, _saved_text = get_window_memo(self.window_id)
         self.memo_editor.setPlainText(_saved_text)
+        self._apply_memo_line_spacing()
         if _saved_mode:
             self._apply_memo_mode(True)
 
@@ -2563,6 +2636,8 @@ class MemoWindow(QMainWindow):
             self._time_touched = False
 
     def _on_recurrence_index_changed(self, idx):
+        color = '#aaa' if idx == 0 else '#333'
+        self.input_recurrence.setStyleSheet(self._recurrence_style_base.format(color=color))
         if idx == 5:
             dlg = CustomRecurrenceDialog(self, current=self._custom_recurrence_val)
             if dlg.exec_() == QDialog.Accepted:
@@ -2583,6 +2658,13 @@ class MemoWindow(QMainWindow):
             self._date_touched = False
             self._time_touched = False
             self.input_date.setStyleSheet(self._field_style_date_empty)
+
+    def _apply_memo_line_spacing(self):
+        fmt = QTextBlockFormat()
+        fmt.setLineHeight(130, QTextBlockFormat.ProportionalHeight)
+        cursor = QTextCursor(self.memo_editor.document())
+        cursor.select(QTextCursor.Document)
+        cursor.mergeBlockFormat(fmt)
 
     def _toggle_memo_mode(self):
         self._apply_memo_mode(not self._memo_mode)
@@ -2922,7 +3004,7 @@ class MemoWindow(QMainWindow):
             p.drawLine(int(size * 0.18), int(size * 0.50), bx, by)
             p.drawLine(bx, by, int(size * 0.82), int(size * 0.25))
         else:
-            p.setPen(QPen(QColor('#aaaaaa'), 1.5))
+            p.setPen(QPen(QColor('#555555'), 1.5))
             p.setBrush(QColor(0, 0, 0, 0))
             p.drawRoundedRect(2, 2, size - 4, size - 4, 3, 3)
         p.end()
@@ -3097,6 +3179,18 @@ class MemoWindow(QMainWindow):
         pos = btn.mapToGlobal(btn.rect().bottomLeft())
         menu.exec_(pos)
 
+    _SEP_COLOR_MAP = {
+        '#CCFF90': '#A3CC73',
+        '#A8F0E8': '#86C0BA',
+        '#AECBFA': '#8BA2C8',
+        '#D7AEFB': '#AC8BC8',
+        '#FDCFE8': '#CAA6BA',
+        '#E6C9A8': '#B8A186',
+        '#AAAAAA': '#888888',
+        '#DDDDDD': '#B1B1B1',
+        '#FFFFFF': '#CCCCCC',
+    }
+
     def _apply_color(self, hex_color):
         self._bg_color = hex_color
         title_color = QColor(hex_color).darker(115).name()
@@ -3132,6 +3226,11 @@ class MemoWindow(QMainWindow):
             QPushButton#btn_mode:hover {{ background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.12); }}
             QPushButton#btn_mode:pressed {{ background: rgba(0,0,0,0.20); border-color: rgba(0,0,0,0.20); }}
         """)
+        sep_color = self._SEP_COLOR_MAP.get(hex_color.upper(), '#D4AF37')
+        sep_style = f'background: {sep_color}; border: none;'
+        self._title_sep.setStyleSheet(sep_style)
+        self._sep_date.setStyleSheet(sep_style)
+        self._sep_bottom.setStyleSheet(sep_style)
 
     def _set_alarm_interval(self, minutes, menu=None):
         if self._on_alarm_interval_change:
@@ -3616,6 +3715,60 @@ class MemoWindow(QMainWindow):
 
         top_aligned_partner = align_partner if (align_y_guide is not None and best_y_guide == align_y_guide) else None
         return result_nx, result_ny, snap_edges, adj_snapped, x_snap_partner
+
+    def _snap_resize(self, nx, ny, nw, nh, edge):
+        """리사이즈 드래그 중 snap 계산. 스냅된 (nx, ny, nw, nh) 반환."""
+        moves_left  = 'left'   in edge
+        moves_right = 'right'  in edge
+        moves_top   = 'top'    in edge
+        moves_bot   = 'bottom' in edge
+
+        right_anchor  = nx + nw
+        bottom_anchor = ny + nh
+
+        if moves_left or moves_right:
+            my_x = nx if moves_left else nx + nw
+            best_d, snap_x = SNAP_THRESHOLD, None
+            for other in self._open_windows:
+                if other is self:
+                    continue
+                for candidate in (other.x(), other.x() + other.width()):
+                    d = abs(candidate - my_x)
+                    if d < best_d:
+                        best_d, snap_x = d, candidate
+            if snap_x is not None:
+                if moves_left:
+                    new_nx = snap_x
+                    new_nw = right_anchor - new_nx
+                    if new_nw >= EdgeHandle.MIN_W:
+                        nx, nw = new_nx, new_nw
+                else:
+                    new_nw = snap_x - nx
+                    if new_nw >= EdgeHandle.MIN_W:
+                        nw = new_nw
+
+        if moves_top or moves_bot:
+            my_y = ny if moves_top else ny + nh
+            best_d, snap_y = SNAP_THRESHOLD, None
+            for other in self._open_windows:
+                if other is self:
+                    continue
+                for candidate in (other.y(), other.y() + other.height()):
+                    d = abs(candidate - my_y)
+                    if d < best_d:
+                        best_d, snap_y = d, candidate
+            if snap_y is not None:
+                if moves_top:
+                    new_ny = snap_y
+                    new_nh = bottom_anchor - new_ny
+                    if new_nh >= EdgeHandle.MIN_H:
+                        ny, nh = new_ny, new_nh
+                else:
+                    new_nh = snap_y - ny
+                    if new_nh >= EdgeHandle.MIN_H:
+                        nh = new_nh
+
+        return nx, ny, nw, nh
 
     def _compute_guide_lines(self, snap_edges):
         """스냅 엣지를 전체 화면 폭/높이의 선 좌표로 변환."""
