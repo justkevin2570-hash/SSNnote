@@ -431,10 +431,12 @@ class EdgeHandle(QWidget):
             cands = [m for m in win._link_group if m is not win and m.x() < win.x()]
             if cands: partner = max(cands, key=lambda m: m.x())
         elif self.edge in ('bottom', 'bottom-left', 'bottom-right'):
-            cands = [m for m in win._link_group if m is not win and m.y() > win.y()]
+            cands = [m for m in win._link_group if m is not win and m.y() > win.y()
+                     and m.x() < win.x() + win.width() and m.x() + m.width() > win.x()]
             if cands: partner = min(cands, key=lambda m: m.y())
         elif self.edge in ('top', 'top-left', 'top-right'):
-            cands = [m for m in win._link_group if m is not win and m.y() < win.y()]
+            cands = [m for m in win._link_group if m is not win and m.y() < win.y()
+                     and m.x() < win.x() + win.width() and m.x() + m.width() > win.x()]
             if cands: partner = max(cands, key=lambda m: m.y())
         if partner is None:
             return
@@ -843,6 +845,20 @@ class TitleBar(QWidget):
             if p._merge_btn is not None and not p._merge_btn._merged:
                 p._merge_btn.hide()
                 p._merge_btn = None
+
+        # 합체 상태: 드래그 중에는 합체 버튼을 항상 표시 (오토하이드는 유지)
+        if p._link_group:
+            for member in p._link_group:
+                btn = member._merge_btn
+                if btn and btn._merged:
+                    if not btn.isVisible():
+                        btn.show()
+                        btn._raise_timer.start()
+                    btn._visible = True
+                    btn._hide_delay.stop()
+                    btn._opacity_anim.stop()
+                    btn._opacity_eff.setOpacity(1.0)
+                    btn.update_position(btn._win_a, btn._win_b)
 
     def mouseReleaseEvent(self, e):
         self._drag_pos = None
