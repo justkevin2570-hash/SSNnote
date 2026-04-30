@@ -58,6 +58,16 @@ def init_db():
                 doc_type   TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
             );
+
+            CREATE TABLE IF NOT EXISTS doc_embeddings (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id      INTEGER NOT NULL,
+                title       TEXT NOT NULL DEFAULT '',
+                content     TEXT NOT NULL DEFAULT '',
+                doc_type    TEXT NOT NULL DEFAULT '',
+                embedding   BLOB,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+            );
         """)
 
         # tasks 테이블에 window_id 컬럼 없으면 추가 (기존 DB 마이그레이션)
@@ -74,6 +84,8 @@ def init_db():
             conn.execute("ALTER TABLE windows ADD COLUMN memo_mode INTEGER DEFAULT 0")
         if 'memo_text' not in wcols:
             conn.execute("ALTER TABLE windows ADD COLUMN memo_text TEXT DEFAULT ''")
+        if 'merge_group_id' not in wcols:
+            conn.execute("ALTER TABLE windows ADD COLUMN merge_group_id INTEGER DEFAULT NULL")
 
         if 'strikethrough' not in cols:
             conn.execute('ALTER TABLE tasks ADD COLUMN strikethrough INTEGER NOT NULL DEFAULT 0')
@@ -93,6 +105,14 @@ def init_db():
             conn.execute("ALTER TABLE tasks ADD COLUMN recurrence TEXT NOT NULL DEFAULT ''")
         if 'recurrence' not in hcols:
             conn.execute("ALTER TABLE task_history ADD COLUMN recurrence TEXT NOT NULL DEFAULT ''")
+
+        # notes 컬럼 마이그레이션
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(tasks)').fetchall()]
+        hcols = [r[1] for r in conn.execute('PRAGMA table_info(task_history)').fetchall()]
+        if 'notes' not in cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+        if 'notes' not in hcols:
+            conn.execute("ALTER TABLE task_history ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
 
         # 기존 window_state 마이그레이션
         tables = [r[0] for r in conn.execute(
@@ -135,6 +155,22 @@ def update_window(window_id, x, y, width, height, collapsed, color='', scale=1.0
             'UPDATE windows SET x=?,y=?,width=?,height=?,collapsed=?,color=?,scale=? WHERE id=?',
             (x, y, width, height, 1 if collapsed else 0, color, scale, window_id)
         )
+
+
+def set_window_merge_group(window_id, group_id):
+    with _connect() as conn:
+        conn.execute('UPDATE windows SET merge_group_id=? WHERE id=?', (group_id, window_id))
+
+
+def clear_window_merge_group(window_id):
+    with _connect() as conn:
+        conn.execute('UPDATE windows SET merge_group_id=NULL WHERE id=?', (window_id,))
+
+
+def get_next_merge_group_id():
+    with _connect() as conn:
+        row = conn.execute('SELECT MAX(merge_group_id) FROM windows').fetchone()
+        return (row[0] or 0) + 1
 
 
 def delete_window(window_id):
@@ -191,6 +227,17 @@ def set_task_priority(task_id, priority):
 def set_task_recurrence(task_id, recurrence):
     with _connect() as conn:
         conn.execute('UPDATE tasks SET recurrence=? WHERE id=?', (recurrence, task_id))
+
+
+def get_task_notes(task_id: int) -> str:
+    with _connect() as conn:
+        row = conn.execute('SELECT notes FROM tasks WHERE id=?', (task_id,)).fetchone()
+        return row['notes'] if row else ''
+
+
+def set_task_notes(task_id: int, notes: str):
+    with _connect() as conn:
+        conn.execute('UPDATE tasks SET notes=? WHERE id=?', (notes, task_id))
 
 
 def search_tasks_all(query):
@@ -293,3 +340,27 @@ def get_official_documents():
 def delete_official_document(doc_id):
     with _connect() as conn:
         conn.execute('DELETE FROM official_documents WHERE id=?', (doc_id,))
+        conn.execute('DELETE FROM doc_embeddings WHERE doc_id=?', (doc_id,))
+
+
+# ── doc_embeddings CRUD ─────────────────────────────────────────
+
+def save_embedding(doc_id: int, title: str, content: str, doc_type: str, embedding_bytes: bytes):
+    with _connect() as conn:
+        conn.execute(
+            'INSERT INTO doc_embeddings (doc_id, title, content, doc_type, embedding) VALUES (?,?,?,?,?)',
+            (doc_id, title, content, doc_type, embedding_bytes)
+        )
+
+
+def get_all_embeddings():
+    with _connect() as conn:
+        rows = conn.execute(
+            'SELECT * FROM doc_embeddings ORDER BY created_at DESC'
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_embedding(emb_id: int):
+    with _connect() as conn:
+        conn.execute('DELETE FROM doc_embeddings WHERE id=?', (emb_id,))

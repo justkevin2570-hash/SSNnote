@@ -1,4 +1,7 @@
 PyQt5==5.15.11
+pydantic
+sentence-transformers
+scikit-learn
 qtawesome
 google-genai
 anthropic

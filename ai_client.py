@@ -21,11 +21,16 @@ OPENAI_KEY_FILE    = os.path.join(APPDATA_DIR, 'openai_key.txt')
 OPENAI_MODEL_FILE  = os.path.join(APPDATA_DIR, 'openai_model.txt')
 NVIDIA_KEY_FILE    = os.path.join(APPDATA_DIR, 'nvidia_key.txt')
 NVIDIA_MODEL_FILE  = os.path.join(APPDATA_DIR, 'nvidia_model.txt')
+OPENCODE_KEY_FILE   = os.path.join(APPDATA_DIR, 'opencode_key.txt')
+OPENCODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'opencode_model.txt')
 OLLAMA_HOST        = 'http://localhost:11434'
 
-# AI 모드: 'gemini'|'claude'|'openai'|'nvidia'|'internal'|'none'
+# 세션 키 (API 키 저장 체크 해제 시 메모리에만 보관)
+_session_keys: dict[str, str] = {}
+
+# AI 모드: 'gemini'|'claude'|'openai'|'nvidia'|'opencode'|'internal'|'none'
 # 'external'은 하위 호환 (= 'gemini')
-_AI_MODES = ('external', 'internal', 'none', 'gemini', 'claude', 'openai', 'nvidia')
+_AI_MODES = ('external', 'internal', 'none', 'gemini', 'claude', 'openai', 'nvidia', 'opencode')
 
 # 기본 모델 목록 (API 키 없이도 표시)
 GEMINI_DEFAULT_MODELS = [
@@ -51,6 +56,21 @@ NVIDIA_DEFAULT_MODELS = [
     "meta/llama-3.1-405b-instruct",
     "meta/llama-3.3-70b-instruct",
     "mistralai/mixtral-8x7b-instruct-v0.1",
+]
+
+OPENCODE_DEFAULT_MODELS = [
+    "glm-5.1",
+    "glm-5",
+    "kimi-k2.5",
+    "kimi-k2.6",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "mimo-v2-pro",
+    "mimo-v2-omni",
+    "mimo-v2.5-pro",
+    "mimo-v2.5",
+    "qwen3.6-plus",
+    "qwen3.5-plus",
 ]
 
 # 외부 AI(대형 모델): 형식 제약 최소화, 모델 자율성 최대
@@ -180,18 +200,6 @@ FEWSHOT_PLAN_SYSTEM = (
     "    3) 진로 연계 선택 과목 탐색 및 1:1 맞춤형 컨설팅 실시\n"
     "    4) 교육과정 관련 자료집 배부 및 홍보 영상 상영\n"
     "\n붙임  교육과정 박람회 계획 1부.  끝."
-    "\n\n[예시2 — 붙임 2개]\n"
-    "입력:\n"
-    "제목: 2026. 수학 교과 연구회 운영 결과 보고\n"
-    "\n출력:\n"
-    "1. 관련: \n"
-    "2. 2026. 수학 교과 연구회 운영 결과를 다음과 같이 보고합니다.\n"
-    "  가. 일시: 2026. 11. 20.(목) 15:00 ~ 17:00\n"
-    "  나. 장소: 본교 교무실\n"
-    "  다. 참석: 수학 교과 교원 4명\n"
-    "  라. 내용: 2026학년도 수학 교과 연구 성과 발표 및 차년도 계획 수립\n"
-    "\n붙임  1. 수학 교과 연구회 운영 결과 보고서 1부.\n"
-    "      2. 연구 성과물 1부.  끝."
 )
 
 FEWSHOT_PURCHASE_SYSTEM = (
@@ -233,19 +241,6 @@ FEWSHOT_DEFAULT_SYSTEM = (
     "    1) 불국사·석굴암 문화유산 탐방\n"
     "    2) 국립경주박물관 체험 학습\n"
     "\n붙임  현장체험학습 계획서 1부.  끝."
-    "\n\n[예시2 — 붙임 2개]\n"
-    "입력:\n"
-    "제목: 2026. 학교폭력 예방 교육 실시 안내\n"
-    "관련: 전남교육청-56789(2026. 3. 5.)\n"
-    "\n출력:\n"
-    "1. 관련: 전남교육청-56789(2026. 3. 5.)\n"
-    "2. 2026. 학교폭력 예방 교육을 다음과 같이 실시하고자 합니다.\n"
-    "  가. 일시: 2026. 4. 22.(수) 09:00 ~ 10:00\n"
-    "  나. 장소: 본교 강당\n"
-    "  다. 대상: 전교생\n"
-    "  라. 내용: 학교폭력 예방 및 대처 방법 안내\n"
-    "\n붙임  1. 학교폭력 예방 교육 계획 1부.\n"
-    "      2. 강사 프로필 1부.  끝."
 )
 
 FEWSHOT_SUBMIT_SYSTEM = (
@@ -263,15 +258,6 @@ FEWSHOT_SUBMIT_SYSTEM = (
     "1. 관련: 전남교육청-11111(2026. 2. 10.)\n"
     "2. 교원 연수 결과를 붙임과 같이 제출하고자 합니다.\n"
     "\n붙임  교원 연수 결과 보고서 1부.  끝."
-    "\n\n[예시2 — 붙임 2개]\n"
-    "입력:\n"
-    "제목: 2026. 학교 안전점검 결과 제출\n"
-    "관련: 전남교육청-22222(2026. 4. 1.)\n"
-    "\n출력:\n"
-    "1. 관련: 전남교육청-22222(2026. 4. 1.)\n"
-    "2. 학교 안전점검 결과를 붙임과 같이 제출하고자 합니다.\n"
-    "\n붙임  1. 학교 안전점검 결과 보고서 1부.\n"
-    "      2. 점검 사진 자료 1부.  끝."
 )
 
 FEWSHOT_ANNOUNCE_SYSTEM = (
@@ -325,16 +311,23 @@ OCR_SYSTEM_PROMPT = (
 # ── API 키 / AI 모드 관리 ────────────────────────────────────────
 
 def load_api_key() -> str:
+    key = _session_keys.get('gemini', '')
+    if key:
+        return key
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, 'r', encoding='utf-8') as f:
             return f.read().strip()
     return ''
 
 
-def save_api_key(key: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(KEY_FILE, 'w', encoding='utf-8') as f:
-        f.write(key.strip())
+def save_api_key(key: str, persist: bool = True):
+    _session_keys.pop('gemini', None)
+    if persist:
+        os.makedirs(APPDATA_DIR, exist_ok=True)
+        with open(KEY_FILE, 'w', encoding='utf-8') as f:
+            f.write(key.strip())
+    else:
+        _session_keys['gemini'] = key
     GeminiAdapter.invalidate_client()
 
 
@@ -386,16 +379,23 @@ def save_gemini_model(model: str):
 
 
 def load_claude_key() -> str:
+    key = _session_keys.get('claude', '')
+    if key:
+        return key
     if os.path.exists(CLAUDE_KEY_FILE):
         with open(CLAUDE_KEY_FILE, 'r', encoding='utf-8') as f:
             return f.read().strip()
     return ''
 
 
-def save_claude_key(key: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(CLAUDE_KEY_FILE, 'w', encoding='utf-8') as f:
-        f.write(key.strip())
+def save_claude_key(key: str, persist: bool = True):
+    _session_keys.pop('claude', None)
+    if persist:
+        os.makedirs(APPDATA_DIR, exist_ok=True)
+        with open(CLAUDE_KEY_FILE, 'w', encoding='utf-8') as f:
+            f.write(key.strip())
+    else:
+        _session_keys['claude'] = key
 
 
 def load_claude_model() -> str:
@@ -414,16 +414,23 @@ def save_claude_model(model: str):
 
 
 def load_openai_key() -> str:
+    key = _session_keys.get('openai', '')
+    if key:
+        return key
     if os.path.exists(OPENAI_KEY_FILE):
         with open(OPENAI_KEY_FILE, 'r', encoding='utf-8') as f:
             return f.read().strip()
     return ''
 
 
-def save_openai_key(key: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(OPENAI_KEY_FILE, 'w', encoding='utf-8') as f:
-        f.write(key.strip())
+def save_openai_key(key: str, persist: bool = True):
+    _session_keys.pop('openai', None)
+    if persist:
+        os.makedirs(APPDATA_DIR, exist_ok=True)
+        with open(OPENAI_KEY_FILE, 'w', encoding='utf-8') as f:
+            f.write(key.strip())
+    else:
+        _session_keys['openai'] = key
 
 
 def load_openai_model() -> str:
@@ -442,16 +449,23 @@ def save_openai_model(model: str):
 
 
 def load_nvidia_key() -> str:
+    key = _session_keys.get('nvidia', '')
+    if key:
+        return key
     if os.path.exists(NVIDIA_KEY_FILE):
         with open(NVIDIA_KEY_FILE, 'r', encoding='utf-8') as f:
             return f.read().strip()
     return ''
 
 
-def save_nvidia_key(key: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(NVIDIA_KEY_FILE, 'w', encoding='utf-8') as f:
-        f.write(key.strip())
+def save_nvidia_key(key: str, persist: bool = True):
+    _session_keys.pop('nvidia', None)
+    if persist:
+        os.makedirs(APPDATA_DIR, exist_ok=True)
+        with open(NVIDIA_KEY_FILE, 'w', encoding='utf-8') as f:
+            f.write(key.strip())
+    else:
+        _session_keys['nvidia'] = key
 
 
 def load_nvidia_model() -> str:
@@ -469,6 +483,41 @@ def save_nvidia_model(model: str):
         f.write(model.strip())
 
 
+def load_opencode_key() -> str:
+    key = _session_keys.get('opencode', '')
+    if key:
+        return key
+    if os.path.exists(OPENCODE_KEY_FILE):
+        with open(OPENCODE_KEY_FILE, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    return ''
+
+
+def save_opencode_key(key: str, persist: bool = True):
+    _session_keys.pop('opencode', None)
+    if persist:
+        os.makedirs(APPDATA_DIR, exist_ok=True)
+        with open(OPENCODE_KEY_FILE, 'w', encoding='utf-8') as f:
+            f.write(key.strip())
+    else:
+        _session_keys['opencode'] = key
+
+
+def load_opencode_model() -> str:
+    if os.path.exists(OPENCODE_MODEL_FILE):
+        with open(OPENCODE_MODEL_FILE, 'r', encoding='utf-8') as f:
+            v = f.read().strip()
+            if v:
+                return v
+    return 'deepseek-v4-flash'
+
+
+def save_opencode_model(model: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(OPENCODE_MODEL_FILE, 'w', encoding='utf-8') as f:
+        f.write(model.strip())
+
+
 def load_external_model_name() -> str:
     """현재 외부 AI 제공자의 모델 표시명 반환."""
     mode = load_ai_mode()
@@ -478,6 +527,8 @@ def load_external_model_name() -> str:
         return load_openai_model()
     elif mode == 'nvidia':
         return load_nvidia_model()
+    elif mode == 'opencode':
+        return load_opencode_model()
     return load_gemini_model()
 
 
@@ -494,14 +545,33 @@ def _pixmap_to_base64(pixmap: QPixmap) -> str:
 
 
 def _parse_json_response(raw: str) -> dict:
-    """AI 응답 텍스트에서 JSON 파싱. 마크다운 코드블록 제거 후 시도."""
+    """단계별 JSON 추출: ①```json블록 ②raw json ③Pydantic fallback ④텍스트 그대로."""
     import json, re
-    cleaned = re.sub(r'^```[a-z]*\n?', '', raw, flags=re.MULTILINE)
-    cleaned = re.sub(r'```$', '', cleaned, flags=re.MULTILINE).strip()
+
+    # Step 1: ```json ... ``` 블록 추출
+    m = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    # Step 2: raw 시도
     try:
-        return json.loads(cleaned)
+        return json.loads(raw.strip())
     except json.JSONDecodeError:
-        return {"title": "", "doc_number": "", "raw": raw}
+        pass
+
+    # Step 3: Pydantic fallback (body 전체를 raw text로)
+    try:
+        from schema import OfficialDocument
+        doc = OfficialDocument(body=raw.strip())
+        return doc.model_dump()
+    except Exception:
+        pass
+
+    # Step 4: 최후의 수단
+    return {"body": raw.strip()}
 
 
 # ── GeminiAdapter ────────────────────────────────────────────────
@@ -709,6 +779,20 @@ class NvidiaAdapter(OpenAIAdapter):
         return load_nvidia_model()
 
 
+# ── OpenCodeAdapter (OpenAI 호환 API) ────────────────────────────
+
+class OpenCodeAdapter(OpenAIAdapter):
+    _base_url = 'https://opencode.ai/zen/go/v1'
+
+    @classmethod
+    def get_api_key(cls) -> str:
+        return load_opencode_key()
+
+    @classmethod
+    def _model(cls) -> str:
+        return load_opencode_model()
+
+
 # ── OllamaAdapter ────────────────────────────────────────────────
 
 class OllamaAdapter:
@@ -792,6 +876,8 @@ def _get_adapter():
         return OpenAIAdapter
     elif mode == 'nvidia':
         return NvidiaAdapter
+    elif mode == 'opencode':
+        return OpenCodeAdapter
     elif mode == 'internal':
         return OllamaAdapter
     return GeminiAdapter
@@ -804,14 +890,23 @@ class AiStreamThread(QThread):
     finished_signal  = pyqtSignal(str)
     error_signal     = pyqtSignal(str)
 
-    def __init__(self, prompt: str, system: str = None):
+    def __init__(self, prompt: str, system: str = None, structured: bool = False):
         super().__init__()
         self.prompt = prompt
         self.system = system
+        self.structured = structured
         self._is_running = True
 
     def stop(self):
         self._is_running = False
+
+    def _retry_prompt(self, error_msg: str) -> str:
+        return (
+            self.prompt
+            + "\n\n[시스템 지시] 이전 답변이 형식에 맞지 않았습니다.\n"
+            + f"오류: {error_msg}\n"
+            + '반드시 {"body": "여기에 공문 본문 전체를 작성"} JSON 형식으로만 출력하세요.'
+        )
 
     def run(self):
         adapter = _get_adapter()
@@ -819,18 +914,68 @@ class AiStreamThread(QThread):
             self.error_signal.emit("API 키가 설정되지 않았습니다. 설정 버튼을 눌러 키를 입력하세요.")
             return
 
-        def on_chunk(text):
-            if self._is_running:
-                self.new_text_signal.emit(text)
+        if not self.structured:
+            # 일반 스트리밍 모드 (자유 채팅 등)
+            def on_chunk(text):
+                if self._is_running:
+                    self.new_text_signal.emit(text)
 
-        def on_done(full):
-            if self._is_running:
-                self.finished_signal.emit(full)
+            def on_done(full):
+                if self._is_running:
+                    self.finished_signal.emit(full)
 
-        kwargs = {}
-        if self.system is not None:
-            kwargs['system'] = self.system
-        adapter.stream_text(self.prompt, on_chunk, on_done, self.error_signal.emit, **kwargs)
+            kwargs = {}
+            if self.system is not None:
+                kwargs['system'] = self.system
+            adapter.stream_text(self.prompt, on_chunk, on_done, self.error_signal.emit, **kwargs)
+            return
+
+        # Structured 모드: JSON 수집 → 파싱 → 검증 → 재시도
+        for attempt in range(2):
+            if not self._is_running:
+                return
+
+            buffer = []
+            err = [None]
+
+            def on_chunk(text):
+                if self._is_running:
+                    buffer.append(text)
+
+            def on_done(full):
+                pass  # buffer에 이미 다 있음
+
+            def on_error(msg):
+                err[0] = msg
+
+            kwargs = {}
+            if self.system is not None:
+                kwargs['system'] = self.system
+            adapter.stream_text(self.prompt, on_chunk, on_done, on_error, **kwargs)
+
+            if err[0]:
+                if attempt == 0:
+                    self.prompt = self._retry_prompt(err[0])
+                    continue
+                self.error_signal.emit(err[0])
+                return
+
+            full = ''.join(buffer)
+            parsed = _parse_json_response(full)
+            body = parsed.get('body', '').strip()
+
+            if len(body) > 20:
+                # 성공: 본문을 스트리밍처럼 한 번에 전송
+                self.new_text_signal.emit(body)
+                self.finished_signal.emit(body)
+                return
+
+            if attempt == 0:
+                reason = '본문이 너무 짧음' if len(body) <= 20 else 'JSON 형식 아님'
+                self.prompt = self._retry_prompt(reason)
+
+        # 2회 실패
+        self.error_signal.emit("AI 응답을 올바르게 받지 못했습니다. 다시 시도해 주세요.")
 
 
 class AiImageWorker(QThread):
