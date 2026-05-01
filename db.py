@@ -190,12 +190,34 @@ def get_tasks(window_id):
         return [dict(r) for r in rows]
 
 
+def get_tasks_by_date(date_str: str):
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.id, t.window_id, t.name, t.deadline, t.strikethrough,
+                      t.priority, t.recurrence, t.notes, w.color
+               FROM tasks t JOIN windows w ON t.window_id = w.id
+               WHERE t.deadline LIKE ? AND t.deadline != ''
+               ORDER BY t.priority DESC, t.deadline ASC""",
+            (date_str + '%',)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_all_tasks_for_calendar():
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT SUBSTR(deadline, 1, 10) as d, COUNT(*) as cnt FROM tasks WHERE deadline != '' GROUP BY d"
+        ).fetchall()
+        return {row['d']: row['cnt'] for row in rows}
+
+
 def add_task(window_id, name, deadline, strikethrough=0, priority=0, recurrence=''):
     with _connect() as conn:
-        conn.execute(
+        cur = conn.execute(
             'INSERT INTO tasks (window_id, name, deadline, strikethrough, priority, recurrence) VALUES (?,?,?,?,?,?)',
             (window_id, name, deadline, strikethrough, priority, recurrence)
         )
+        return cur.lastrowid
 
 
 def delete_task(task_id):
