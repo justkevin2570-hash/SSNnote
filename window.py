@@ -1,6 +1,7 @@
 import os
 import sys
 import ctypes
+import calendar
 from PyQt5.QtSvg import QSvgRenderer
 from datetime import date, datetime, timedelta
 from PyQt5.QtWidgets import (
@@ -9,7 +10,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QMenu, QAction, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
     QPlainTextEdit, QTextEdit, QSizePolicy, QGraphicsColorizeEffect, QGraphicsOpacityEffect, QTimeEdit,
-    QListWidget, QAbstractItemView, QComboBox, QListWidgetItem
+    QListWidget, QAbstractItemView, QComboBox, QListWidgetItem, QTableWidget, QTableWidgetItem
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor
@@ -20,7 +21,8 @@ from db import (update_window, delete_window, get_tasks, add_task, delete_task, 
                 get_documents, add_document, update_document, delete_document,
                 get_official_documents, delete_official_document,
                 get_window_memo, set_window_memo, get_all_windows,
-                set_window_merge_group, clear_window_merge_group, get_next_merge_group_id)
+                set_window_merge_group, clear_window_merge_group, get_next_merge_group_id,
+                get_all_tasks, get_all_task_history)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
 import updater
@@ -2171,6 +2173,504 @@ class SnapGuideOverlay(QWidget):
 _snap_guide_overlay = None
 
 
+class MonthlyCalendarDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('한눈에 - 업무 캘린더')
+        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint | Qt.WindowMaximizeButtonHint)
+        self.setMinimumSize(900, 600)
+        self.resize(1000, 700)
+
+        self._current = date.today()
+        self._all_tasks = []
+        self._all_history = []
+        self._cell_widgets = {}
+
+        self._build_ui()
+        self._load_data()
+        self._render()
+
+    def _build_ui(self):
+        self.setStyleSheet("""
+            QDialog { background: #f5f0ea; font-family: 'Malgun Gothic'; }
+            QPushButton { font-family: 'Malgun Gothic'; }
+            QLabel { font-family: 'Malgun Gothic'; }
+        """)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 20, 20, 20)
+        root.setSpacing(0)
+
+        nav = QHBoxLayout()
+        nav.setSpacing(8)
+
+        btn_prev = QPushButton()
+        btn_prev.setIcon(mi_icon('\ue040', 16, '#5a4000'))
+        btn_prev.setFixedSize(36, 36)
+        btn_prev.setStyleSheet("""
+            QPushButton {
+                background: #e8ddd5;
+                border: none;
+                border-radius: 6px;
+                padding: 0;
+            }
+            QPushButton:hover { background: #ddd0c5; }
+            QPushButton:pressed { background: #d0c0b5; }
+        """)
+        btn_prev.clicked.connect(self._prev_month)
+        nav.addWidget(btn_prev)
+
+        self._title_label = QLabel()
+        self._title_label.setAlignment(Qt.AlignCenter)
+        self._title_label.setStyleSheet("font-size: 18pt; font-weight: bold; color: #1a1410; padding: 0 16px;")
+        nav.addWidget(self._title_label, 1)
+
+        btn_next = QPushButton()
+        btn_next.setIcon(mi_icon('\ue041', 16, '#5a4000'))
+        btn_next.setFixedSize(36, 36)
+        btn_next.setStyleSheet("""
+            QPushButton {
+                background: #e8ddd5;
+                border: none;
+                border-radius: 6px;
+                padding: 0;
+            }
+            QPushButton:hover { background: #ddd0c5; }
+            QPushButton:pressed { background: #d0c0b5; }
+        """)
+        btn_next.clicked.connect(self._next_month)
+        nav.addWidget(btn_next)
+
+        nav.addSpacing(12)
+
+        btn_today = QPushButton('오늘')
+        btn_today.setFixedHeight(36)
+        btn_today.setStyleSheet("""
+            QPushButton {
+                background: #1a1410;
+                border: none;
+                border-radius: 6px;
+                padding: 0 18px;
+                color: white;
+                font-size: 10pt;
+                font-weight: bold;
+            }
+            QPushButton:hover { background: #3a3430; }
+            QPushButton:pressed { background: #0a0400; }
+        """)
+        btn_today.clicked.connect(self._go_today)
+        nav.addWidget(btn_today)
+
+        root.addLayout(nav)
+        root.addSpacing(12)
+
+        calendar_card = QFrame()
+        calendar_card.setStyleSheet("""
+            QFrame {
+                background: #fff8f5;
+                border-radius: 16px;
+                border: 1px solid #f0e8e0;
+            }
+        """)
+        card_layout = QVBoxLayout(calendar_card)
+        card_layout.setContentsMargins(0, 0, 0, 0)
+        card_layout.setSpacing(0)
+
+        day_header = QFrame()
+        day_header.setStyleSheet("background: #faf4f0; border-radius: 16px 16px 0 0;")
+        day_header.setFixedHeight(36)
+        day_header_layout = QHBoxLayout(day_header)
+        day_header_layout.setContentsMargins(10, 0, 10, 0)
+        day_header_layout.setSpacing(0)
+
+        weekday_colors = ['#e8b5a8', '#999', '#999', '#999', '#999', '#999', '#a8b8e8']
+        for c, wd in enumerate(['일', '월', '화', '수', '목', '금', '토']):
+            lbl = QLabel(wd)
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setStyleSheet(f"font-weight: bold; font-size: 11pt; color: {weekday_colors[c]}; background: transparent;")
+            day_header_layout.addWidget(lbl, 1)
+        card_layout.addWidget(day_header)
+
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background: #f0e8e0;")
+        card_layout.addWidget(sep)
+
+        self._grid_container = QWidget()
+        self._grid_container.setStyleSheet("background: transparent;")
+        self._grid_layout = QGridLayout(self._grid_container)
+        self._grid_layout.setContentsMargins(0, 0, 0, 0)
+        self._grid_layout.setSpacing(0)
+        for r in range(6):
+            self._grid_layout.setRowStretch(r, 1)
+        for c in range(7):
+            self._grid_layout.setColumnStretch(c, 1)
+
+        self._cell_widgets = {}
+        for r in range(6):
+            for c in range(7):
+                cell = QFrame()
+                cell.setStyleSheet("QFrame { background: transparent; }")
+                cell.setMinimumHeight(90)
+                vl = QVBoxLayout(cell)
+                vl.setContentsMargins(6, 4, 6, 4)
+                vl.setSpacing(2)
+                self._grid_layout.addWidget(cell, r, c)
+                self._cell_widgets[(r, c)] = (cell, vl)
+
+        card_layout.addWidget(self._grid_container, 1)
+        root.addWidget(calendar_card, 1)
+
+        root.addSpacing(12)
+
+        bot = QHBoxLayout()
+        self._summary_label = QLabel()
+        self._summary_label.setStyleSheet("color: #999; font-size: 10pt;")
+        bot.addWidget(self._summary_label)
+        bot.addStretch()
+        btn_close = QPushButton('닫기')
+        btn_close.setFixedHeight(36)
+        btn_close.setStyleSheet("""
+            QPushButton {
+                background: #e8ddd5;
+                border: none;
+                border-radius: 6px;
+                padding: 0 24px;
+                color: #5a4000;
+                font-size: 10pt;
+            }
+            QPushButton:hover { background: #ddd0c5; }
+            QPushButton:pressed { background: #d0c0b5; }
+        """)
+        btn_close.clicked.connect(self.accept)
+        bot.addWidget(btn_close)
+        root.addLayout(bot)
+
+    def _load_data(self):
+        self._all_tasks = get_all_tasks()
+        self._all_history = get_all_task_history()
+
+    def _tasks_for_date(self, target_date):
+        ds = target_date.isoformat()
+        items = []
+        for t in self._all_tasks:
+            if t['deadline'] and t['deadline'].startswith(ds):
+                d = dict(t)
+                d['_source'] = 'tasks'
+                items.append(d)
+        for h in self._all_history:
+            if h['deadline'] and h['deadline'].startswith(ds):
+                d = dict(h)
+                d['_source'] = 'history'
+                items.append(d)
+        items.sort(key=lambda x: (x.get('strikethrough', 0), x.get('_source') == 'history'))
+        return items
+
+    def _format_time(self, deadline_str):
+        if not deadline_str or len(deadline_str) < 11:
+            return ''
+        time_part = deadline_str[11:]
+        try:
+            h, m = time_part.split(':')
+            hour = int(h)
+            minute = int(m)
+            if hour == 0:
+                return f'오전 12:{minute:02d}'
+            elif hour < 12:
+                return f'오전 {hour}:{minute:02d}'
+            elif hour == 12:
+                return f'오후 12:{minute:02d}'
+            else:
+                return f'오후 {hour - 12}:{minute:02d}'
+        except:
+            return ''
+
+    def _render(self):
+        y, m = self._current.year, self._current.month
+        self._title_label.setText(f'{y}년 {m}월')
+
+        _, dim = calendar.monthrange(y, m)
+        first = date(y, m, 1)
+        start_col = (first.weekday() + 1) % 7
+
+        for r in range(6):
+            for c in range(7):
+                self._clear_cell(r, c)
+
+        today = date.today()
+        day = 1
+        total = 0
+        for row in range(6):
+            for col in range(7):
+                if (row == 0 and col < start_col) or day > dim:
+                    self._render_empty_cell(row, col)
+                    continue
+                cur = date(y, m, day)
+                items = self._tasks_for_date(cur)
+                total += len(items)
+                self._render_day_cell(row, col, day, cur, items, today)
+                day += 1
+
+        self._summary_label.setText(f'총 {total}건  ·  우클릭 → 상세/삭제')
+
+    def _render_day_cell(self, row, col, day, cur, items, today):
+        cell, vl = self._cell_widgets[(row, col)]
+        is_today = cur == today
+
+        date_header = QHBoxLayout()
+        date_header.setSpacing(0)
+        date_header.setContentsMargins(4, 2, 4, 2)
+
+        dc = '#cc0000' if col == 0 else '#0055cc' if col == 6 else '#5a4000'
+
+        if is_today:
+            lbl_d = QLabel(str(day))
+            lbl_d.setAlignment(Qt.AlignCenter)
+            lbl_d.setFixedSize(26, 26)
+            lbl_d.setStyleSheet("font-weight: bold; font-size: 12pt; color: white; background: #e85d3a; border-radius: 13px;")
+            date_header.addWidget(lbl_d)
+        else:
+            lbl_d = QLabel(str(day))
+            lbl_d.setStyleSheet(f"font-weight: bold; font-size: 12pt; color: {dc}; background: transparent;")
+            date_header.addWidget(lbl_d)
+
+        date_header.addStretch()
+        vl.addLayout(date_header)
+
+        max_v = 4
+        event_colors = ['#e85d3a', '#3a8ee8', '#9b59b6', '#27ae60', '#e67e22']
+        for i, task in enumerate(items[:max_v]):
+            tw = self._make_task_widget(task, event_colors[i % len(event_colors)])
+            if tw:
+                vl.addWidget(tw)
+        if len(items) > max_v:
+            more = QLabel(f'+{len(items) - max_v}건 더보기')
+            more.setStyleSheet("color: #aaa; font-size: 10pt; background: transparent;")
+            more.setCursor(QCursor(Qt.PointingHandCursor))
+            more.mousePressEvent = lambda e, it=items: self._show_more_popup(it)
+            vl.addWidget(more)
+        vl.addStretch()
+
+    def _make_task_widget(self, task, dot_color='#4a90d9'):
+        w = QWidget()
+        w.setCursor(QCursor(Qt.PointingHandCursor))
+        wly = QHBoxLayout(w)
+        wly.setContentsMargins(4, 1, 4, 1)
+        wly.setSpacing(4)
+
+        is_done = task.get('strikethrough', 0)
+        is_hist = task.get('_source') == 'history'
+
+        dot = QLabel()
+        dot.setFixedSize(7, 7)
+        dot.setStyleSheet(f"background: {dot_color}; border-radius: 3px;")
+        wly.addWidget(dot, 0, Qt.AlignVCenter | Qt.AlignLeft)
+
+        time_str = self._format_time(task.get('deadline', ''))
+        nm = task['name']
+        if time_str:
+            display = f'{time_str} {nm}'
+        else:
+            display = nm
+        if len(display) > 20:
+            display = display[:20] + '…'
+
+        lbl_nm = QLabel(display)
+        if is_hist:
+            lbl_nm.setStyleSheet("color: #bbb; font-size: 11pt; background: transparent;")
+        elif is_done:
+            f = lbl_nm.font()
+            f.setStrikeOut(True)
+            lbl_nm.setFont(f)
+            lbl_nm.setStyleSheet("color: #aaa; font-size: 11pt; background: transparent;")
+        else:
+            f = lbl_nm.font()
+            f.setBold(True)
+            lbl_nm.setFont(f)
+            lbl_nm.setStyleSheet("color: #333; font-size: 11pt; background: transparent;")
+        wly.addWidget(lbl_nm, 1)
+
+        w.mousePressEvent = lambda e, t=task: self._on_cell_click(e, t)
+        return w
+
+    def _on_cell_click(self, event, task):
+        if event.button() == Qt.LeftButton:
+            self._show_detail(task)
+        elif event.button() == Qt.RightButton:
+            self._show_context_menu(event.globalPos(), task)
+
+    def _show_context_menu(self, pos, task):
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu { background: white; border: 1px solid #ddd; border-radius: 6px; }
+            QMenu::item { padding: 6px 22px; font-family: 'Malgun Gothic'; font-size: 10pt; }
+            QMenu::item:selected { background: #f0f4ff; }
+        """)
+        a_detail = menu.addAction('상세 보기')
+        a_detail.triggered.connect(lambda: self._show_detail(task))
+
+        if task['_source'] == 'history':
+            a_restore = menu.addAction('↩ 복원')
+            a_restore.triggered.connect(lambda: self._restore_task(task))
+
+        menu.addSeparator()
+        a_del = menu.addAction('삭제')
+        a_del.triggered.connect(lambda: self._delete_task_item(task))
+        menu.exec_(pos)
+
+    def _show_detail(self, task):
+        dlg = QDialog(self)
+        dlg.setWindowTitle('업무 상세')
+        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        dlg.setMinimumWidth(320)
+
+        dlg.setStyleSheet("""
+            QDialog { background: #fff8f5; font-family: 'Malgun Gothic'; }
+            QLabel { font-family: 'Malgun Gothic'; }
+            QPushButton { font-family: 'Malgun Gothic'; }
+        """)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
+
+        src = '현재 업무' if task['_source'] == 'tasks' else '지난 기록'
+        st = '완료' if task.get('strikethrough') else '진행중'
+        dl = task.get('deadline', '없음')
+        nt = task.get('notes', '')
+
+        title_font = QFont('Malgun Gothic', 14, QFont.Bold)
+        title = QLabel(task['name'])
+        title.setFont(title_font)
+        title.setStyleSheet("color: #1a1410; background: transparent;")
+        title.setWordWrap(True)
+        layout.addWidget(title)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("background: #e8ddd5; border: none;")
+        sep.setFixedHeight(1)
+        layout.addWidget(sep)
+
+        info_style = "color: #5a4000; font-size: 11pt; background: transparent;"
+        label_style = "color: #999; font-size: 10pt; background: transparent;"
+
+        for label_text, value in [('상태', st), ('출처', src), ('마감일', dl)]:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            lbl = QLabel(label_text)
+            lbl.setStyleSheet(label_style)
+            lbl.setFixedWidth(50)
+            row.addWidget(lbl)
+            val = QLabel(str(value))
+            val.setStyleSheet(info_style)
+            val.setWordWrap(True)
+            row.addWidget(val, 1)
+            layout.addLayout(row)
+
+        if nt:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            lbl = QLabel('메모')
+            lbl.setStyleSheet(label_style)
+            lbl.setFixedWidth(50)
+            lbl.setAlignment(Qt.AlignTop)
+            row.addWidget(lbl)
+            val = QLabel(nt)
+            val.setStyleSheet(info_style)
+            val.setWordWrap(True)
+            row.addWidget(val, 1)
+            layout.addLayout(row)
+
+        layout.addSpacing(8)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_close = QPushButton('닫기')
+        btn_close.setFixedHeight(32)
+        btn_close.setStyleSheet("""
+            QPushButton {
+                background: #e8ddd5;
+                border: none;
+                border-radius: 6px;
+                padding: 0 24px;
+                color: #5a4000;
+                font-size: 10pt;
+            }
+            QPushButton:hover { background: #ddd0c5; }
+        """)
+        btn_close.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_close)
+        layout.addLayout(btn_row)
+
+        dlg.exec_()
+
+    def _show_more_popup(self, items):
+        txt = '\n'.join(f"{'✓' if t.get('strikethrough') else '●'} {t['name']} ({t.get('deadline','')})" for t in items)
+        QMessageBox.information(self, f'전체 업무 ({len(items)}건)', txt)
+
+    def _delete_task_item(self, task):
+        r = QMessageBox.question(self, '삭제 확인', f'"{task["name"]}" 삭제할까요?', QMessageBox.Yes | QMessageBox.No)
+        if r != QMessageBox.Yes:
+            return
+        if task['_source'] == 'tasks':
+            add_task_history(task['window_id'], task['name'], task.get('deadline', ''),
+                             strikethrough=task.get('strikethrough', 0),
+                             priority=task.get('priority', 0),
+                             recurrence=task.get('recurrence', ''),
+                             notes=task.get('notes', ''))
+            delete_task(task['id'])
+        else:
+            delete_task_history(task['id'])
+        self._load_data()
+        self._render()
+        p = self.parent()
+        if p and hasattr(p, '_refresh_tasks'):
+            p._refresh_tasks()
+
+    def _restore_task(self, task):
+        add_task(task['window_id'], task['name'], task.get('deadline', ''),
+                 strikethrough=task.get('strikethrough', 0),
+                 priority=task.get('priority', 0),
+                 recurrence=task.get('recurrence', ''))
+        delete_task_history(task['id'])
+        self._load_data()
+        self._render()
+        p = self.parent()
+        if p and hasattr(p, '_refresh_tasks'):
+            p._refresh_tasks()
+
+    def _render_empty_cell(self, row, col):
+        cell, _ = self._cell_widgets[(row, col)]
+        cell.setStyleSheet("QFrame { background: #f5efea; border-radius: 8px; }")
+
+    def _clear_cell(self, row, col):
+        cell, vl = self._cell_widgets[(row, col)]
+        while vl.count():
+            it = vl.takeAt(0)
+            w = it.widget()
+            if w:
+                w.deleteLater()
+
+    def _prev_month(self):
+        y, m = self._current.year, self._current.month - 1
+        if m == 0:
+            y -= 1; m = 12
+        self._current = date(y, m, 1)
+        self._render()
+
+    def _next_month(self):
+        y, m = self._current.year, self._current.month + 1
+        if m == 13:
+            y += 1; m = 1
+        self._current = date(y, m, 1)
+        self._render()
+
+    def _go_today(self):
+        self._current = date.today()
+        self._render()
+
+
 def _get_snap_guide_overlay():
     global _snap_guide_overlay
     if _snap_guide_overlay is None:
@@ -2540,6 +3040,12 @@ class MemoWindow(QMainWindow):
         btn_doc_history.clicked.connect(self._show_official_doc_history)
         bottom_layout.addWidget(btn_doc_history)
 
+        btn_at_a_glance = QPushButton('한눈에')
+        btn_at_a_glance.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
+        btn_at_a_glance.setStyleSheet(_btn_style)
+        btn_at_a_glance.clicked.connect(self._show_monthly_calendar)
+        bottom_layout.addWidget(btn_at_a_glance)
+
         # 기존 capture 메서드 호환용 더미 위젯 (숨김)
         self.lbl_capture_result = QLabel('')
         self.lbl_capture_result.hide()
@@ -2753,7 +3259,8 @@ class MemoWindow(QMainWindow):
         add_task_history(self.window_id, task['name'], task['deadline'],
                          strikethrough=task.get('strikethrough', 0),
                          priority=task.get('priority', 0),
-                         recurrence=task.get('recurrence', ''))
+                         recurrence=task.get('recurrence', ''),
+                         notes=task.get('notes', ''))
         delete_task(task['id'])
         self._refresh_tasks()
 
@@ -2858,6 +3365,11 @@ class MemoWindow(QMainWindow):
         except Exception as e:
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.critical(self, '오류', f'공문 작성 창 열기 실패:\n{e}')
+
+    def _show_monthly_calendar(self):
+        dlg = MonthlyCalendarDialog(self)
+        dlg.exec_()
+        self._refresh_tasks()
 
     def _show_official_doc_history(self):
         from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,

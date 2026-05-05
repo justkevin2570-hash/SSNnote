@@ -190,6 +190,22 @@ def get_tasks(window_id):
         return [dict(r) for r in rows]
 
 
+def get_all_tasks():
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM tasks WHERE deadline != '' ORDER BY deadline ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_all_task_history():
+    with _connect() as conn:
+        rows = conn.execute(
+            'SELECT * FROM task_history ORDER BY deadline ASC'
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def add_task(window_id, name, deadline, strikethrough=0, priority=0, recurrence=''):
     with _connect() as conn:
         conn.execute(
@@ -211,11 +227,11 @@ def update_task(task_id, name, deadline, strikethrough=0, priority=0, recurrence
         )
 
 
-def add_task_history(window_id, name, deadline, strikethrough=0, priority=0, recurrence=''):
+def add_task_history(window_id, name, deadline, strikethrough=0, priority=0, recurrence='', notes=''):
     with _connect() as conn:
         conn.execute(
-            'INSERT INTO task_history (window_id, name, deadline, strikethrough, priority, recurrence) VALUES (?,?,?,?,?,?)',
-            (window_id, name, deadline, strikethrough, priority, recurrence)
+            'INSERT INTO task_history (window_id, name, deadline, strikethrough, priority, recurrence, notes) VALUES (?,?,?,?,?,?,?)',
+            (window_id, name, deadline, strikethrough, priority, recurrence, notes)
         )
 
 

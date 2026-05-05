@@ -1,5 +1,5 @@
 {
-  "version": "v2.46",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.46/SSNnote_Setup.exe",
-  "changelog": "- 합체 버튼: 드래그 중에도 항상 표시 (오토하이드는 유지)\n- 합체 상태 세로 리사이즈 시 파트너 창 튀는 버그 수정"
+  "version": "v2.47",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.47/SSNnote_Setup.exe",
+  "changelog": "- 한눈에 캘린더: 전체 창의 업무를 월별로 한눈에 보기\n- 공문작성 numpy 누락 버그 수정"
 }
