@@ -13,6 +13,8 @@ import ssl
 import subprocess
 import threading
 import tempfile
+import urllib.request
+import urllib.error
 
 from PyQt5.QtCore import QObject, pyqtSignal, Qt, QTimer
 from PyQt5.QtWidgets import QMessageBox, QProgressDialog, QApplication
@@ -39,20 +41,15 @@ _REQUEST_TIMEOUT = 10
 
 
 def _fetch_url(url: str, extra_headers: str = '') -> dict | None:
-    """PowerShell로 URL을 fetch해 JSON을 반환. 실패 시 None."""
-    ps_cmd = (
-        f'$h = @{{Accept="application/vnd.github.v3.raw"; "User-Agent"="SSNnote"}}; '
-        f'(Invoke-WebRequest -Uri "{url}" -UseBasicParsing -Headers $h).Content'
-    )
+    """urllib로 URL을 fetch해 JSON을 반환. 실패 시 None."""
     try:
-        result = subprocess.run(
-            ['powershell', '-NoProfile', '-Command', ps_cmd],
-            capture_output=True, text=True, timeout=_REQUEST_TIMEOUT,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        return json.loads(result.stdout)
+        req = urllib.request.Request(url)
+        req.add_header('Accept', 'application/vnd.github.v3.raw')
+        req.add_header('User-Agent', 'SSNnote')
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT, context=ctx) as resp:
+            raw = resp.read().decode('utf-8')
+        return json.loads(raw)
     except Exception:
         return None
 

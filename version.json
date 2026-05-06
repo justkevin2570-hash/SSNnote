@@ -1,5 +1,5 @@
 {
   "version": "v2.47",
   "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.47/SSNnote_Setup.exe",
-  "changelog": "- 한눈에 캘린더: 전체 창의 업무를 월별로 한눈에 보기\n- 공문작성 numpy 누락 버그 수정"
+  "changelog": "- 한눈에 캘린더: 전체 창의 업무를 월별로 한눈에 보기\n- 공문작성 numpy 누락 버그 수정\n- 기한 초과 업무 강조 기능 제거"
 }
