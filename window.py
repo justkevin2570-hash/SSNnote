@@ -3013,7 +3013,10 @@ class MemoWindow(QMainWindow):
         # 메모 모드 자유 편집기 (기본 숨김)
         self.memo_editor = PlainPasteMemoEdit()
         self.memo_editor.setPlaceholderText('여기에 바로 메모를 적으세요...')
-        self.memo_editor.setFont(pr_font(12))
+        _memo_font = QFont('굴림체', 12)
+        _memo_font.setStretch(100)
+        _memo_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
+        self.memo_editor.setFont(_memo_font)
         self.memo_editor.document().blockCountChanged.connect(self._apply_memo_line_spacing)
         self.memo_editor.setStyleSheet("""
             QTextEdit {
@@ -3201,7 +3204,7 @@ class MemoWindow(QMainWindow):
 
     def _apply_memo_line_spacing(self):
         fmt = QTextBlockFormat()
-        fmt.setLineHeight(130, QTextBlockFormat.ProportionalHeight)
+        fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
         cursor = QTextCursor(self.memo_editor.document())
         cursor.select(QTextCursor.Document)
         cursor.mergeBlockFormat(fmt)
@@ -3503,7 +3506,8 @@ class MemoWindow(QMainWindow):
         # 모든 메모 창 숨기고 화면 캡처 후 오버레이 표시
         for win in self._open_windows:
             win.hide()
-        QTimer.singleShot(150, self._show_capture_overlay)
+        QApplication.processEvents()
+        QTimer.singleShot(250, self._show_capture_overlay)
 
     def _show_capture_overlay(self):
         screenshot = grab_fullscreen()

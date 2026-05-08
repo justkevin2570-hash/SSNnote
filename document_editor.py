@@ -475,7 +475,6 @@ class DocumentEditorWindow(QMainWindow):
         ref_row.addSpacing(10)
         ref_row.addWidget(lbl_attach)
         ref_row.addWidget(self.spin_attach)
-        ref_row.addStretch(1)
         ref_row.addWidget(btn_help)
 
         # ── 본문 편집 영역 ──
@@ -1066,7 +1065,8 @@ class DocumentEditorWindow(QMainWindow):
     # ── 캡처 ──────────────────────────────────────────────────────
     def _start_capture(self):
         self.hide()
-        QTimer.singleShot(150, self._show_capture_overlay)
+        QApplication.processEvents()
+        QTimer.singleShot(250, self._show_capture_overlay)
 
     def _show_capture_overlay(self):
         from capture import grab_fullscreen, ScreenCaptureOverlay
