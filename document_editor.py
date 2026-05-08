@@ -13,8 +13,8 @@ from PyQt5.QtWidgets import (
     QMessageBox, QInputDialog, QFrame, QGraphicsDropShadowEffect, QSpinBox,
     QCheckBox, QDialog
 )
-from PyQt5.QtCore import Qt, QTimer, QSize, QEvent
-from PyQt5.QtGui import QFont, QIcon, QPixmap, QColor
+from PyQt5.QtCore import Qt, QTimer, QSize, QEvent, QMimeData
+from PyQt5.QtGui import QFont, QIcon, QPixmap, QColor, QTextCursor, QTextCharFormat
 from ai_client import (AiStreamThread,
                         load_ai_mode, save_ai_mode,
                         load_ollama_model, save_ollama_model, OLLAMA_HOST,
@@ -343,6 +343,22 @@ def _correct_document_format(body: str) -> str:
     return body
 
 
+class PlainPasteDocEdit(QTextEdit):
+    def insertFromMimeData(self, source):
+        if not source.hasText():
+            super().insertFromMimeData(source)
+            return
+        cursor = self.textCursor()
+        start = cursor.position()
+        cursor.insertText(source.text())
+        cursor.setPosition(start, QTextCursor.KeepAnchor)
+        char_fmt = QTextCharFormat()
+        char_fmt.setFont(self.font())
+        cursor.mergeCharFormat(char_fmt)
+        cursor.clearSelection()
+        self.setTextCursor(cursor)
+
+
 class ApiKeyDialog(QDialog):
     """API 키 입력 + 저장 여부 체크박스 다이얼로그."""
     def __init__(self, title: str, label: str, current_key: str = '', parent=None):
@@ -463,13 +479,14 @@ class DocumentEditorWindow(QMainWindow):
         ref_row.addWidget(btn_help)
 
         # ── 본문 편집 영역 ──
-        self.editor = QTextEdit()
+        self.editor = PlainPasteDocEdit()
         self.editor.setObjectName("editor")
         _editor_font = QFont('굴림체', 12)
         _editor_font.setStretch(100)
         _editor_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
         self.editor.setFont(_editor_font)
         self.editor.document().blockCountChanged.connect(self._apply_editor_line_height)
+        self._apply_editor_line_height()
         self.editor.setPlaceholderText(
             "자동 초안 생성 버튼을 누르거나, 아래 채팅창에 요청을 입력하세요."
         )

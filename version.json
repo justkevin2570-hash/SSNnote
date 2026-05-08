@@ -1,5 +1,5 @@
 {
-  "version": "v2.47",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.47/SSNnote_Setup.exe",
-  "changelog": "- 한눈에 캘린더: 전체 창의 업무를 월별로 한눈에 보기\n- 공문작성 numpy 누락 버그 수정\n- 기한 초과 업무 강조 기능 제거"
+  "version": "v2.48",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.48/SSNnote_Setup.exe",
+  "changelog": "- 일반 붙여넣기: 메모/공문 편집기에 서식 없는 텍스트 붙여넣기 지원\n- 메모 편집기 줄간격 자동 조정\n- 업데이터 버전 비교 방식 개선 (float → int tuple)\n- 죽은 코드 및 불필요한 파일 정리"
 }

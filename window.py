@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QListWidget, QAbstractItemView, QComboBox, QListWidgetItem, QTableWidget, QTableWidgetItem,
     QSplitter, QGraphicsDropShadowEffect
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QMimeData
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
@@ -922,6 +922,22 @@ class RotatedMenuButton(QPushButton):
             Qt.AlignCenter, self.text()
         )
         p.end()
+
+
+class PlainPasteMemoEdit(QTextEdit):
+    def insertFromMimeData(self, source):
+        if not source.hasText():
+            super().insertFromMimeData(source)
+            return
+        cursor = self.textCursor()
+        start = cursor.position()
+        cursor.insertText(source.text())
+        cursor.setPosition(start, QTextCursor.KeepAnchor)
+        char_fmt = QTextCharFormat()
+        char_fmt.setFont(self.font())
+        cursor.mergeCharFormat(char_fmt)
+        cursor.clearSelection()
+        self.setTextCursor(cursor)
 
 
 class _AutoHeightEdit(QPlainTextEdit):
@@ -2995,9 +3011,10 @@ class MemoWindow(QMainWindow):
         content_layout.addWidget(self.task_scroll)
 
         # 메모 모드 자유 편집기 (기본 숨김)
-        self.memo_editor = QTextEdit()
+        self.memo_editor = PlainPasteMemoEdit()
         self.memo_editor.setPlaceholderText('여기에 바로 메모를 적으세요...')
         self.memo_editor.setFont(pr_font(12))
+        self.memo_editor.document().blockCountChanged.connect(self._apply_memo_line_spacing)
         self.memo_editor.setStyleSheet("""
             QTextEdit {
                 background: transparent;

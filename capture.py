@@ -126,7 +126,7 @@ class OcrWorker(QThread):
 
 def run_ocr(pixmap: QPixmap, callback, error_callback=None):
     """pixmap을 OCR하여 결과를 callback(text)으로 전달. 에러 시 error_callback(msg) 호출."""
-    # OCR 인식률 향상: 2배 확대 후 전달 (Windows OCR은 글자 높이 40px 이상에서 정확도 극대화)
+    # OCR 인식률 향상: 3배 확대 후 전달 (Windows OCR은 글자 높이 40px 이상에서 정확도 극대화)
     pixmap = pixmap.scaled(
         min(pixmap.width() * 3, 4000),
         min(pixmap.height() * 3, 4000),
@@ -169,7 +169,6 @@ def _normalize_doc_number(text: str) -> str:
     import re
 
     # 0) 공백 정규화
-    text = re.sub(r'[\n\t\r]+', ' ', text)
     text = re.sub(r'\s+', ' ', text).strip()
 
     # WinRT OCR이 한글 자모 사이에 공백 삽입 → 제거 (예: '중 등 교 육 과' → '중등교육과')
