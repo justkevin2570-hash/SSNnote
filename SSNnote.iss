@@ -28,5 +28,8 @@ Name: "{group}\{cm:UninstallProgram,SSNnote}"; Filename: "{uninstallexe}"
 [Run]
 Filename: "{app}\SSNnote.exe"; Description: "{cm:LaunchProgram,SSNnote}"; Flags: nowait postinstall skipifsilent
 
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "서서니 메모"; Flags: uninsdeletevalue
+
 [UninstallDelete]
 Type: dirifempty; Name: "{app}"

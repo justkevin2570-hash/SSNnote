@@ -3061,7 +3061,7 @@ class MemoWindow(QMainWindow):
         btn_doc_history.clicked.connect(self._show_official_doc_history)
         bottom_layout.addWidget(btn_doc_history)
 
-        btn_at_a_glance = QPushButton('한눈에')
+        btn_at_a_glance = QPushButton('월별 업무')
         btn_at_a_glance.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         btn_at_a_glance.setStyleSheet(_btn_style)
         btn_at_a_glance.clicked.connect(self._show_monthly_calendar)
