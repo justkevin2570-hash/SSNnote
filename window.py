@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
     QPlainTextEdit, QTextEdit, QSizePolicy, QGraphicsColorizeEffect, QGraphicsOpacityEffect, QTimeEdit,
     QListWidget, QAbstractItemView, QComboBox, QListWidgetItem, QTableWidget, QTableWidgetItem,
-    QSplitter, QGraphicsDropShadowEffect
+    QSplitter, QGraphicsDropShadowEffect, QCheckBox
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QMimeData
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor
@@ -169,11 +169,18 @@ class ClickableLabel(QLabel):
 class DdayLabel(QLabel):
     """D‑day 표시 라벨. 텍스트를 2px 위로 당겨서 다른 행 요소들과 시각 중심을 맞춘다."""
     SHIFT = 2
+    clicked = pyqtSignal()
 
     def __init__(self, dday_text, date_text, *args, **kwargs):
         super().__init__(dday_text, *args, **kwargs)
         self._dday_text = dday_text
         self._date_text = date_text
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -1283,6 +1290,7 @@ class TaskRow(QWidget):
             except ValueError:
                 date_text = suffix
             dday_lbl = DdayLabel(suffix, date_text)
+            dday_lbl.clicked.connect(self._show_date_picker)
             dday_font = pr_font(12)
             dday_font.setBold((urgent or _is_starred) and not overdue)
             dday_font.setPointSizeF((11 / 12) * _base_pt if overdue else _base_pt)
@@ -1457,9 +1465,16 @@ class TaskRow(QWidget):
         self.btn_note.set_note_color(bool(notes_text.strip()))
 
     def _show_date_picker(self):
-        if not hasattr(self, '_cal_popup'):
+        if not hasattr(self, '_date_picker_popup'):
+            self._date_picker_popup = QWidget()
+            self._date_picker_popup.setWindowFlags(Qt.Popup)
+            self._date_picker_popup.setStyleSheet('background: white; border: 1px solid #d4b800; border-radius: 6px;')
+            
+            layout = QVBoxLayout(self._date_picker_popup)
+            layout.setContentsMargins(8, 8, 8, 8)
+            layout.setSpacing(6)
+            
             self._cal_popup = CustomCalendarWidget()
-            self._cal_popup.setWindowFlags(Qt.Popup)
             self._cal_popup.setStyleSheet("""
                 QCalendarWidget { background-color: white; }
                 QCalendarWidget QAbstractItemView {
@@ -1471,6 +1486,7 @@ class TaskRow(QWidget):
                 QCalendarWidget QToolButton {
                     background-color: white; color: black;
                     font-family: 'Malgun Gothic'; font-size: 10pt;
+                    padding: 2px 4px; min-width: 40px;
                 }
                 QCalendarWidget QWidget#qt_calendar_navigationbar { background-color: white; }
                 QCalendarWidget QSpinBox { background-color: white; color: black; }
@@ -1482,29 +1498,120 @@ class TaskRow(QWidget):
             fmt_sun.setForeground(QColor('#cc0000'))
             self._cal_popup.setWeekdayTextFormat(Qt.Sunday, fmt_sun)
             self._cal_popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
-            self._cal_popup.clicked.connect(self._on_date_selected)
+            layout.addWidget(self._cal_popup)
+            
+            time_row = QHBoxLayout()
+            time_row.setSpacing(6)
+            
+            self._time_checkbox = QCheckBox('시간 설정')
+            self._time_checkbox.setFont(pr_font(10))
+            self._time_checkbox.setStyleSheet('color: #333; background: transparent;')
+            self._time_checkbox.stateChanged.connect(self._on_time_checkbox_changed)
+            time_row.addWidget(self._time_checkbox)
+            
+            self._picker_time_edit = QTimeEdit(QTime(9, 0))
+            self._picker_time_edit.setDisplayFormat('HH:mm')
+            self._picker_time_edit.setFixedWidth(68)
+            self._picker_time_edit.setFont(pr_font(11))
+            self._picker_time_edit.setEnabled(False)
+            self._picker_time_edit.setStyleSheet("""
+                QTimeEdit {
+                    background: rgba(255,255,255,0.5);
+                    border: 1px solid #d4b800;
+                    border-radius: 4px;
+                    padding: 2px 6px;
+                    color: #333;
+                    qproperty-alignment: AlignCenter;
+                }
+                QTimeEdit:disabled {
+                    background: rgba(255,255,255,0.2);
+                    border: 1px solid #ddd;
+                    color: #bbb;
+                }
+                QTimeEdit::up-button { width: 0px; }
+                QTimeEdit::down-button { width: 0px; }
+            """)
+            time_row.addWidget(self._picker_time_edit)
+            time_row.addStretch()
+            
+            self._confirm_btn = QPushButton('확인')
+            self._confirm_btn.setFont(pr_font(10))
+            self._confirm_btn.setFixedSize(60, 28)
+            self._confirm_btn.setStyleSheet("""
+                QPushButton {
+                    background: #d4b800;
+                    color: white;
+                    border: none;
+                    border-radius: 4px;
+                    font-weight: bold;
+                }
+                QPushButton:hover { background: #c0a800; }
+                QPushButton:pressed { background: #b09800; }
+            """)
+            self._confirm_btn.clicked.connect(self._on_confirm_date_time)
+            time_row.addWidget(self._confirm_btn)
+            
+            layout.addLayout(time_row)
 
-        today = QDate.currentDate()
-        self._cal_popup.setCurrentPage(today.year(), today.month())
-        self._cal_popup.setSelectedDate(today)
+        anchor = self.sender() if isinstance(self.sender(), QWidget) else getattr(self, '_add_date_btn', None)
+        if anchor is None:
+            return
 
-        btn = self._add_date_btn
-        cal_size = self._cal_popup.sizeHint()
-        pos = btn.mapToGlobal(QPoint(0, btn.height()))
+        if self.task.get('deadline'):
+            try:
+                d = date.fromisoformat(self.task['deadline'][:10])
+                self._cal_popup.setSelectedDate(QDate(d.year, d.month, d.day))
+                self._cal_popup.setCurrentPage(d.year, d.month)
+                
+                if len(self.task['deadline']) > 10:
+                    time_str = self.task['deadline'][11:]
+                    h, m = map(int, time_str.split(':'))
+                    self._time_checkbox.setChecked(True)
+                    self._picker_time_edit.setTime(QTime(h, m))
+                else:
+                    self._time_checkbox.setChecked(False)
+                    self._picker_time_edit.setEnabled(False)
+                    self._picker_time_edit.setTime(QTime(9, 0))
+            except ValueError:
+                today = QDate.currentDate()
+                self._cal_popup.setCurrentPage(today.year(), today.month())
+                self._cal_popup.setSelectedDate(today)
+                self._time_checkbox.setChecked(False)
+                self._picker_time_edit.setEnabled(False)
+                self._picker_time_edit.setTime(QTime(9, 0))
+        else:
+            today = QDate.currentDate()
+            self._cal_popup.setCurrentPage(today.year(), today.month())
+            self._cal_popup.setSelectedDate(today)
+            self._time_checkbox.setChecked(False)
+            self._picker_time_edit.setEnabled(False)
+            self._picker_time_edit.setTime(QTime(9, 0))
+
+        popup_size = self._date_picker_popup.sizeHint()
+        pos = anchor.mapToGlobal(QPoint(0, anchor.height()))
 
         screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
         screen_rect = screen.availableGeometry()
-        if pos.x() + cal_size.width() > screen_rect.right():
-            pos.setX(screen_rect.right() - cal_size.width())
-        if pos.y() + cal_size.height() > screen_rect.bottom():
-            pos = btn.mapToGlobal(QPoint(0, -cal_size.height()))
+        if pos.x() + popup_size.width() > screen_rect.right():
+            pos.setX(screen_rect.right() - popup_size.width())
+        if pos.y() + popup_size.height() > screen_rect.bottom():
+            pos = anchor.mapToGlobal(QPoint(0, -popup_size.height()))
 
-        self._cal_popup.move(pos)
-        self._cal_popup.show()
+        self._date_picker_popup.move(pos)
+        self._date_picker_popup.show()
 
-    def _on_date_selected(self, qdate):
-        self._cal_popup.hide()
+    def _on_time_checkbox_changed(self, state):
+        self._picker_time_edit.setEnabled(state == Qt.Checked)
+
+    def _on_confirm_date_time(self):
+        self._date_picker_popup.hide()
+        qdate = self._cal_popup.selectedDate()
         deadline_str = qdate.toString('yyyy-MM-dd')
+        
+        if self._time_checkbox.isChecked():
+            time_str = self._picker_time_edit.time().toString('HH:mm')
+            deadline_str += f' {time_str}'
+        
         self.task['deadline'] = deadline_str
         update_task(self.task['id'], self.task['name'], deadline_str,
                     strikethrough=int(self._strikethrough),
@@ -2923,6 +3030,8 @@ class MemoWindow(QMainWindow):
                 color: black;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
+                padding: 2px 4px;
+                min-width: 40px;
             }
             QCalendarWidget QWidget#qt_calendar_navigationbar {
                 background-color: white;
