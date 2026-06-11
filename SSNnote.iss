@@ -1,6 +1,6 @@
 [Setup]
 AppName=SSNnote
-AppVersion=2.51
+AppVersion=2.52
 AppPublisher=justkevin2570
 DefaultDirName={autopf}\SSNnote
 DefaultGroupName=SSNnote
@@ -32,4 +32,5 @@ Filename: "{app}\SSNnote.exe"; Description: "{cm:LaunchProgram,SSNnote}"; Flags:
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "서서니 메모"; Flags: uninsdeletevalue
 
 [UninstallDelete]
+Type: files; Name: "{app}\null"
 Type: dirifempty; Name: "{app}"

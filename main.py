@@ -7,6 +7,10 @@ import ctypes.wintypes
 import threading
 from collections import defaultdict
 
+if getattr(sys, 'frozen', False):
+    sys.stdout = open(os.devnull, 'w')
+    sys.stderr = open(os.devnull, 'w')
+
 _SETTINGS_PATH = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'settings.json')
 
 def _load_settings():

@@ -1,5 +1,5 @@
 {
-  "version": "v2.51",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.51/SSNnote_Setup.exe",
-  "changelog": "- 설치 파일 크기 53% 감소 (274MB → 129MB)\n- 빌드 속도 90% 개선 (불필요한 ML 라이브러리 제외)\n- 업데이트 확인 CDN 캐시 문제 수정"
+  "version": "v2.52",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.52/SSNnote_Setup.exe",
+  "changelog": "- 언인스톨 시 null 파일 잔존 문제 수정\n- stdout/stderr 리다이렉트로 null 파일 생성 원천 차단\n- QtWebEngine 제외로 빌드 크기 추가 감소"
 }
