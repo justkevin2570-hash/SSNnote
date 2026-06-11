@@ -1,5 +1,5 @@
 {
-  "version": "v2.49",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.49/SSNnote_Setup.exe",
-  "changelog": "- 메모모드 폰트/줄간격 공문작성과 통일 (굴림체 12pt, 123%)\n- 캡처 시 공문 도우미 창 잔상 문제 해결 (화면 숨김 후 강제 반영)\n- 관련번호 입력창 가로 길이 확장 (stretch 중복 제거로 공간 배정)"
+  "version": "v2.50",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.50/SSNnote_Setup.exe",
+  "changelog": "- D-day 클릭으로 날짜/시간 변경 기능 추가\n- 캘린더 월/연도 버튼 텍스트 겹침 수정"
 }
