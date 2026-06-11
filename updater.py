@@ -42,10 +42,14 @@ _REQUEST_TIMEOUT = 10
 
 def _fetch_url(url: str, extra_headers: str = '') -> dict | None:
     """urllib로 URL을 fetch해 JSON을 반환. 실패 시 None."""
+    import time as _time
+    cache_buster = f'?_t={int(_time.time())}'
+    url = url + cache_buster
     try:
         req = urllib.request.Request(url)
         req.add_header('Accept', 'application/vnd.github.v3.raw')
         req.add_header('User-Agent', 'SSNnote')
+        req.add_header('Cache-Control', 'no-cache, no-store')
         ctx = ssl.create_default_context()
         with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT, context=ctx) as resp:
             raw = resp.read().decode('utf-8')

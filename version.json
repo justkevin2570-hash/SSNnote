@@ -1,5 +1,5 @@
 {
-  "version": "v2.50",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.50/SSNnote_Setup.exe",
-  "changelog": "- D-day 클릭으로 날짜/시간 변경 기능 추가\n- 캘린더 월/연도 버튼 텍스트 겹침 수정"
+  "version": "v2.51",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.51/SSNnote_Setup.exe",
+  "changelog": "- 설치 파일 크기 53% 감소 (274MB → 129MB)\n- 빌드 속도 90% 개선 (불필요한 ML 라이브러리 제외)\n- 업데이트 확인 CDN 캐시 문제 수정"
 }
