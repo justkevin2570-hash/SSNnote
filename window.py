@@ -948,6 +948,9 @@ class PlainPasteMemoEdit(QTextEdit):
 
 
 class _AutoHeightEdit(QPlainTextEdit):
+    selectRequested = pyqtSignal()
+    editFinished = pyqtSignal()
+
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.document().setDocumentMargin(0)
@@ -966,8 +969,23 @@ class _AutoHeightEdit(QPlainTextEdit):
     def keyPressEvent(self, e):
         if e.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Escape):
             self.clearFocus()
+            self.editFinished.emit()
         else:
             super().keyPressEvent(e)
+
+    def viewportEvent(self, e):
+        if e.type() == QEvent.MouseButtonPress and e.button() == Qt.LeftButton:
+            self.selectRequested.emit()
+            return True
+        if e.type() == QEvent.MouseButtonDblClick and e.button() == Qt.LeftButton:
+            self.setFocus()
+        return super().viewportEvent(e)
+
+    def mouseDoubleClickEvent(self, e):
+        self.setFocus()
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.setTextCursor(cursor)
 
     def sizeHint(self):
         return QSize(self._preferred_width, self._fixed_height)
@@ -1017,8 +1035,9 @@ class _AutoHeightEdit(QPlainTextEdit):
 
 
 class _NoteButton(QPushButton):
-    """chat_20_regular 아이콘을 x축 대칭(상하 반전)으로 그리는 메모 버튼."""
-    _CODEPOINT = ''
+    """업무 메모 펼치기/접기 토글 버튼. 접힘 ▼ / 펼침 ▲."""
+    _CODEPOINT_COLLAPSED = '\u25bc'  # ▼
+    _CODEPOINT_EXPANDED  = '\u25b2'  # ▲
 
     def __init__(self, scale=1.0):
         super().__init__()
@@ -1027,10 +1046,11 @@ class _NoteButton(QPushButton):
         self._hovered      = False
         self._has_note     = False
         self._overdue      = False
+        self._expanded     = False
         self.setFlat(True)
         sz = int(22 * scale)
         self.setFixedSize(sz, sz)
-        self.setFont(mi_font(int(14 * scale)))
+        self.setFont(pr_font(int(10 * scale)))
         self.setCursor(Qt.PointingHandCursor)
 
     def set_note_color(self, has_note: bool, overdue: bool = None):
@@ -1041,6 +1061,10 @@ class _NoteButton(QPushButton):
             self._color_normal = QColor(102, 102, 102, 80)
         else:
             self._color_normal = QColor(85, 85, 85, 255) if has_note else QColor(85, 85, 85, 80)
+        self.update()
+
+    def set_expanded(self, expanded: bool):
+        self._expanded = expanded
         self.update()
 
     def enterEvent(self, e):
@@ -1056,137 +1080,74 @@ class _NoteButton(QPushButton):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        sz = self.font().pointSize()
-        p.setFont(mi_font(sz))
+        p.setFont(self.font())
         p.setPen(self._color_hover if self._hovered else self._color_normal)
-        p.drawText(self.rect(), Qt.AlignCenter, self._CODEPOINT)
+        rect = self.rect()
+        rect.translate(0, 4)
+        p.drawText(rect, Qt.AlignCenter,
+                   self._CODEPOINT_EXPANDED if self._expanded else self._CODEPOINT_COLLAPSED)
         p.end()
 
 
-class TaskNotePopup(QWidget):
-    """업무별 메모 플로팅 창."""
+class _InlineNoteEdit(QPlainTextEdit):
+    """업무 행 안에 펼쳐지는 메모 에디터. 고정 높이, 긴 내용은 내부 스크롤."""
+    HEIGHT = 110
+    closeRequested = pyqtSignal()
 
-    def __init__(self, task, scale=1.0, on_note_changed=None):
-        super().__init__(None, Qt.Tool | Qt.FramelessWindowHint)
-        self._task_id = task['id']
-        self._on_note_changed = on_note_changed
-        self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setObjectName('TaskNotePopup')
-        self.setStyleSheet('QWidget#TaskNotePopup { background: #fffacd; border: 1px solid #d4b800; }')
-
-        vlay = QVBoxLayout(self)
-        vlay.setContentsMargins(8, 6, 8, 8)
-        vlay.setSpacing(4)
-
-        title_font = pr_font(int(10 * scale))
-        title_font.setBold(True)
-        title = QLabel()
-        title.setFont(title_font)
-        title.setStyleSheet('color: #444; background: transparent; border: none;')
-        fm = QFontMetrics(title_font)
-        title.setText(fm.elidedText(task['name'], Qt.ElideRight, int(150 * scale)))
-
-        btn_done = QPushButton('ctrl+enter')
-        btn_done.setFont(pr_font(int(10 * scale)))
-        btn_done.setFixedHeight(int(20 * scale))
-        btn_done.setCursor(Qt.PointingHandCursor)
-        btn_done.setStyleSheet("""
-            QPushButton { background: #d4b800; color: white; border: none; border-radius: 4px; padding: 0 8px; }
-            QPushButton:hover { background: #b89e00; }
-            QPushButton:pressed { background: #a08800; }
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setPlaceholderText('esc 또는 ctrl+enter 을 누르면 접어집니다.')
+        self.setFont(pr_font(11))
+        self.document().setDocumentMargin(4)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setStyleSheet("""
+            QPlainTextEdit {
+                background: rgba(255,255,255,0.6);
+                border: 1px solid #d4b800;
+                border-radius: 4px;
+                color: #333;
+                padding: 2px 4px;
+            }
+            QPlainTextEdit:focus { border: 1px solid #b89e00; }
         """)
-        btn_done.clicked.connect(self.close)
+        self.setFixedHeight(self.HEIGHT)
 
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(6)
-        title_row.addWidget(title, 1)
-        title_row.addWidget(btn_done, 0)
-        vlay.addLayout(title_row)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet('border: none; border-top: 1px solid #e0c800; background: transparent;')
-        sep.setFixedHeight(1)
-        vlay.addWidget(sep)
-
-        self._editor = QPlainTextEdit()
-        self._editor.setPlaceholderText('업무 관련 메모를 적으세요...')
-        self._editor.setFont(pr_font(int(10 * scale)))
-        self._editor.setStyleSheet(
-            'QPlainTextEdit { background: transparent; border: none; color: #333; }'
-        )
-        vlay.addWidget(self._editor)
-
-        self.setFixedSize(int(240 * scale), int(160 * scale))
-        self._editor.setPlainText(get_task_notes(self._task_id))
-
-        self._save_timer = QTimer(self)
-        self._save_timer.setSingleShot(True)
-        self._save_timer.timeout.connect(self._flush_save)
-        self._editor.textChanged.connect(lambda: self._save_timer.start(500))
-
-        QApplication.instance().focusChanged.connect(self._on_focus_changed)
-
-    def _on_focus_changed(self, old, new):
-        if new is None:
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape:
+            self.closeRequested.emit()
             return
-        w = new
-        while w is not None:
-            if w is self:
-                return
-            w = w.parent()
-        QTimer.singleShot(100, self._close_if_unfocused)
-
-    def _close_if_unfocused(self):
-        if not self.isVisible():
+        if e.modifiers() & Qt.ControlModifier and e.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.closeRequested.emit()
             return
-        focused = QApplication.focusWidget()
-        if focused is not None:
-            w = focused
-            while w is not None:
-                if w is self:
-                    return
-                w = w.parent()
-        self.close()
-
-    def _flush_save(self):
-        text = self._editor.toPlainText()
-        set_task_notes(self._task_id, text)
-        if self._on_note_changed:
-            self._on_note_changed(text)
-
-    def closeEvent(self, event):
-        try:
-            QApplication.instance().focusChanged.disconnect(self._on_focus_changed)
-        except Exception:
-            pass
-        self._flush_save()
-        super().closeEvent(event)
-
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape:
-            self.close()
-        elif event.modifiers() & Qt.ControlModifier and event.key() in (Qt.Key_Return, Qt.Key_Enter):
-            self.close()
-        else:
-            super().keyPressEvent(event)
+        super().keyPressEvent(e)
 
 
 class TaskRow(QWidget):
-    def __init__(self, task, on_delete, on_update, scale=1.0):
+    def __init__(self, task, on_delete, on_update, scale=1.0, expanded=False, on_toggle=None,
+                 on_select=None, on_navigate=None):
         super().__init__()
         self.task      = task
         self.on_update = on_update
         self._scale    = scale
+        self._expanded = expanded
+        self._on_toggle = on_toggle
+        self._on_select = on_select
+        self._on_navigate = on_navigate
+        self._selected = False
+        self._hovered = False
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName('TaskRow')
-        self.setStyleSheet('QWidget#TaskRow { background: transparent; }')
+        self.setFocusPolicy(Qt.ClickFocus)
+        self._apply_row_style()
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(9, 0, 8, 0)
+        self._outer = QVBoxLayout(self)
+        self._outer.setContentsMargins(9, 0, 8, 0)
+        self._outer.setSpacing(0)
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
+        self._outer.addLayout(layout)
 
         # 별 버튼 (우선순위)
         _is_starred = bool(task.get('priority', 0))
@@ -1249,6 +1210,7 @@ class TaskRow(QWidget):
         name_color = '#666' if overdue else '#111'
 
         self.name_edit = _AutoHeightEdit(task['name'])
+        self.name_edit.setFocusPolicy(Qt.NoFocus)
         _base_pt = 12 * scale
         name_font = pr_font(12)
         name_font.setPointSizeF((11 / 12) * _base_pt if overdue else _base_pt)
@@ -1276,6 +1238,8 @@ class TaskRow(QWidget):
             font.setStrikeOut(True)
             self.name_edit.setFont(font)
         self.name_edit.installEventFilter(self)
+        self.name_edit.selectRequested.connect(self._request_select)
+        self.name_edit.editFinished.connect(self.setFocus)
 
         if suffix:
             try:
@@ -1312,8 +1276,9 @@ class TaskRow(QWidget):
         _has_note = bool(task.get('notes', ''))
         self.btn_note = _NoteButton(scale=scale)
         self.btn_note.set_note_color(_has_note, overdue)
-        self.btn_note.setToolTip('업무 메모')
-        self.btn_note.clicked.connect(self._open_note_popup)
+        self.btn_note.setToolTip('업무 메모 (펼치기/접기)')
+        self.btn_note.clicked.connect(self._toggle_note)
+        self.btn_note.set_expanded(expanded)
 
         name_note_layout = QHBoxLayout()
         name_note_layout.setContentsMargins(0, 0, 0, 0)
@@ -1347,11 +1312,64 @@ class TaskRow(QWidget):
                 layout.addWidget(self._add_date_btn, 0, Qt.AlignVCenter)
         layout.addWidget(btn_menu, 0, Qt.AlignVCenter)
 
+        # 인라인 메모 에디터 (▼ 클릭 시 펼침)
+        self.note_editor = _InlineNoteEdit()
+        self.note_editor.closeRequested.connect(self._collapse_note)
+        self._note_save_timer = QTimer(self)
+        self._note_save_timer.setSingleShot(True)
+        self._note_save_timer.timeout.connect(self._flush_note)
+        self.note_editor.textChanged.connect(lambda: self._note_save_timer.start(500))
+        self.note_editor.hide()
+        self._outer.addWidget(self.note_editor)
+        if expanded:
+            self.note_editor.setPlainText(get_task_notes(self.task['id']))
+            self.note_editor.show()
+
     def _set_row_highlight(self, on: bool):
-        if on:
-            self.setStyleSheet('QWidget#TaskRow { background: rgba(0,0,0,18); }')
+        self._hovered = on
+        self._apply_row_style()
+
+    def _apply_row_style(self):
+        if self._selected:
+            style = 'QWidget#TaskRow { background: rgba(212,184,0,0.25); border-radius: 4px; }'
+        elif self._hovered:
+            style = 'QWidget#TaskRow { background: rgba(0,0,0,18); }'
         else:
-            self.setStyleSheet('QWidget#TaskRow { background: transparent; }')
+            style = 'QWidget#TaskRow { background: transparent; }'
+        self.setStyleSheet(style)
+
+    def set_selected(self, selected: bool):
+        self._selected = selected
+        self._apply_row_style()
+
+    def _request_select(self):
+        self.setFocus()
+        if self._on_select:
+            self._on_select(self.task['id'])
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self._request_select()
+        super().mousePressEvent(e)
+
+    def _start_rename(self):
+        self.name_edit.setFocus()
+        cursor = self.name_edit.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.name_edit.setTextCursor(cursor)
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_F2:
+            self._start_rename()
+            return
+        if e.key() in (Qt.Key_Up, Qt.Key_Down):
+            if self._on_navigate:
+                self._on_navigate(-1 if e.key() == Qt.Key_Up else 1)
+            return
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self._toggle_note()
+            return
+        super().keyPressEvent(e)
 
     def eventFilter(self, watched, event):
         if watched is self.name_edit and event.type() == QEvent.FocusOut:
@@ -1439,30 +1457,34 @@ class TaskRow(QWidget):
                     priority=self.task.get('priority', 0),
                     recurrence=self.task.get('recurrence', ''))
 
-    def _open_note_popup(self):
-        if getattr(self, '_note_popup', None) is not None:
-            self._note_popup.close()
-            return
-        popup = TaskNotePopup(self.task, scale=self._scale, on_note_changed=self._update_note_btn)
-        popup.destroyed.connect(lambda: setattr(self, '_note_popup', None))
-        pos = self.btn_note.mapToGlobal(QPoint(0, self.btn_note.height()))
-        screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
-        sr = screen.availableGeometry()
-        x, y = pos.x(), pos.y()
-        pw, ph = popup.width(), popup.height()
-        if x + pw > sr.right():
-            x = sr.right() - pw
-        if y + ph > sr.bottom():
-            y = self.btn_note.mapToGlobal(QPoint(0, -ph)).y()
-        popup.move(x, y)
-        popup.show()
-        popup.activateWindow()
-        popup.raise_()
-        popup._editor.setFocus()
-        self._note_popup = popup
+    def _toggle_note(self):
+        if self._expanded:
+            self._collapse_note()
+        else:
+            self._expand_note()
 
-    def _update_note_btn(self, notes_text):
-        self.btn_note.set_note_color(bool(notes_text.strip()))
+    def _expand_note(self):
+        self._expanded = True
+        self.note_editor.setPlainText(get_task_notes(self.task['id']))
+        self.note_editor.show()
+        self.btn_note.set_expanded(True)
+        self.note_editor.setFocus()
+        if self._on_toggle:
+            self._on_toggle(self.task['id'], True)
+
+    def _collapse_note(self):
+        self._expanded = False
+        self._flush_note()
+        self.note_editor.hide()
+        self.btn_note.set_expanded(False)
+        self.setFocus()
+        if self._on_toggle:
+            self._on_toggle(self.task['id'], False)
+
+    def _flush_note(self):
+        text = self.note_editor.toPlainText()
+        set_task_notes(self.task['id'], text)
+        self.btn_note.set_note_color(bool(text.strip()))
 
     def _show_date_picker(self):
         if not hasattr(self, '_date_picker_popup'):
@@ -2824,6 +2846,8 @@ class MemoWindow(QMainWindow):
         self._bg_color       = '#FEFFA7'  # 기본값
         self._capture_hint_shown = False
         self._scale          = 1.0
+        self._expanded_note_ids = set()
+        self._selected_task_id = None
         self._memo_mode      = False
         self._memo_save_timer = None
         self._snapped_pos        = None
@@ -3392,6 +3416,9 @@ class MemoWindow(QMainWindow):
                          recurrence=task.get('recurrence', ''),
                          notes=task.get('notes', ''))
         delete_task(task['id'])
+        self._expanded_note_ids.discard(task['id'])
+        if self._selected_task_id == task['id']:
+            self._selected_task_id = None
         self._refresh_tasks()
 
     def _open_global_search(self):
@@ -3405,7 +3432,7 @@ class MemoWindow(QMainWindow):
                 row = item.widget()
                 if row.task.get('id') == task_id:
                     row.setStyleSheet('background: rgba(212,184,0,0.35); border-radius: 4px;')
-                    QTimer.singleShot(1500, lambda r=row: r.setStyleSheet(''))
+                    QTimer.singleShot(1500, lambda r=row: r._apply_row_style())
                     break
 
     def _schedule_midnight_refresh(self):
@@ -3451,8 +3478,83 @@ class MemoWindow(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
         for task in get_tasks(self.window_id):
-            row = TaskRow(task, self._delete_task, self._refresh_tasks, scale=self._scale)
+            row = TaskRow(task, self._delete_task, self._refresh_tasks, scale=self._scale,
+                          expanded=task['id'] in self._expanded_note_ids,
+                          on_toggle=self._on_task_note_toggle,
+                          on_select=self._select_task,
+                          on_navigate=self._move_selection)
             self.task_list_layout.insertWidget(self.task_list_layout.count() - 1, row)
+        self._apply_selection()
+
+    def _on_task_note_toggle(self, task_id, expanded):
+        if expanded:
+            self._expanded_note_ids.add(task_id)
+        else:
+            self._expanded_note_ids.discard(task_id)
+
+    def _select_task(self, task_id):
+        self._selected_task_id = task_id
+        self._apply_selection()
+
+    def _move_selection(self, delta):
+        rows = []
+        for i in range(self.task_list_layout.count()):
+            item = self.task_list_layout.itemAt(i)
+            w = item.widget() if item else None
+            if isinstance(w, TaskRow):
+                rows.append(w)
+        if not rows:
+            return
+        idx = -1
+        if self._selected_task_id is not None:
+            for i, r in enumerate(rows):
+                if r.task.get('id') == self._selected_task_id:
+                    idx = i
+                    break
+        nidx = idx + delta if idx >= 0 else (0 if delta > 0 else len(rows) - 1)
+        nidx = max(0, min(nidx, len(rows) - 1))
+        self._select_task(rows[nidx].task['id'])
+        rows[nidx].setFocus()
+        self.task_scroll.ensureWidgetVisible(rows[nidx], 0, 0)
+
+    def _apply_selection(self):
+        for i in range(self.task_list_layout.count()):
+            item = self.task_list_layout.itemAt(i)
+            w = item.widget() if item else None
+            if isinstance(w, TaskRow):
+                w.set_selected(w.task.get('id') == self._selected_task_id)
+
+    def _toggle_selected_note(self):
+        if self._selected_task_id is None:
+            return
+        for i in range(self.task_list_layout.count()):
+            item = self.task_list_layout.itemAt(i)
+            w = item.widget() if item else None
+            if isinstance(w, TaskRow) and w.task.get('id') == self._selected_task_id:
+                w._toggle_note()
+                return
+
+    def _start_rename_selected(self):
+        if self._selected_task_id is None:
+            return
+        for i in range(self.task_list_layout.count()):
+            item = self.task_list_layout.itemAt(i)
+            w = item.widget() if item else None
+            if isinstance(w, TaskRow) and w.task.get('id') == self._selected_task_id:
+                w._start_rename()
+                return
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_F2 and self._selected_task_id is not None:
+            self._start_rename_selected()
+            return
+        if e.key() in (Qt.Key_Up, Qt.Key_Down):
+            self._move_selection(-1 if e.key() == Qt.Key_Up else 1)
+            return
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter) and self._selected_task_id is not None:
+            self._toggle_selected_note()
+            return
+        super().keyPressEvent(e)
 
     def _refresh_documents(self):
         while self.doc_list_layout.count() > 1:
