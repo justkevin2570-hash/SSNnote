@@ -32,9 +32,16 @@ Filename: "{app}\SSNnote.exe"; Description: "{cm:LaunchProgram,SSNnote}"; Flags:
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "서서니 메모"; Flags: uninsdeletevalue
 
 [InstallDelete]
-Type: filesandirs; Name: "{app}\_internal"
+Type: files; Name: "{app}\_internal"
 Type: files; Name: "{app}\null"
 Type: files; Name: "{app}\SSNnote.exe"
 
 [UninstallDelete]
-Type: filesandirs; Name: "{app}"
+Type: dirifempty; Name: "{app}"
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    DelTree(ExpandConstant('{app}'), True, True, True);
+end;
