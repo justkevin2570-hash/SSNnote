@@ -1,5 +1,5 @@
 {
-  "version": "v2.53",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.53/SSNnote_Setup.exe",
-  "changelog": "- 언인스톨 시 설치 폴더 완전 삭제 (null 파일 포함 모든 잔여물 정리)\n- 설치 시 이전 버전 잔여물 자동 정리"
+  "version": "v2.54",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.54/SSNnote_Setup.exe",
+  "changelog": "- 업무 메모를 말풍선 팝업 대신 ▼/▲ 토글 인라인 에디터로 변경 (Ctrl+Enter/Esc로 접기)\n- 방향키로 업무 목록 이동, Enter로 메모 펼치기/접기\n- F2 또는 더블클릭으로 업무 이름 변경 (커서는 텍스트 끝, 블록 선택 없음)"
 }
