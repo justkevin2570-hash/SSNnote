@@ -1,5 +1,5 @@
 {
-  "version": "v2.54",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.54/SSNnote_Setup.exe",
-  "changelog": "- 업무 메모를 말풍선 팝업 대신 ▼/▲ 토글 인라인 에디터로 변경 (Ctrl+Enter/Esc로 접기)\n- 방향키로 업무 목록 이동, Enter로 메모 펼치기/접기\n- F2 또는 더블클릭으로 업무 이름 변경 (커서는 텍스트 끝, 블록 선택 없음)"
+  "version": "v2.55",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.55/SSNnote_Setup.exe",
+  "changelog": "- 달력 창 비모달화: 달력을 열어둔 채 업무목록 입력 가능\n- 달력 일정 추가 시 업무목록 자동 연동\n- 새 메모장은 항상 메모 모드로 생성 (첫 번째 창만 업무 목록)\n- 일정 추가 다이얼로그에서 노트 선택·우선순위 버튼 제거\n- 업무 메모(▼) 글자 크기를 글자 크기 메뉴와 연동"
 }
