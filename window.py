@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QSplitter, QGraphicsDropShadowEffect, QCheckBox
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QMimeData
-from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor
+from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor, QMouseEvent
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
                 set_task_priority, set_task_recurrence, get_task_notes, set_task_notes,
@@ -1094,10 +1094,10 @@ class _InlineNoteEdit(QPlainTextEdit):
     HEIGHT = 110
     closeRequested = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, scale=1.0):
         super().__init__(parent)
         self.setPlaceholderText('esc 또는 ctrl+enter 을 누르면 접어집니다.')
-        self.setFont(pr_font(11))
+        self.setFont(pr_font(int(11 * scale)))
         self.document().setDocumentMargin(4)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setStyleSheet("""
@@ -1313,7 +1313,7 @@ class TaskRow(QWidget):
         layout.addWidget(btn_menu, 0, Qt.AlignVCenter)
 
         # 인라인 메모 에디터 (▼ 클릭 시 펼침)
-        self.note_editor = _InlineNoteEdit()
+        self.note_editor = _InlineNoteEdit(scale=self._scale)
         self.note_editor.closeRequested.connect(self._collapse_note)
         self._note_save_timer = QTimer(self)
         self._note_save_timer.setSingleShot(True)
@@ -2828,11 +2828,13 @@ class MemoWindow(QMainWindow):
     def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None,
                  on_alarm_interval_change=None, get_alarm_interval=None,
                  on_timed_alarm_change=None, get_timed_alarm_enabled=None,
-                 on_shortcut_change=None, get_shortcut_enabled=None):
+                 on_shortcut_change=None, get_shortcut_enabled=None,
+                 force_memo_mode=False):
         super().__init__()
         self.window_id       = window_id
         self.on_new          = on_new or (lambda **kw: None)
         self._open_windows   = open_windows if open_windows is not None else []
+        self._force_memo_mode = force_memo_mode
         self._on_toggle_hotkey = on_toggle_hotkey
         self._on_alarm_interval_change = on_alarm_interval_change
         self._get_alarm_interval = get_alarm_interval
@@ -3145,7 +3147,6 @@ class MemoWindow(QMainWindow):
 
         # 메모 모드 자유 편집기 (기본 숨김)
         self.memo_editor = PlainPasteMemoEdit()
-        self.memo_editor.setPlaceholderText('여기에 바로 메모를 적으세요...')
         _memo_font = QFont('굴림체', 12)
         _memo_font.setStretch(100)
         _memo_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
@@ -3182,6 +3183,21 @@ class MemoWindow(QMainWindow):
             QPushButton:hover { background: rgba(212,184,0,0.25); }
         """
 
+        btn_at_a_glance = QPushButton('달력')
+        btn_at_a_glance.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
+        btn_at_a_glance.setStyleSheet("""
+            QPushButton {
+                background: #5a4000;
+                border: 1px solid #d4b800;
+                border-radius: 6px;
+                padding: 4px 8px;
+                color: #ffffff;
+            }
+            QPushButton:hover { background: #6b5410; }
+        """)
+        btn_at_a_glance.clicked.connect(self._show_monthly_calendar)
+        bottom_layout.addWidget(btn_at_a_glance)
+
         btn_doc_write = QPushButton('공문 작성 (AI)')
         btn_doc_write.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         btn_doc_write.setStyleSheet(_btn_style)
@@ -3193,12 +3209,6 @@ class MemoWindow(QMainWindow):
         btn_doc_history.setStyleSheet(_btn_style)
         btn_doc_history.clicked.connect(self._show_official_doc_history)
         bottom_layout.addWidget(btn_doc_history)
-
-        btn_at_a_glance = QPushButton('월별 업무')
-        btn_at_a_glance.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
-        btn_at_a_glance.setStyleSheet(_btn_style)
-        btn_at_a_glance.clicked.connect(self._show_monthly_calendar)
-        bottom_layout.addWidget(btn_at_a_glance)
 
         # 기존 capture 메서드 호환용 더미 위젯 (숨김)
         self.lbl_capture_result = QLabel('')
@@ -3238,8 +3248,12 @@ class MemoWindow(QMainWindow):
         _saved_mode, _saved_text = get_window_memo(self.window_id)
         self.memo_editor.setPlainText(_saved_text)
         self._apply_memo_line_spacing()
-        if _saved_mode:
+        if _saved_mode or self._force_memo_mode:
             self._apply_memo_mode(True)
+            if self._force_memo_mode and not _saved_mode:
+                self._flush_memo_save()
+        if self._force_memo_mode:
+            self.title_bar.btn_mode.hide()
 
     def eventFilter(self, obj, event):
         if hasattr(self, '_cal_popup') and (obj is self.input_date or self.input_date.isAncestorOf(obj)) and event.type() == QEvent.MouseButtonPress:
@@ -3704,14 +3718,23 @@ class MemoWindow(QMainWindow):
         dlg.exec_()
 
     def _show_monthly_calendar(self):
+        dlg = getattr(self, '_calendar_dlg', None)
+        if dlg is not None and dlg.isVisible():
+            dlg._load_tasks()
+            dlg.raise_()
+            dlg.activateWindow()
+            return
         dlg = NativeCalendarDialog(self._open_windows, self)
         settings = QSettings('SSNnote', 'SSNnote')
         geo = settings.value('calendar_dlg/geometry')
         if geo:
             dlg.restoreGeometry(geo)
-        dlg.exec_()
-        settings.setValue('calendar_dlg/geometry', dlg.saveGeometry())
-        del dlg
+        self._calendar_dlg = dlg
+        dlg.finished.connect(lambda *_: settings.setValue('calendar_dlg/geometry', dlg.saveGeometry()))
+        dlg.finished.connect(lambda *_: setattr(self, '_calendar_dlg', None))
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def _start_capture(self):
         # 모든 메모 창 숨기고 화면 캡처 후 오버레이 표시
@@ -3940,7 +3963,8 @@ class MemoWindow(QMainWindow):
             menu.addAction(act_delete)
 
         act_search.triggered.connect(self._open_global_search)
-        act_new.triggered.connect(lambda: self.on_new(offset_from=self, on_toggle_hotkey=self._on_toggle_hotkey,
+        act_new.triggered.connect(lambda: self.on_new(offset_from=self, memo_mode=True,
+                                                       on_toggle_hotkey=self._on_toggle_hotkey,
                                                        on_shortcut_change=self._on_shortcut_change,
                                                        get_shortcut_enabled=self._get_shortcut_enabled))
         act_help.triggered.connect(self.show_help)
@@ -4998,7 +5022,7 @@ class DayDetailPanel(QWidget):
     def _build_ui(self):
         self.setObjectName('DayDetailPanel')
         self.setStyleSheet(
-            "QWidget#DayDetailPanel { background: #faf6f0; border-left: 1px solid #e8ddd5; }"
+            "QWidget#DayDetailPanel { background: #faf6f0; }"
         )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
@@ -5009,6 +5033,15 @@ class DayDetailPanel(QWidget):
         self._date_label.setFont(QFont('Malgun Gothic', 13, QFont.Bold))
         self._date_label.setStyleSheet("color: #1a1410; background: transparent;")
         header.addWidget(self._date_label, 1)
+        btn_add = QPushButton('＋ 일정 추가')
+        btn_add.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
+        btn_add.setStyleSheet(
+            "QPushButton { background: #d4b800; color: white; border: none; "
+            "border-radius: 6px; padding: 5px 12px; } "
+            "QPushButton:hover { background: #b89e00; }"
+        )
+        btn_add.clicked.connect(self._on_add_task)
+        header.addWidget(btn_add)
         btn_close = QPushButton('✕')
         btn_close.setFixedSize(28, 28)
         btn_close.setStyleSheet(
@@ -5067,6 +5100,15 @@ class DayDetailPanel(QWidget):
             self._task_list_layout.insertWidget(i, row)
 
 
+
+    def _on_add_task(self):
+        if not self._open_windows:
+            QMessageBox.information(self, '알림', '열린 노트가 없습니다.\n노트를 먼저 열어주세요.')
+            return
+        dlg = TaskEditDialog(task=None, default_date=self.current_date_str or '',
+                             open_windows=self._open_windows, parent=self)
+        if dlg.exec_() == QDialog.Accepted:
+            self.task_edited.emit()
 
     def _on_edit_task(self, task):
         dlg = TaskEditDialog(task=task, parent=self)
@@ -5129,21 +5171,6 @@ class TaskEditDialog(QDialog):
         date_row.addWidget(self._date_edit, 1)
         layout.addLayout(date_row)
 
-        toggle_row = QHBoxLayout()
-        toggle_row.setSpacing(6)
-        _toggle_style = (
-            "QPushButton { border: 1px solid #ccc; border-radius: 6px; "
-            "padding: 4px 10px; background: transparent; font-family: 'Malgun Gothic'; font-size: 10pt; } "
-            "QPushButton:checked { background: #d4b800; color: white; border-color: #d4b800; }"
-        )
-        self._chk_priority = QPushButton('우선순위 ★')
-        self._chk_priority.setCheckable(True)
-        self._chk_priority.setChecked(bool(self._task and self._task.get('priority')))
-        self._chk_priority.setStyleSheet(_toggle_style)
-        toggle_row.addWidget(self._chk_priority)
-        toggle_row.addStretch()
-        layout.addLayout(toggle_row)
-
         memo_lbl = QLabel('메모')
         memo_lbl.setFont(QFont('Malgun Gothic', 9))
         memo_lbl.setStyleSheet("color: #888;")
@@ -5159,21 +5186,6 @@ class TaskEditDialog(QDialog):
             from db import get_task_notes
             self._memo_edit.setPlainText(get_task_notes(self._task['id']))
         layout.addWidget(self._memo_edit)
-
-        if self._is_new and self._open_windows:
-            win_row = QHBoxLayout()
-            win_lbl = QLabel('노트:')
-            win_lbl.setFont(QFont('Malgun Gothic', 10))
-            win_lbl.setStyleSheet("color: #5a4a3a;")
-            win_row.addWidget(win_lbl)
-            self._win_combo = QComboBox()
-            self._win_combo.setFont(QFont('Malgun Gothic', 10))
-            for win in self._open_windows:
-                self._win_combo.addItem(f'노트 #{win.window_id}', win.window_id)
-            win_row.addWidget(self._win_combo, 1)
-            layout.addLayout(win_row)
-        else:
-            self._win_combo = None
 
         btn_row = QHBoxLayout()
         btn_cancel = QPushButton('취소')
@@ -5206,13 +5218,14 @@ class TaskEditDialog(QDialog):
             return
         deadline = self._date_edit.date().toString('yyyy-MM-dd')
         strike = int(self._task.get('strikethrough', 0)) if self._task else 0
-        priority = int(self._chk_priority.isChecked())
+        priority = int(self._task.get('priority', 0)) if self._task else 0
         notes = self._memo_edit.toPlainText()
 
         if self._is_new:
-            window_id = self._win_combo.currentData() if self._win_combo else None
+            from db import get_first_window_id
+            window_id = get_first_window_id()
             if window_id is None:
-                self.reject()
+                QMessageBox.information(self, '알림', '노트가 없습니다.\n노트를 먼저 만들어주세요.')
                 return
             new_id = _add(window_id, name, deadline, strike, priority)
             if new_id and notes:
@@ -5230,6 +5243,78 @@ class TaskEditDialog(QDialog):
             self._on_save()
         else:
             super().keyPressEvent(event)
+
+
+class DayDetailDialog(QDialog):
+    task_edited = pyqtSignal()
+    task_deleted = pyqtSignal()
+
+    def __init__(self, open_windows, date_str, tasks, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint | Qt.WindowMinMaxButtonsHint)
+        self._date_str = date_str
+        self._set_title(date_str)
+        self.setMinimumSize(320, 400)
+        self.setStyleSheet("QDialog { background: #faf6f0; }")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._panel = DayDetailPanel(open_windows, self)
+        self._panel.load(date_str, tasks)
+        self._panel.task_edited.connect(self.task_edited)
+        self._panel.task_deleted.connect(self.task_deleted)
+        self._panel.close_requested.connect(self.close)
+        layout.addWidget(self._panel)
+
+        _qs = QSettings('SSNnote', 'SSNnote')
+        geo = _qs.value('day_detail_dlg/geometry')
+        if geo:
+            self.restoreGeometry(geo)
+        self.finished.connect(lambda: QSettings('SSNnote', 'SSNnote').setValue('day_detail_dlg/geometry', self.saveGeometry()))
+
+        QApplication.instance().installEventFilter(self)
+
+    def _set_title(self, date_str):
+        try:
+            d = date.fromisoformat(date_str)
+            weekday = ['월', '화', '수', '목', '금', '토', '일'][d.weekday()]
+            self.setWindowTitle(f'{d.month}월 {d.day}일 ({weekday})')
+        except (ValueError, AttributeError):
+            self.setWindowTitle(date_str)
+
+    def reload(self):
+        from db import get_tasks_by_date
+        self._panel.load(self._date_str, get_tasks_by_date(self._date_str))
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress and self.isVisible():
+            modal = QApplication.activeModalWidget()
+            if modal is not None and modal is not self:
+                return False
+            if isinstance(event, QMouseEvent):
+                w = QApplication.widgetAt(event.globalPos())
+                if w is not None:
+                    if w.window() is self:
+                        return False
+                    anc = w
+                    while anc is not None:
+                        if isinstance(anc, DayCellWidget):
+                            return False
+                        anc = anc.parent()
+                self.close()
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
+    def closeEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
+        super().closeEvent(event)
 
 
 class NativeCalendarDialog(QDialog):
@@ -5292,11 +5377,6 @@ class NativeCalendarDialog(QDialog):
             else: lbl.setStyleSheet("color: #888;")
             day_header.addWidget(lbl)
 
-        # QSplitter: 좌=캘린더 그리드, 우=날짜 상세 패널
-        self._splitter = QSplitter(Qt.Horizontal)
-        self._splitter.setHandleWidth(4)
-        self._splitter.setStyleSheet("QSplitter::handle { background: #e8ddd5; }")
-
         grid_container = QWidget()
         grid_container.setStyleSheet("background: transparent;")
         grid_vbox = QVBoxLayout(grid_container)
@@ -5306,19 +5386,7 @@ class NativeCalendarDialog(QDialog):
         self._grid = QGridLayout()
         self._grid.setSpacing(2)
         grid_vbox.addLayout(self._grid, 1)
-        self._splitter.addWidget(grid_container)
-
-        self._detail_panel = DayDetailPanel(self._open_windows, self)
-        self._detail_panel.hide()
-        self._detail_panel.task_edited.connect(self._on_task_changed)
-        self._detail_panel.task_deleted.connect(self._on_task_changed)
-        self._detail_panel.close_requested.connect(self._close_detail_panel)
-        self._splitter.addWidget(self._detail_panel)
-
-        self._splitter.setStretchFactor(0, 3)
-        self._splitter.setStretchFactor(1, 1)
-
-        main_layout.addWidget(self._splitter, 1)
+        main_layout.addWidget(grid_container, 1)
 
     def _load_tasks(self):
         from db import get_all_tasks_for_calendar, get_tasks_by_date
@@ -5327,6 +5395,13 @@ class NativeCalendarDialog(QDialog):
         for date_str in counts:
             self._task_data[date_str] = get_tasks_by_date(date_str)
         self._render_calendar()
+        if getattr(self, '_detail_dlg', None) is not None and self._detail_dlg.isVisible():
+            self._detail_dlg.reload()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.ActivationChange and self.isActiveWindow():
+            self._load_tasks()
 
     def _render_calendar(self):
         from datetime import timedelta
@@ -5405,25 +5480,25 @@ class NativeCalendarDialog(QDialog):
             cell.overflow_clicked.connect(self._on_cell_clicked)
 
     def _on_cell_clicked(self, date_str):
-        if not self._detail_panel.isHidden() and self._detail_panel.current_date_str == date_str:
-            self._detail_panel.hide()
-            return
+        if getattr(self, '_detail_dlg', None) is not None and self._detail_dlg.isVisible():
+            if self._detail_dlg._date_str == date_str:
+                self._detail_dlg.raise_()
+                self._detail_dlg.activateWindow()
+                return
+            self._detail_dlg.close()
         tasks = self._task_data.get(date_str, [])
-        self._detail_panel.load(date_str, tasks)
-        if self._detail_panel.isHidden():
-            self._detail_panel.show()
-            total = self._splitter.width()
-            self._splitter.setSizes([int(total * 0.65), int(total * 0.35)])
-
-    def _close_detail_panel(self):
-        self._detail_panel.hide()
+        self._detail_dlg = DayDetailDialog(self._open_windows, date_str, tasks, parent=self)
+        self._detail_dlg.task_edited.connect(self._on_task_changed)
+        self._detail_dlg.task_deleted.connect(self._on_task_changed)
+        self._detail_dlg.show()
+        self._detail_dlg.raise_()
 
     def _on_task_changed(self):
-        saved = self._detail_panel.current_date_str
         self._load_tasks()
-        if saved:
-            tasks = self._task_data.get(saved, [])
-            self._detail_panel.load(saved, tasks)
+        for win in self._open_windows:
+            win._refresh_tasks()
+        if getattr(self, '_detail_dlg', None) is not None and self._detail_dlg.isVisible():
+            self._detail_dlg.reload()
 
     def _prev_month(self):
         y, m = self._current_date.year, self._current_date.month

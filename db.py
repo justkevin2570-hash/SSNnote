@@ -140,6 +140,12 @@ def get_all_windows():
         return [dict(r) for r in rows]
 
 
+def get_first_window_id():
+    with _connect() as conn:
+        row = conn.execute('SELECT MIN(id) AS mid FROM windows').fetchone()
+        return row['mid'] if row else None
+
+
 def create_window(x=130, y=130, width=320, height=400):
     with _connect() as conn:
         cur = conn.execute(

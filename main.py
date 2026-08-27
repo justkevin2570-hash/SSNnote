@@ -132,7 +132,7 @@ def _is_spot_free(x, y, exclude_win=None):
             return False
     return True
 
-def new_window(offset_from=None, on_toggle_hotkey=None, on_shortcut_change=None, get_shortcut_enabled=None):
+def new_window(offset_from=None, memo_mode=False, on_toggle_hotkey=None, on_shortcut_change=None, get_shortcut_enabled=None):
     x, y = 130, 130
     if offset_from:
         px, py = offset_from.pos().x(), offset_from.pos().y()
@@ -146,14 +146,15 @@ def new_window(offset_from=None, on_toggle_hotkey=None, on_shortcut_change=None,
         else:
             x, y = px + 30, py + 30
     wid = create_window(x=x, y=y)
-    _launch_window(wid, x, y, DEFAULT_W, DEFAULT_H, collapsed=False, on_toggle_hotkey=on_toggle_hotkey,
+    _launch_window(wid, x, y, DEFAULT_W, DEFAULT_H, collapsed=False, memo_mode=memo_mode,
+                   on_toggle_hotkey=on_toggle_hotkey,
                    on_shortcut_change=on_shortcut_change, get_shortcut_enabled=get_shortcut_enabled)
 
 
 _alarm_callbacks = {}  # 정의 전 참조 문제 우회용
 
-def _launch_window(wid, x, y, width, height, collapsed, color='', scale=1.0, on_toggle_hotkey=None,
-                   on_shortcut_change=None, get_shortcut_enabled=None):
+def _launch_window(wid, x, y, width, height, collapsed, color='', scale=1.0, memo_mode=False,
+                   on_toggle_hotkey=None, on_shortcut_change=None, get_shortcut_enabled=None):
     win = MemoWindow(
         window_id=wid,
         on_new=new_window,
@@ -165,6 +166,7 @@ def _launch_window(wid, x, y, width, height, collapsed, color='', scale=1.0, on_
         get_timed_alarm_enabled=lambda: _alarm_callbacks.get('get_timed', lambda: True)(),
         on_shortcut_change=on_shortcut_change,
         get_shortcut_enabled=get_shortcut_enabled,
+        force_memo_mode=memo_mode,
     )
     win.apply_state(x, y, width, height, collapsed, color, scale)
     win.show()
@@ -268,8 +270,11 @@ if __name__ == '__main__':
     act_quit.triggered.connect(app.quit)
     menu.addAction(act_quit)
     def _restore_all_windows():
-        for w in get_all_windows():
+        _all = get_all_windows()
+        _first_id = min((w['id'] for w in _all), default=None)
+        for w in _all:
             _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''), w.get('scale', 1.0),
+                           memo_mode=(w['id'] != _first_id),
                            on_toggle_hotkey=_hotkey_filter.set_enabled,
                            on_shortcut_change=_set_shortcut_enabled,
                            get_shortcut_enabled=_get_shortcut_enabled)
@@ -287,8 +292,10 @@ if __name__ == '__main__':
     tray.show()
 
     all_db_windows = get_all_windows()
+    first_id = min((w['id'] for w in all_db_windows), default=None)
     for w in all_db_windows:
         _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''), w.get('scale', 1.0),
+                       memo_mode=(w['id'] != first_id),
                        on_toggle_hotkey=_hotkey_filter.set_enabled,
                        on_shortcut_change=_set_shortcut_enabled,
                        get_shortcut_enabled=_get_shortcut_enabled)
