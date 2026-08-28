@@ -1,5 +1,5 @@
 {
-  "version": "v2.55",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.55/SSNnote_Setup.exe",
-  "changelog": "- 달력 창 비모달화: 달력을 열어둔 채 업무목록 입력 가능\n- 달력 일정 추가 시 업무목록 자동 연동\n- 새 메모장은 항상 메모 모드로 생성 (첫 번째 창만 업무 목록)\n- 일정 추가 다이얼로그에서 노트 선택·우선순위 버튼 제거\n- 업무 메모(▼) 글자 크기를 글자 크기 메뉴와 연동"
+  "version": "v2.56",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.56/SSNnote_Setup.exe",
+  "changelog": "- 인라인 메모 2단 구성: 공문 관련번호 입력줄 + 복사 버튼 추가\n- 관련번호 복사 시 공문 글꼴(굴림체 12pt) 적용\n- 업무 메모(▼) 펼침 시 아래 목록 겹침·화면 점프 수정\n- 목록 재구성 시 스크롤 위치 유지"
 }
