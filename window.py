@@ -1312,7 +1312,7 @@ class TaskRow(QWidget):
                 layout.addWidget(self._add_date_btn, 0, Qt.AlignVCenter)
         layout.addWidget(btn_menu, 0, Qt.AlignVCenter)
 
-        # 인라인 메모 에디터 (▼ 클릭 시 펼침)
+        # 메모 에디터 (▼ 클릭 시 행 높이 불변, 행 아래 예약 공간 위에 오버레이로 펼침)
         self.note_editor = _InlineNoteEdit(scale=self._scale)
         self.note_editor.closeRequested.connect(self._collapse_note)
         self._note_save_timer = QTimer(self)
@@ -1320,10 +1320,12 @@ class TaskRow(QWidget):
         self._note_save_timer.timeout.connect(self._flush_note)
         self.note_editor.textChanged.connect(lambda: self._note_save_timer.start(500))
         self.note_editor.hide()
-        self._outer.addWidget(self.note_editor)
+        self._note_placeholder = None
+        self.destroyed.connect(self.note_editor.deleteLater)
         if expanded:
+            self._expanded = True
+            self.btn_note.set_expanded(True)
             self.note_editor.setPlainText(get_task_notes(self.task['id']))
-            self.note_editor.show()
 
     def _set_row_highlight(self, on: bool):
         self._hovered = on
@@ -1463,10 +1465,42 @@ class TaskRow(QWidget):
         else:
             self._expand_note()
 
+    def _show_note_editor(self):
+        """행 높이를 바꾸지 않고, 행 아래 예약 공간을 만들어 메모를 오버레이로 표시."""
+        list_widget = self.parentWidget()
+        if list_widget is None:
+            return
+        if self.note_editor.parent() is not list_widget:
+            self.note_editor.setParent(list_widget)
+        layout = list_widget.layout()
+        idx = layout.indexOf(self)
+        if idx < 0:
+            return
+        if self._note_placeholder is None:
+            ph = QWidget()
+            ph.setFixedHeight(_InlineNoteEdit.HEIGHT)
+            ph.setStyleSheet('background: transparent;')
+            layout.insertWidget(idx + 1, ph)
+            self._note_placeholder = ph
+        self.note_editor.setGeometry(self.x() + 9, self.y() + self.height(),
+                                     self.width() - 17, _InlineNoteEdit.HEIGHT)
+        self.note_editor.show()
+        self.note_editor.raise_()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self._expanded and self.note_editor.isVisible():
+            self._show_note_editor()
+
+    def moveEvent(self, e):
+        super().moveEvent(e)
+        if self._expanded and self.note_editor.isVisible():
+            self._show_note_editor()
+
     def _expand_note(self):
         self._expanded = True
         self.note_editor.setPlainText(get_task_notes(self.task['id']))
-        self.note_editor.show()
+        self._show_note_editor()
         self.btn_note.set_expanded(True)
         self.note_editor.setFocus()
         if self._on_toggle:
@@ -1477,6 +1511,12 @@ class TaskRow(QWidget):
         self._flush_note()
         self.note_editor.hide()
         self.btn_note.set_expanded(False)
+        if self._note_placeholder is not None:
+            list_widget = self.parentWidget()
+            if list_widget is not None:
+                list_widget.layout().removeWidget(self._note_placeholder)
+            self._note_placeholder.deleteLater()
+            self._note_placeholder = None
         self.setFocus()
         if self._on_toggle:
             self._on_toggle(self.task['id'], False)
@@ -3487,6 +3527,8 @@ class MemoWindow(QMainWindow):
         self._schedule_midnight_refresh()  # 다음 자정 예약
 
     def _refresh_tasks(self):
+        sb = self.task_scroll.verticalScrollBar()
+        scroll_pos = sb.value()
         while self.task_list_layout.count() > 1:
             item = self.task_list_layout.takeAt(0)
             if item.widget():
@@ -3498,7 +3540,10 @@ class MemoWindow(QMainWindow):
                           on_select=self._select_task,
                           on_navigate=self._move_selection)
             self.task_list_layout.insertWidget(self.task_list_layout.count() - 1, row)
+            if row._expanded:
+                row._show_note_editor()
         self._apply_selection()
+        QTimer.singleShot(0, lambda: QTimer.singleShot(0, lambda: sb.setValue(scroll_pos)))
 
     def _on_task_note_toggle(self, task_id, expanded):
         if expanded:
