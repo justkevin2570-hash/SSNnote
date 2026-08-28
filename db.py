@@ -114,6 +114,14 @@ def init_db():
         if 'notes' not in hcols:
             conn.execute("ALTER TABLE task_history ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
 
+        # related_no 컬럼 마이그레이션 (공문 관련번호)
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(tasks)').fetchall()]
+        hcols = [r[1] for r in conn.execute('PRAGMA table_info(task_history)').fetchall()]
+        if 'related_no' not in cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN related_no TEXT NOT NULL DEFAULT ''")
+        if 'related_no' not in hcols:
+            conn.execute("ALTER TABLE task_history ADD COLUMN related_no TEXT NOT NULL DEFAULT ''")
+
         # 기존 window_state 마이그레이션
         tables = [r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
@@ -208,7 +216,7 @@ def get_tasks_by_date(date_str: str):
     with _connect() as conn:
         rows = conn.execute(
             """SELECT t.id, t.window_id, t.name, t.deadline, t.strikethrough,
-                      t.priority, t.recurrence, t.notes, w.color
+                      t.priority, t.recurrence, t.notes, t.related_no, w.color
                FROM tasks t JOIN windows w ON t.window_id = w.id
                WHERE t.deadline LIKE ? AND t.deadline != ''
                ORDER BY t.priority DESC, t.deadline ASC""",
@@ -255,11 +263,11 @@ def update_task(task_id, name, deadline, strikethrough=0, priority=0, recurrence
         )
 
 
-def add_task_history(window_id, name, deadline, strikethrough=0, priority=0, recurrence='', notes=''):
+def add_task_history(window_id, name, deadline, strikethrough=0, priority=0, recurrence='', notes='', related_no=''):
     with _connect() as conn:
         conn.execute(
-            'INSERT INTO task_history (window_id, name, deadline, strikethrough, priority, recurrence, notes) VALUES (?,?,?,?,?,?,?)',
-            (window_id, name, deadline, strikethrough, priority, recurrence, notes)
+            'INSERT INTO task_history (window_id, name, deadline, strikethrough, priority, recurrence, notes, related_no) VALUES (?,?,?,?,?,?,?,?)',
+            (window_id, name, deadline, strikethrough, priority, recurrence, notes, related_no)
         )
 
 
@@ -282,6 +290,17 @@ def get_task_notes(task_id: int) -> str:
 def set_task_notes(task_id: int, notes: str):
     with _connect() as conn:
         conn.execute('UPDATE tasks SET notes=? WHERE id=?', (notes, task_id))
+
+
+def get_task_related_no(task_id: int) -> str:
+    with _connect() as conn:
+        row = conn.execute('SELECT related_no FROM tasks WHERE id=?', (task_id,)).fetchone()
+        return row['related_no'] if row else ''
+
+
+def set_task_related_no(task_id: int, related_no: str):
+    with _connect() as conn:
+        conn.execute('UPDATE tasks SET related_no=? WHERE id=?', (related_no, task_id))
 
 
 def search_tasks_all(query):

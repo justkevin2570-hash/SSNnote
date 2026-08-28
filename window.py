@@ -1,5 +1,6 @@
 import os
 import sys
+import html
 import ctypes
 import calendar
 from PyQt5.QtSvg import QSvgRenderer
@@ -18,6 +19,7 @@ from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, 
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
                 set_task_priority, set_task_recurrence, get_task_notes, set_task_notes,
+                get_task_related_no, set_task_related_no,
                 search_tasks_all,
                 get_documents, add_document, update_document, delete_document,
                 get_official_documents, delete_official_document,
@@ -1089,18 +1091,88 @@ class _NoteButton(QPushButton):
         p.end()
 
 
-class _InlineNoteEdit(QPlainTextEdit):
-    """업무 행 안에 펼쳐지는 메모 에디터. 고정 높이, 긴 내용은 내부 스크롤."""
-    HEIGHT = 110
+class _RefLineEdit(QLineEdit):
+    """굴림체 입력 텍스트 + Pretendard placeholder를 직접 그리는 관련번호 입력줄.
+    (QLineEdit::placeholder 스타일시트는 Windows 네이티브 스타일에서 무시되므로 직접 페인트)"""
+
+    def __init__(self, ph_text='', ph_font=None, parent=None):
+        super().__init__(parent)
+        self._ph_text = ph_text
+        self._ph_font = ph_font
+        self.setPlaceholderText('')
+
+    def paintEvent(self, e):
+        super().paintEvent(e)
+        if self._ph_text and not self.text():
+            p = QPainter(self)
+            p.setRenderHint(QPainter.TextAntialiasing)
+            p.setFont(self._ph_font)
+            p.setPen(self.palette().color(QPalette.PlaceholderText))
+            p.drawText(self.rect().adjusted(7, 0, -7, 0),
+                       Qt.AlignVCenter | Qt.AlignLeft, self._ph_text)
+            p.end()
+
+
+class _InlineNoteEdit(QWidget):
+    """업무 행 아래 펼쳐지는 2단 메모 패널. 상단: 관련번호 1줄 + 복사 버튼, 하단: 메모 에디터."""
+    HEIGHT = 160
     closeRequested = pyqtSignal()
+    relatedNoChanged = pyqtSignal()
 
     def __init__(self, parent=None, scale=1.0):
         super().__init__(parent)
-        self.setPlaceholderText('esc 또는 ctrl+enter 을 누르면 접어집니다.')
-        self.setFont(pr_font(int(11 * scale)))
-        self.document().setDocumentMargin(4)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setStyleSheet("""
+        self.setFixedHeight(self.HEIGHT)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setSpacing(6)
+
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        self.ref_edit = _RefLineEdit('공문 관련번호 적어두기', pr_font(int(11 * scale)))
+        _ref_font = QFont('굴림체', int(12 * scale))
+        _ref_font.setStretch(100)
+        _ref_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
+        self.ref_edit.setFont(_ref_font)
+        self.ref_edit.setStyleSheet("""
+            QLineEdit {
+                background: rgba(255,255,255,0.6);
+                border: 1px solid #d4b800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #333;
+            }
+            QLineEdit:focus { border: 1px solid #b89e00; }
+        """)
+        self.ref_edit.textChanged.connect(self.relatedNoChanged)
+        self.ref_edit.installEventFilter(self)
+        top.addWidget(self.ref_edit, 1)
+
+        self.btn_copy = QPushButton('복사')
+        self.btn_copy.setCursor(Qt.PointingHandCursor)
+        self.btn_copy.setFixedWidth(56)
+        _btn_font = pr_font(int(12 * scale))
+        self.btn_copy.setFont(_btn_font)
+        self.btn_copy.setFixedHeight(self.ref_edit.sizeHint().height())
+        self.btn_copy.setStyleSheet("""
+            QPushButton {
+                background: rgba(255,255,255,0.6);
+                border: 1px solid #d4b800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #5a4000;
+            }
+            QPushButton:hover { background: rgba(212,184,0,0.25); }
+        """)
+        self.btn_copy.clicked.connect(self._copy_related_no)
+        top.addWidget(self.btn_copy)
+        outer.addLayout(top)
+
+        self.editor = QPlainTextEdit()
+        self.editor.setPlaceholderText('esc 또는 ctrl+enter 을 누르면 접어집니다.')
+        self.editor.setFont(pr_font(int(11 * scale)))
+        self.editor.document().setDocumentMargin(4)
+        self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.editor.setStyleSheet("""
             QPlainTextEdit {
                 background: rgba(255,255,255,0.6);
                 border: 1px solid #d4b800;
@@ -1110,16 +1182,45 @@ class _InlineNoteEdit(QPlainTextEdit):
             }
             QPlainTextEdit:focus { border: 1px solid #b89e00; }
         """)
-        self.setFixedHeight(self.HEIGHT)
+        self.editor.installEventFilter(self)
+        outer.addWidget(self.editor, 1)
 
-    def keyPressEvent(self, e):
-        if e.key() == Qt.Key_Escape:
-            self.closeRequested.emit()
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.KeyPress:
+            if event.key() == Qt.Key_Escape:
+                self.closeRequested.emit()
+                return True
+            if event.modifiers() & Qt.ControlModifier and event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                self.closeRequested.emit()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _copy_related_no(self):
+        text = self.ref_edit.text().strip()
+        if not text:
             return
-        if e.modifiers() & Qt.ControlModifier and e.key() in (Qt.Key_Return, Qt.Key_Enter):
-            self.closeRequested.emit()
-            return
-        super().keyPressEvent(e)
+        mime = QMimeData()
+        mime.setHtml(
+            "<span style='font-family:굴림체; font-size:12pt; letter-spacing:0;'>"
+            + html.escape(text) + "</span>"
+        )
+        mime.setText(text)
+        QApplication.clipboard().setMimeData(mime)
+        self.btn_copy.setText('복사됨 ✓')
+        QTimer.singleShot(1500, lambda: self.btn_copy.setText('복사'))
+
+    def focus_editor(self):
+        self.editor.setFocus()
+
+    def setPlainText(self, text):
+        self.editor.setPlainText(text)
+
+    def toPlainText(self):
+        return self.editor.toPlainText()
+
+    @property
+    def textChanged(self):
+        return self.editor.textChanged
 
 
 class TaskRow(QWidget):
@@ -1273,7 +1374,8 @@ class TaskRow(QWidget):
         btn_menu.clicked.connect(lambda: self._open_task_menu(btn_menu, task, on_delete))
         btn_menu.hovered.connect(self._set_row_highlight)
 
-        _has_note = bool(task.get('notes', ''))
+        _has_note = bool(task.get('notes', '') or task.get('related_no', ''))
+        self._overdue = overdue
         self.btn_note = _NoteButton(scale=scale)
         self.btn_note.set_note_color(_has_note, overdue)
         self.btn_note.setToolTip('업무 메모 (펼치기/접기)')
@@ -1319,6 +1421,10 @@ class TaskRow(QWidget):
         self._note_save_timer.setSingleShot(True)
         self._note_save_timer.timeout.connect(self._flush_note)
         self.note_editor.textChanged.connect(lambda: self._note_save_timer.start(500))
+        self._ref_save_timer = QTimer(self)
+        self._ref_save_timer.setSingleShot(True)
+        self._ref_save_timer.timeout.connect(self._flush_ref)
+        self.note_editor.relatedNoChanged.connect(lambda: self._ref_save_timer.start(500))
         self.note_editor.hide()
         self._note_placeholder = None
         self.destroyed.connect(self.note_editor.deleteLater)
@@ -1326,6 +1432,7 @@ class TaskRow(QWidget):
             self._expanded = True
             self.btn_note.set_expanded(True)
             self.note_editor.setPlainText(get_task_notes(self.task['id']))
+            self.note_editor.ref_edit.setText(get_task_related_no(self.task['id']))
 
     def _set_row_highlight(self, on: bool):
         self._hovered = on
@@ -1500,15 +1607,17 @@ class TaskRow(QWidget):
     def _expand_note(self):
         self._expanded = True
         self.note_editor.setPlainText(get_task_notes(self.task['id']))
+        self.note_editor.ref_edit.setText(get_task_related_no(self.task['id']))
         self._show_note_editor()
         self.btn_note.set_expanded(True)
-        self.note_editor.setFocus()
+        self.note_editor.focus_editor()
         if self._on_toggle:
             self._on_toggle(self.task['id'], True)
 
     def _collapse_note(self):
         self._expanded = False
         self._flush_note()
+        self._flush_ref()
         self.note_editor.hide()
         self.btn_note.set_expanded(False)
         if self._note_placeholder is not None:
@@ -1524,7 +1633,17 @@ class TaskRow(QWidget):
     def _flush_note(self):
         text = self.note_editor.toPlainText()
         set_task_notes(self.task['id'], text)
-        self.btn_note.set_note_color(bool(text.strip()))
+        self._update_note_color()
+
+    def _flush_ref(self):
+        ref = self.note_editor.ref_edit.text().strip()
+        set_task_related_no(self.task['id'], ref)
+        self._update_note_color()
+
+    def _update_note_color(self):
+        has = bool(self.note_editor.toPlainText().strip()
+                   or self.note_editor.ref_edit.text().strip())
+        self.btn_note.set_note_color(has, self._overdue)
 
     def _show_date_picker(self):
         if not hasattr(self, '_date_picker_popup'):
@@ -2804,7 +2923,8 @@ class MonthlyCalendarDialog(QDialog):
                              strikethrough=task.get('strikethrough', 0),
                              priority=task.get('priority', 0),
                              recurrence=task.get('recurrence', ''),
-                             notes=task.get('notes', ''))
+                             notes=task.get('notes', ''),
+                             related_no=task.get('related_no', ''))
             delete_task(task['id'])
         else:
             delete_task_history(task['id'])
@@ -3468,7 +3588,8 @@ class MemoWindow(QMainWindow):
                          strikethrough=task.get('strikethrough', 0),
                          priority=task.get('priority', 0),
                          recurrence=task.get('recurrence', ''),
-                         notes=task.get('notes', ''))
+                         notes=task.get('notes', ''),
+                         related_no=task.get('related_no', ''))
         delete_task(task['id'])
         self._expanded_note_ids.discard(task['id'])
         if self._selected_task_id == task['id']:
