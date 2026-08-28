@@ -964,9 +964,16 @@ class _AutoHeightEdit(QPlainTextEdit):
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self._fixed_height = 28
         self._preferred_width = 40
-        self.document().contentsChanged.connect(self._update_height)
-        self.document().contentsChanged.connect(self._update_width)
-        self._update_width()
+        self._v_pad = 0
+        self._editing = False
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(500)
+        self._resize_timer.timeout.connect(self._apply_size)
+        # 줄바꿈 경계(높이 변화)는 즉시 반영해 접힌 텍스트 방지,
+        # 폭/전체 크기 변경은 500ms 디바운스 (IME 조합 중 레이아웃 보호)
+        self.document().contentsChanged.connect(self._on_contents_changed)
+        self._apply_size()
 
     def keyPressEvent(self, e):
         if e.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Escape):
@@ -977,35 +984,75 @@ class _AutoHeightEdit(QPlainTextEdit):
 
     def viewportEvent(self, e):
         if e.type() == QEvent.MouseButtonPress and e.button() == Qt.LeftButton:
-            self.selectRequested.emit()
-            return True
+            if not self.hasFocus():
+                # 비편집 상태 클릭 → 행 선택 (기존 동작 유지)
+                self.selectRequested.emit()
+                return True
+            # 편집 중(포커스 보유) 클릭 → 소비하지 않고 기본 처리로 → 커서가 클릭 위치로 이동
         if e.type() == QEvent.MouseButtonDblClick and e.button() == Qt.LeftButton:
             self.setFocus()
         return super().viewportEvent(e)
 
-    def mouseDoubleClickEvent(self, e):
+    def _begin_edit(self):
         self.setFocus()
+        self._editing = True
+        self.setLineWrapMode(QPlainTextEdit.NoWrap)   # 편집 중 한 줄 — 커서가 항상 오른쪽 끝을 따라감
+        self.setMinimumWidth(160)                     # 좁은 박스(48px)로 텍스트가 잘리는 문제 방지
         cursor = self.textCursor()
-        cursor.movePosition(QTextCursor.End)
+        cursor.movePosition(QTextCursor.End)          # 가장 오른쪽 텍스트의 오른쪽에 커서
         self.setTextCursor(cursor)
+        self.ensureCursorVisible()
+        self._apply_height()                          # 한 줄 높이로 즉시 정리
+
+    def mouseDoubleClickEvent(self, e):
+        self._begin_edit()
+
+    def _on_contents_changed(self):
+        self._apply_height()        # 줄바꿈 경계에서 즉시 높이 확보 (접힌 텍스트 방지)
+        self._resize_timer.start()  # 폭/전체 크기는 500ms 디바운스
+
+    def focusOutEvent(self, e):
+        if self._resize_timer.isActive():
+            self._resize_timer.stop()
+        self._editing = False
+        self.setLineWrapMode(QPlainTextEdit.WidgetWidth)  # 표시 모드 줄바꿈 복귀
+        self.setMinimumWidth(0)     # 편집 중 최소 폭 해제
+        self._apply_size()
+        super().focusOutEvent(e)
 
     def sizeHint(self):
         return QSize(self._preferred_width, self._fixed_height)
+
+    def _apply_height(self):
+        old_h = self._fixed_height
+        self._update_height()
+        # 실제로 높이가 바뀌었을 때만 적용 (조합 중 불필요한 재배치 방지)
+        if self._fixed_height != old_h:
+            self.setMinimumHeight(self._fixed_height)
+            self.setMaximumHeight(self._fixed_height)
+            self.setViewportMargins(0, self._v_pad, 0, self._v_pad)
+
+    def _apply_size(self):
+        old_w = self._preferred_width
+        self._apply_height()
+        self._update_width()
+        # 폭 변경 시에만 레이아웃 통지
+        if self._preferred_width != old_w:
+            self.updateGeometry()
 
     def _update_width(self):
         fm = QFontMetrics(self.font())
         w = fm.horizontalAdvance(self.toPlainText() or ' ') + 2
         self._preferred_width = max(w, 40)
-        self.updateGeometry()
 
     def changeEvent(self, e):
         super().changeEvent(e)
         if e.type() == QEvent.FontChange:
-            self._update_width()
+            self._apply_size()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self._update_height()
+        self._apply_size()
 
     def _update_height(self):
         width = self.viewport().width()
@@ -1014,7 +1061,10 @@ class _AutoHeightEdit(QPlainTextEdit):
         text = self.toPlainText() or ' '
         layout = QTextLayout(text, self.font())
         opt = QTextOption()
-        opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        opt.setWrapMode(
+            QTextOption.NoWrap if self._editing
+            else QTextOption.WrapAtWordBoundaryOrAnywhere
+        )
         layout.setTextOption(opt)
         layout.beginLayout()
         y = 0.0
@@ -1030,10 +1080,7 @@ class _AutoHeightEdit(QPlainTextEdit):
         h = int(y + 2 * doc_margin) + 4
         fixed_h = max(h, 28)
         self._fixed_height = fixed_h
-        self.setMinimumHeight(fixed_h)
-        self.setMaximumHeight(fixed_h)
-        v_pad = max(0, (fixed_h - int(y)) // 2)
-        self.setViewportMargins(0, v_pad, 0, v_pad)
+        self._v_pad = max(0, (fixed_h - int(y)) // 2)
 
 
 class _NoteButton(QPushButton):
@@ -1162,9 +1209,29 @@ class _InlineNoteEdit(QWidget):
                 color: #5a4000;
             }
             QPushButton:hover { background: rgba(212,184,0,0.25); }
+            QPushButton:pressed { background: rgba(212,184,0,0.42); padding: 2px 0 0 2px; }
         """)
         self.btn_copy.clicked.connect(self._copy_related_no)
         top.addWidget(self.btn_copy)
+
+        self.btn_shot = QPushButton('스크린샷')
+        self.btn_shot.setCursor(Qt.PointingHandCursor)
+        self.btn_shot.setFixedWidth(80)                       # 4글자 → 가로 길게
+        self.btn_shot.setFont(_btn_font)
+        self.btn_shot.setFixedHeight(self.ref_edit.sizeHint().height())  # 세로 = 복사와 동일
+        self.btn_shot.setStyleSheet("""
+            QPushButton {
+                background: rgba(255,255,255,0.6);
+                border: 1px solid #d4b800;
+                border-radius: 4px;
+                padding: 2px 6px;
+                color: #5a4000;
+            }
+            QPushButton:hover { background: rgba(212,184,0,0.25); }
+            QPushButton:pressed { background: rgba(212,184,0,0.42); padding: 2px 0 0 2px; }
+        """)
+        self.btn_shot.clicked.connect(self._start_inline_capture)
+        top.addWidget(self.btn_shot)
         outer.addLayout(top)
 
         self.editor = QPlainTextEdit()
@@ -1206,8 +1273,65 @@ class _InlineNoteEdit(QWidget):
         )
         mime.setText(text)
         QApplication.clipboard().setMimeData(mime)
-        self.btn_copy.setText('복사됨 ✓')
-        QTimer.singleShot(1500, lambda: self.btn_copy.setText('복사'))
+
+    # ── 캡처 → 관련번호 자동 입력 ──────────────────────────────
+    def _start_inline_capture(self):
+        self._capture_win = self.window()
+        if self._capture_win is not None:
+            self._capture_win.hide()
+        QApplication.processEvents()
+        QTimer.singleShot(250, self._show_inline_capture_overlay)
+
+    def _show_inline_capture_overlay(self):
+        screenshot = grab_fullscreen()
+        self._overlay = ScreenCaptureOverlay(screenshot)
+        self._overlay.region_captured.connect(self._on_inline_capture_complete)
+        self._overlay.cancelled.connect(self._restore_inline_window)
+        self._overlay.show()
+        self._overlay.activateWindow()
+        self._overlay.setFocus()
+
+    def _restore_inline_window(self):
+        if getattr(self, '_capture_win', None) is not None:
+            self._capture_win.show()
+            self._capture_win.raise_()
+            self._capture_win.activateWindow()
+            try:
+                hwnd = int(self._capture_win.winId())
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+            self._capture_win = None
+
+    def _on_inline_capture_complete(self, pixmap):
+        if hasattr(self, '_overlay'):
+            self._overlay.region_captured.disconnect()  # 중복 호출 방지
+        self._restore_inline_window()
+
+        try:
+            import winrt  # noqa: F401
+        except ImportError:
+            QMessageBox.warning(
+                self, 'OCR 불가',
+                'Windows OCR(winrt) 모듈이 없습니다.\n\n'
+                '① 터미널에서 pip install winsdk 를 실행하거나\n'
+                '② 공문번호를 직접 입력해 주세요.'
+            )
+            return
+
+        def _after_ocr(text):
+            if text:
+                normalized = _normalize_doc_number(text)
+                if normalized:
+                    self.ref_edit.setText(normalized)
+            else:
+                QMessageBox.information(self, '알림', 'OCR 텍스트를 인식하지 못했습니다.')
+
+        def _on_error(msg):
+            QMessageBox.warning(self, 'OCR 오류', msg)
+
+        self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
 
     def focus_editor(self):
         self.editor.setFocus()
@@ -1462,10 +1586,7 @@ class TaskRow(QWidget):
         super().mousePressEvent(e)
 
     def _start_rename(self):
-        self.name_edit.setFocus()
-        cursor = self.name_edit.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        self.name_edit.setTextCursor(cursor)
+        self.name_edit._begin_edit()
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_F2:
