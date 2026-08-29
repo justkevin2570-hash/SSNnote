@@ -1,5 +1,5 @@
 {
-  "version": "v2.57",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.57/SSNnote_Setup.exe",
-  "changelog": "- 인라인 메모 '스크린샷' 버튼: 화면 영역 캡처 → OCR로 공문 관련번호 자동 입력\n- 스크린샷 후 메모 창 자동 포커스 복귀\n- 업무명 편집 개선: 편집 중 클릭 시 커서가 해당 위치로 이동\n- 업무명 한 줄 편집 전환 — 타이핑 중 커서가 항상 입력 위치를 따라감 (좁은 박스/IME 조합 렌더링 문제 수정)"
+  "version": "v2.58",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.58/SSNnote_Setup.exe",
+  "changelog": "- 업무 행 본문 클릭 시 선택이 즉시 해제되던 버그 수정 (행 내부 빈 영역 클릭도 정상 선택)"
 }

@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
     QPlainTextEdit, QTextEdit, QSizePolicy, QGraphicsColorizeEffect, QGraphicsOpacityEffect, QTimeEdit,
     QListWidget, QAbstractItemView, QComboBox, QListWidgetItem, QTableWidget, QTableWidgetItem,
-    QSplitter, QGraphicsDropShadowEffect, QCheckBox
+    QSplitter, QGraphicsDropShadowEffect, QCheckBox, QScrollBar
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QMimeData
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor, QMouseEvent
@@ -952,6 +952,8 @@ class PlainPasteMemoEdit(QTextEdit):
 class _AutoHeightEdit(QPlainTextEdit):
     selectRequested = pyqtSignal()
     editFinished = pyqtSignal()
+    heightChanged = pyqtSignal()
+    """콘텐츠 높이가 바뀌었을 때 emit — 행(TaskRow)이 높이를 따라가도록."""
 
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
@@ -965,6 +967,7 @@ class _AutoHeightEdit(QPlainTextEdit):
         self._fixed_height = 28
         self._preferred_width = 40
         self._v_pad = 0
+        self._last_y = 0.0
         self._editing = False
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
@@ -1026,11 +1029,15 @@ class _AutoHeightEdit(QPlainTextEdit):
     def _apply_height(self):
         old_h = self._fixed_height
         self._update_height()
-        # 실제로 높이가 바뀌었을 때만 적용 (조합 중 불필요한 재배치 방지)
-        if self._fixed_height != old_h:
+        # 같은 값이면 재배치가 일어나지 않으므로 항상 적용해도 안전.
+        # 1줄 업무명처럼 높이가 28→28로 안 바뀌는 경우에도 세로 가운데 보정(v_pad)이 적용돼야 정렬이 맞는다.
+        if self._last_y > 0:  # 폭 미지정(레이아웃 전)이면 적용 보류 — resizeEvent에서 다시 계산
             self.setMinimumHeight(self._fixed_height)
             self.setMaximumHeight(self._fixed_height)
             self.setViewportMargins(0, self._v_pad, 0, self._v_pad)
+        if self._fixed_height != old_h:
+            self.heightChanged.emit()
+            self.updateGeometry()
 
     def _apply_size(self):
         old_w = self._preferred_width
@@ -1057,6 +1064,7 @@ class _AutoHeightEdit(QPlainTextEdit):
     def _update_height(self):
         width = self.viewport().width()
         if width <= 0:
+            self._last_y = 0.0
             return
         text = self.toPlainText() or ' '
         layout = QTextLayout(text, self.font())
@@ -1080,6 +1088,7 @@ class _AutoHeightEdit(QPlainTextEdit):
         h = int(y + 2 * doc_margin) + 4
         fixed_h = max(h, 28)
         self._fixed_height = fixed_h
+        self._last_y = y
         self._v_pad = max(0, (fixed_h - int(y)) // 2)
 
 
@@ -1139,7 +1148,7 @@ class _NoteButton(QPushButton):
 
 
 class _RefLineEdit(QLineEdit):
-    """굴림체 입력 텍스트 + Pretendard placeholder를 직접 그리는 관련번호 입력줄.
+    """Pretendard 입력 텍스트 + Pretendard placeholder를 직접 그리는 관련번호 입력줄.
     (QLineEdit::placeholder 스타일시트는 Windows 네이티브 스타일에서 무시되므로 직접 페인트)"""
 
     def __init__(self, ph_text='', ph_font=None, parent=None):
@@ -1162,13 +1171,16 @@ class _RefLineEdit(QLineEdit):
 
 class _InlineNoteEdit(QWidget):
     """업무 행 아래 펼쳐지는 2단 메모 패널. 상단: 관련번호 1줄 + 복사 버튼, 하단: 메모 에디터."""
-    HEIGHT = 160
+    HEIGHT = 160       # 기본(최소) 높이
+    MAX_HEIGHT = 280    # 상한: 도달 시 에디터 내부 세로 스크롤
     closeRequested = pyqtSignal()
     relatedNoChanged = pyqtSignal()
 
     def __init__(self, parent=None, scale=1.0):
         super().__init__(parent)
-        self.setFixedHeight(self.HEIGHT)
+        # 높이는 TaskRow가 내용 기반으로 조절(setGeometry). min/max만 지정.
+        self.setMinimumHeight(self.HEIGHT)
+        self.setMaximumHeight(self.MAX_HEIGHT)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(6)
@@ -1176,7 +1188,7 @@ class _InlineNoteEdit(QWidget):
         top = QHBoxLayout()
         top.setSpacing(6)
         self.ref_edit = _RefLineEdit('공문 관련번호 적어두기', pr_font(int(11 * scale)))
-        _ref_font = QFont('굴림체', int(12 * scale))
+        _ref_font = pr_font(int(12 * scale))
         _ref_font.setStretch(100)
         _ref_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
         self.ref_edit.setFont(_ref_font)
@@ -1216,8 +1228,11 @@ class _InlineNoteEdit(QWidget):
 
         self.btn_shot = QPushButton('스크린샷')
         self.btn_shot.setCursor(Qt.PointingHandCursor)
-        self.btn_shot.setFixedWidth(80)                       # 4글자 → 가로 길게
+        # 고정 80px은 Pretendard 4글자(68px@12pt) + 패딩/보더(14px)보다 좁아 잘림.
+        # 실제 폰트 메트릭으로 폭 계산 → 글자 크기(1.0~1.2)·DPI 배율과 무관하게 항상 맞음.
         self.btn_shot.setFont(_btn_font)
+        _fm = self.btn_shot.fontMetrics()
+        self.btn_shot.setFixedWidth(_fm.horizontalAdvance('스크린샷') + 18)  # 14(QSS 패딩/보더) + 4(여유)
         self.btn_shot.setFixedHeight(self.ref_edit.sizeHint().height())  # 세로 = 복사와 동일
         self.btn_shot.setStyleSheet("""
             QPushButton {
@@ -1251,6 +1266,29 @@ class _InlineNoteEdit(QWidget):
         """)
         self.editor.installEventFilter(self)
         outer.addWidget(self.editor, 1)
+
+    def _doc_content_height(self):
+        """현재 폭 기준 문서 콘텐츠 높이: 줄 수 × 줄 간격 + 문서 여백.
+        (document().size()는 블록 수를 돌려줘서 부정확 — lineCount()는 래핑까지 반영)"""
+        doc = self.editor.document()
+        lines = doc.lineCount()
+        if lines <= 0:
+            return None
+        return lines * self.editor.fontMetrics().lineSpacing() + 8  # 문서여백 4×2
+
+    def desired_height(self):
+        """현재 내용(관련번호줄 + 메모)에 필요한 패널 높이. HEIGHT~MAX_HEIGHT 범위.
+
+        MAX_HEIGHT 초과 시 에디터 내부 세로 스크롤바(기본 AsNeeded)가 생긴다.
+        레이아웃 미완료(첫 페인트 전)면 None — 호출 측에서 건너뛴다.
+        """
+        top_h = self.ref_edit.sizeHint().height()
+        doc_h = self._doc_content_height()
+        if doc_h is None:
+            return None
+        editor_h = doc_h + 8  # 여유(테두리 2 + QSS 패딩 4 + 진동 방지 2)
+        needed = 8 + top_h + 6 + editor_h + 8
+        return min(max(self.HEIGHT, needed), self.MAX_HEIGHT)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.KeyPress:
@@ -1351,6 +1389,8 @@ class TaskRow(QWidget):
     def __init__(self, task, on_delete, on_update, scale=1.0, expanded=False, on_toggle=None,
                  on_select=None, on_navigate=None):
         super().__init__()
+        # 행이 남는 공간을 먹고 세로로 늘어나지 않게 (여유 공간은 addStretch가 흡수)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.task      = task
         self.on_update = on_update
         self._scale    = scale
@@ -1420,7 +1460,10 @@ class TaskRow(QWidget):
                     urgent = True
                 else:
                     dday_color = '#333'
-            suffix = f'({dday})'
+            if overdue:
+                suffix = f'기한 지남({dday})'
+            else:
+                suffix = f'({dday})'
         else:
             dday_color = '#333'
             suffix = ''
@@ -1438,7 +1481,7 @@ class TaskRow(QWidget):
         self.name_edit.setFocusPolicy(Qt.NoFocus)
         _base_pt = 12 * scale
         name_font = pr_font(12)
-        name_font.setPointSizeF((11 / 12) * _base_pt if overdue else _base_pt)
+        name_font.setPointSizeF(_base_pt)  # 기한 지나도(overdue) 크기 유지 — 축소하지 않음
         if overdue:
             pass
         elif urgent:
@@ -1463,6 +1506,7 @@ class TaskRow(QWidget):
             font.setStrikeOut(True)
             self.name_edit.setFont(font)
         self.name_edit.installEventFilter(self)
+        self.name_edit.heightChanged.connect(self._sync_row_height)
         self.name_edit.selectRequested.connect(self._request_select)
         self.name_edit.editFinished.connect(self.setFocus)
 
@@ -1482,7 +1526,7 @@ class TaskRow(QWidget):
             dday_lbl.clicked.connect(self._show_date_picker)
             dday_font = pr_font(12)
             dday_font.setBold((urgent or _is_starred) and not overdue)
-            dday_font.setPointSizeF((11 / 12) * _base_pt if overdue else _base_pt)
+            dday_font.setPointSizeF(_base_pt)  # 기한 지나도(overdue) 크기 유지 — 축소하지 않음
             dday_lbl.setFont(dday_font)
             dday_lbl.setStyleSheet(f'color: {dday_color}; background: transparent;')
         else:
@@ -1545,6 +1589,11 @@ class TaskRow(QWidget):
         self._note_save_timer.setSingleShot(True)
         self._note_save_timer.timeout.connect(self._flush_note)
         self.note_editor.textChanged.connect(lambda: self._note_save_timer.start(500))
+        self._note_height_timer = QTimer(self)
+        self._note_height_timer.setSingleShot(True)
+        self._note_height_timer.setInterval(60)  # IME 조합 중 깜빡임 완화
+        self._note_height_timer.timeout.connect(self._update_note_editor_height)
+        self.note_editor.textChanged.connect(lambda: self._note_height_timer.start())
         self._ref_save_timer = QTimer(self)
         self._ref_save_timer.setSingleShot(True)
         self._ref_save_timer.timeout.connect(self._flush_ref)
@@ -1580,9 +1629,17 @@ class TaskRow(QWidget):
         if self._on_select:
             self._on_select(self.task['id'])
 
+    def _sync_row_height(self):
+        """업무명 줄바꿈 높이 변화를 행 높이에 즉시 반영.
+        (sizeHint 캐시 갱신이 행까지 늦게 전파되는 문제를 setFixedHeight로 우회)"""
+        need = max(self.name_edit._fixed_height, 31)  # 31 = 우측 버튼군(메뉴) 높이
+        if self.height() != need:
+            self.setFixedHeight(need)
+
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
             self._request_select()
+            e.accept()  # 부모(eventFilter)로 버블업 차단 → 선택 직후 클리어 방지
         super().mousePressEvent(e)
 
     def _start_rename(self):
@@ -1710,15 +1767,34 @@ class TaskRow(QWidget):
             ph.setStyleSheet('background: transparent;')
             layout.insertWidget(idx + 1, ph)
             self._note_placeholder = ph
+        # 이동/리사이즈/스크롤 시에도 현재 placeholder 높이(자동 성장값)를 유지.
+        # HEIGHT로 덮어쓰면 확장된 패널이 원래대로 되돌아감.
+        ph_h = self._note_placeholder.height()
         self.note_editor.setGeometry(self.x() + 9, self.y() + self.height(),
-                                     self.width() - 17, _InlineNoteEdit.HEIGHT)
+                                     self.width() - 17, ph_h)
         self.note_editor.show()
         self.note_editor.raise_()
+
+    def _update_note_editor_height(self):
+        """내용 변화에 따라 placeholder/패널 높이 갱신. 아래 행들이 밀려남."""
+        if not self._expanded or self._note_placeholder is None:
+            return
+        h = self.note_editor.desired_height()
+        if h is None:
+            return  # 레이아웃 미완료(첫 페인트 전) — 다음 갱신에서 처리
+        if self._note_placeholder.height() == h:
+            return
+        self._note_placeholder.setFixedHeight(h)
+        self.note_editor.setGeometry(self.x() + 9, self.y() + self.height(),
+                                     self.width() - 17, h)
+        self.note_editor.update()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
         if self._expanded and self.note_editor.isVisible():
             self._show_note_editor()
+            # 폭 변경 → 재래핑은 페인트 후에 완료되므로 디바운스 타이머로 재계산
+            self._note_height_timer.start()
 
     def moveEvent(self, e):
         super().moveEvent(e)
@@ -1730,6 +1806,7 @@ class TaskRow(QWidget):
         self.note_editor.setPlainText(get_task_notes(self.task['id']))
         self.note_editor.ref_edit.setText(get_task_related_no(self.task['id']))
         self._show_note_editor()
+        self._update_note_editor_height()  # 저장된 긴 메모 펼치자마자 반영
         self.btn_note.set_expanded(True)
         self.note_editor.focus_editor()
         if self._on_toggle:
@@ -3315,6 +3392,12 @@ class MemoWindow(QMainWindow):
         self.input_time.installEventFilter(self)
         for child in self.input_time.findChildren(QWidget):
             child.installEventFilter(self)
+        # 입력 행 자체에도 필터 — 빈 공간/비활성(시간) 칸 클릭도 선택 해제 대상
+        self.task_input_row.installEventFilter(self)
+        self.date_row_widget.installEventFilter(self)
+        # 본문 빈 공간(행 밖 목록/구분선/여백) 클릭 → 선택 해제용 필터
+        self._top_panel = _top_panel
+        _top_panel.installEventFilter(self)
         self._cal_popup = CustomCalendarWidget()
         self._cal_popup.setWindowFlags(Qt.Popup)
         self._cal_popup.setStyleSheet("""
@@ -3536,7 +3619,56 @@ class MemoWindow(QMainWindow):
         if self._force_memo_mode:
             self.title_bar.btn_mode.hide()
 
+    def _is_empty_area_click(self, obj, event=None):
+        """클릭 대상이 '아무 효과 없는 빈 공간'인지 판정.
+
+        이벤트 필터는 자식 클릭을 먼저 받으므로, 배제 판정은 '클릭 대상 자체'에만
+        적용하고 부모 체인은 _top_panel 도달 여부만 확인한다.
+        (스크롤 영역 등 컨테이너가 체인에 끼더라도 배제되지 않아야 목록 빈 공간이 잡힌다)
+        클릭 좌표(event)가 있으면 실제로 TaskRow 위인지 childAt으로 재확인한다."""
+        w = obj if isinstance(obj, QWidget) else None
+        if w is None:
+            return False
+        if isinstance(w, (TaskRow, QPushButton, QToolButton, QScrollArea, QScrollBar,
+                          QPlainTextEdit, QTextEdit, QLineEdit, QDateTimeEdit,
+                          QComboBox, QCalendarWidget, DdayLabel, AddDateButton)):
+            return False
+        # 행 내부의 클릭 가능/장식 위젯(반복 아이콘 라벨 등)은 빈 공간 아님
+        p = w.parentWidget()
+        while p is not None:
+            if isinstance(p, TaskRow):
+                return False
+            p = p.parentWidget()
+        # 클릭 대상이 목록 영역(또는 그 컨테이너)이면, 좌표 기반으로 실제 TaskRow 위
+        # 클릭인지 확인 (행 본문 빈 영역 클릭도 선택 대상)
+        if event is not None:
+            # task_list_widget 자신, 그 조상, 또는 자손에서 클릭된 경우
+            in_list_area = (w is self.task_list_widget
+                            or self.task_list_widget.isAncestorOf(w)
+                            or (isinstance(w, QWidget) and w.isAncestorOf(self.task_list_widget)))
+            if in_list_area:
+                gp = event.globalPos()
+                child = self.task_list_widget.childAt(self.task_list_widget.mapFromGlobal(gp))
+                cw = child
+                while cw is not None:
+                    if isinstance(cw, TaskRow):
+                        return False
+                    cw = cw.parentWidget()
+        while w is not None:
+            if w is self._top_panel:
+                return True
+            w = w.parentWidget()
+        return False
+
     def eventFilter(self, obj, event):
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            # 새 업무 입력 영역(업무명·마감일·시간 행) 또는 본문 빈 공간 클릭 → 목록 선택 해제
+            def _in_form(w):
+                return isinstance(obj, QWidget) and (obj is w or w.isAncestorOf(obj))
+            if (_in_form(self.task_input_row) or _in_form(self.date_row_widget)
+                    or _in_form(self.input_date) or _in_form(self.input_time)
+                    or self._is_empty_area_click(obj, event)):
+                self._clear_selection()
         if hasattr(self, '_cal_popup') and (obj is self.input_date or self.input_date.isAncestorOf(obj)) and event.type() == QEvent.MouseButtonPress:
             self._toggle_cal_popup()
             return True
@@ -3795,6 +3927,10 @@ class MemoWindow(QMainWindow):
 
     def _select_task(self, task_id):
         self._selected_task_id = task_id
+        self._apply_selection()
+
+    def _clear_selection(self):
+        self._selected_task_id = None
         self._apply_selection()
 
     def _move_selection(self, delta):
