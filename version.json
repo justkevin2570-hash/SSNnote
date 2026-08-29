@@ -1,5 +1,6 @@
 {
-  "version": "v2.58",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.58/SSNnote_Setup.exe",
-  "changelog": "- 업무 행 본문 클릭 시 선택이 즉시 해제되던 버그 수정 (행 내부 빈 영역 클릭도 정상 선택)"
+  "version": "v2.59",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.59/SSNnote_Setup.exe",
+  "sha256": "",
+  "changelog": "- 보안 강화: 업데이트 설치 파일 SHA256 무결성 검증 추가 / 토큰·API 키 DPAPI 암호화 저장 / 단일 인스턴스 잠금을 Windows 뮤텍스로 보강"
 }

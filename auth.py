@@ -9,6 +9,7 @@ import urllib.request
 import urllib.error
 import json
 import os
+import sys
 
 try:
     from supabase_secret import SUPABASE_URL, SUPABASE_ANON_KEY
@@ -18,6 +19,93 @@ except ImportError:
 
 _AUTH_FILE = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'auth.json')
 _session = None
+
+
+# ── Windows DPAPI 암호화 (Windows 전용, 미지원 시 평문 폴백) ──
+def _dpapi_available():
+    # Windows에서만 DPAPI 사용. WSL/리눅스/맥은 평문 폴백.
+    if sys.platform != 'win32':
+        return False
+    try:
+        import ctypes
+        ctypes.windll.crypt32  # Windows에서만 존재
+    except Exception:
+        return False
+    # 실제 라운드트립이 동작하는지 확인 (일부 WSL/wine 환경에선 DLL은 있으나 실패)
+    try:
+        probe = _protect_raw('__dpapi_probe__')
+        if probe is None:
+            return False
+        back = _unprotect_raw(probe)
+        return back == '__dpapi_probe__'
+    except Exception:
+        return False
+
+
+def _protect_raw(plain: str):
+    import ctypes
+    from ctypes import wintypes, POINTER
+    blob_in = ctypes.create_string_buffer(plain.encode('utf-8'))
+    class DATA_BLOB(ctypes.Structure):
+        _fields_ = [('cbData', wintypes.DWORD), ('pbData', POINTER(ctypes.c_char))]
+    out = DATA_BLOB()
+    CryptProtectData = ctypes.windll.crypt32.CryptProtectData
+    CryptProtectData.argtypes = [POINTER(DATA_BLOB), ctypes.c_wchar_p, ctypes.c_void_p,
+                                ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, POINTER(DATA_BLOB)]
+    CryptProtectData.restype = wintypes.BOOL
+    in_blob = DATA_BLOB(len(blob_in), ctypes.cast(blob_in, POINTER(ctypes.c_char)))
+    if CryptProtectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out)):
+        size = out.cbData
+        buf = (ctypes.c_char * size).from_address(ctypes.addressof(out.pbData.contents))
+        return 'dpapi:' + bytes(buf).hex()
+    return None
+
+
+def _unprotect_raw(payload: str):
+    import ctypes
+    from ctypes import wintypes, POINTER
+    raw = bytes.fromhex(payload[len('dpapi:'):])
+    class DATA_BLOB(ctypes.Structure):
+        _fields_ = [('cbData', wintypes.DWORD), ('pbData', POINTER(ctypes.c_char))]
+    in_blob = DATA_BLOB(len(raw), ctypes.cast(ctypes.create_string_buffer(raw, len(raw)), POINTER(ctypes.c_char)))
+    out = DATA_BLOB()
+    CryptUnprotectData = ctypes.windll.crypt32.CryptUnprotectData
+    CryptUnprotectData.argtypes = [POINTER(DATA_BLOB), POINTER(ctypes.c_wchar_p), ctypes.c_void_p,
+                                  ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, POINTER(DATA_BLOB)]
+    CryptUnprotectData.restype = wintypes.BOOL
+    if CryptUnprotectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out)):
+        size = out.cbData
+        buf = (ctypes.c_char * size).from_address(ctypes.addressof(out.pbData.contents))
+        return bytes(buf).decode('utf-8', errors='replace')
+    return None
+
+
+_DPAPI_OK = _dpapi_available()
+
+
+def _protect(plain: str) -> str:
+    """DPAPI로 암호화. 미지원/실패 시 평문 그대로 반환."""
+    if not _DPAPI_OK:
+        return plain
+    try:
+        res = _protect_raw(plain)
+        return res if res is not None else plain
+    except Exception:
+        return plain
+
+
+def _unprotect(payload: str) -> str:
+    """DPAPI로 복호화. 'dpapi:' 접두사가 없으면 평문으로 간주."""
+    if not payload.startswith('dpapi:'):
+        return payload
+    if not _DPAPI_OK:
+        # Windows가 아닌 환경에서는 복호화 불가 → 빈 값 반환
+        return ''
+    try:
+        res = _unprotect_raw(payload)
+        return res if res is not None else ''
+    except Exception:
+        return ''
 
 
 def _post(path, data):
@@ -36,15 +124,26 @@ def _post(path, data):
 def _load_saved():
     try:
         with open(_AUTH_FILE, encoding='utf-8') as f:
-            return json.load(f)
+            raw = f.read().strip()
+        if not raw:
+            return None
+        plain = _unprotect(raw)
+        if not plain:
+            return None
+        return json.loads(plain)
     except Exception:
         return None
 
 
 def _save(session):
     os.makedirs(os.path.dirname(_AUTH_FILE), exist_ok=True)
-    with open(_AUTH_FILE, 'w', encoding='utf-8') as f:
-        json.dump(session, f)
+    try:
+        data = json.dumps(session)
+        encrypted = _protect(data)
+        with open(_AUTH_FILE, 'w', encoding='utf-8') as f:
+            f.write(encrypted)
+    except Exception:
+        pass
 
 
 def init():

@@ -175,12 +175,21 @@ def _launch_window(wid, x, y, width, height, collapsed, color='', scale=1.0, mem
 
 
 if __name__ == '__main__':
-    # 중복 실행 방지: 이미 실행 중이면 조용히 종료
-    _lock_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    _lock_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-    try:
-        _lock_sock.bind(('127.0.0.1', _SINGLE_INSTANCE_PORT))
-    except OSError:
+    # 중복 실행 방지: Windows는 네임드 뮤텍스, 그 외는 포트 바인드 폴백
+    _already_running = False
+    if sys.platform == 'win32':
+        import ctypes
+        _MUTEX_NAME = 'Global\\SSNnote_SingleInstance_9f3a2c'
+        _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+        _already_running = (ctypes.windll.kernel32.GetLastError() == 183)  # ERROR_ALREADY_EXISTS
+    else:
+        _lock_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _lock_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        try:
+            _lock_sock.bind(('127.0.0.1', _SINGLE_INSTANCE_PORT))
+        except OSError:
+            _already_running = True
+    if _already_running:
         sys.exit(0)
 
     init_db()

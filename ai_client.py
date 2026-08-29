@@ -10,6 +10,8 @@ import base64
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap
 
+import auth
+
 APPDATA_DIR        = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
 KEY_FILE           = os.path.join(APPDATA_DIR, 'gemini_key.txt')
 AI_MODE_FILE       = os.path.join(APPDATA_DIR, 'ai_mode.txt')
@@ -24,6 +26,26 @@ NVIDIA_MODEL_FILE  = os.path.join(APPDATA_DIR, 'nvidia_model.txt')
 OPENCODE_KEY_FILE   = os.path.join(APPDATA_DIR, 'opencode_key.txt')
 OPENCODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'opencode_model.txt')
 OLLAMA_HOST        = 'http://localhost:11434'
+
+# ── 자격증명 암호화 헬퍼 (Windows DPAPI, 미지원 시 평문 폴백) ──
+def _read_secret(path: str) -> str:
+    try:
+        with open(path, encoding='utf-8') as f:
+            raw = f.read().strip()
+        if not raw:
+            return ''
+        return auth._unprotect(raw)
+    except Exception:
+        return ''
+
+
+def _write_secret(path: str, val: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(auth._protect(val))
+    except Exception:
+        pass
 
 # 세션 키 (API 키 저장 체크 해제 시 메모리에만 보관)
 _session_keys: dict[str, str] = {}
@@ -314,18 +336,13 @@ def load_api_key() -> str:
     key = _session_keys.get('gemini', '')
     if key:
         return key
-    if os.path.exists(KEY_FILE):
-        with open(KEY_FILE, 'r', encoding='utf-8') as f:
-            return f.read().strip()
-    return ''
+    return _read_secret(KEY_FILE)
 
 
 def save_api_key(key: str, persist: bool = True):
     _session_keys.pop('gemini', None)
     if persist:
-        os.makedirs(APPDATA_DIR, exist_ok=True)
-        with open(KEY_FILE, 'w', encoding='utf-8') as f:
-            f.write(key.strip())
+        _write_secret(KEY_FILE, key.strip())
     else:
         _session_keys['gemini'] = key
     GeminiAdapter.invalidate_client()
@@ -382,18 +399,13 @@ def load_claude_key() -> str:
     key = _session_keys.get('claude', '')
     if key:
         return key
-    if os.path.exists(CLAUDE_KEY_FILE):
-        with open(CLAUDE_KEY_FILE, 'r', encoding='utf-8') as f:
-            return f.read().strip()
-    return ''
+    return _read_secret(CLAUDE_KEY_FILE)
 
 
 def save_claude_key(key: str, persist: bool = True):
     _session_keys.pop('claude', None)
     if persist:
-        os.makedirs(APPDATA_DIR, exist_ok=True)
-        with open(CLAUDE_KEY_FILE, 'w', encoding='utf-8') as f:
-            f.write(key.strip())
+        _write_secret(CLAUDE_KEY_FILE, key.strip())
     else:
         _session_keys['claude'] = key
 
@@ -417,18 +429,13 @@ def load_openai_key() -> str:
     key = _session_keys.get('openai', '')
     if key:
         return key
-    if os.path.exists(OPENAI_KEY_FILE):
-        with open(OPENAI_KEY_FILE, 'r', encoding='utf-8') as f:
-            return f.read().strip()
-    return ''
+    return _read_secret(OPENAI_KEY_FILE)
 
 
 def save_openai_key(key: str, persist: bool = True):
     _session_keys.pop('openai', None)
     if persist:
-        os.makedirs(APPDATA_DIR, exist_ok=True)
-        with open(OPENAI_KEY_FILE, 'w', encoding='utf-8') as f:
-            f.write(key.strip())
+        _write_secret(OPENAI_KEY_FILE, key.strip())
     else:
         _session_keys['openai'] = key
 
@@ -452,18 +459,13 @@ def load_nvidia_key() -> str:
     key = _session_keys.get('nvidia', '')
     if key:
         return key
-    if os.path.exists(NVIDIA_KEY_FILE):
-        with open(NVIDIA_KEY_FILE, 'r', encoding='utf-8') as f:
-            return f.read().strip()
-    return ''
+    return _read_secret(NVIDIA_KEY_FILE)
 
 
 def save_nvidia_key(key: str, persist: bool = True):
     _session_keys.pop('nvidia', None)
     if persist:
-        os.makedirs(APPDATA_DIR, exist_ok=True)
-        with open(NVIDIA_KEY_FILE, 'w', encoding='utf-8') as f:
-            f.write(key.strip())
+        _write_secret(NVIDIA_KEY_FILE, key.strip())
     else:
         _session_keys['nvidia'] = key
 
@@ -487,18 +489,13 @@ def load_opencode_key() -> str:
     key = _session_keys.get('opencode', '')
     if key:
         return key
-    if os.path.exists(OPENCODE_KEY_FILE):
-        with open(OPENCODE_KEY_FILE, 'r', encoding='utf-8') as f:
-            return f.read().strip()
-    return ''
+    return _read_secret(OPENCODE_KEY_FILE)
 
 
 def save_opencode_key(key: str, persist: bool = True):
     _session_keys.pop('opencode', None)
     if persist:
-        os.makedirs(APPDATA_DIR, exist_ok=True)
-        with open(OPENCODE_KEY_FILE, 'w', encoding='utf-8') as f:
-            f.write(key.strip())
+        _write_secret(OPENCODE_KEY_FILE, key.strip())
     else:
         _session_keys['opencode'] = key
 

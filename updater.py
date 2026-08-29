@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import ssl
+import hashlib
 import subprocess
 import threading
 import tempfile
@@ -38,6 +39,8 @@ _VERSION_JSON_URL = 'https://gist.githubusercontent.com/justkevin2570-hash/57ec4
 _APPDATA_DIR = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
 _NOTIFIED_FILE = os.path.join(_APPDATA_DIR, 'last_notified_version.txt')
 _REQUEST_TIMEOUT = 10
+
+_pending_sha256 = ''
 
 
 def _fetch_url(url: str, extra_headers: str = '') -> dict | None:
@@ -154,6 +157,7 @@ def check_for_update_on_startup(notifier: UpdateNotifier, banner_notifier=None):
     새 버전 있음 + 미알림 → 팝업 표시.
     banner_notifier가 있으면 확인 결과(업데이트 있음 여부)를 메인 스레드로 전달.
     """
+    global _pending_sha256
     version_info = fetch_version_info()
     if not version_info:
         if banner_notifier:
@@ -174,6 +178,7 @@ def check_for_update_on_startup(notifier: UpdateNotifier, banner_notifier=None):
 
     download_url = version_info.get('download_url', '')
     changelog = version_info.get('changelog', '업데이트 내역 없음')
+    _pending_sha256 = version_info.get('sha256', '')
     notifier.emit_notify(remote_version, download_url, changelog)
 
 
@@ -195,6 +200,8 @@ def check_for_update_manual(parent=None):
         print(f'[UPDATE] 새 버전 있음: {APP_VERSION} → {remote_version}')
         download_url = version_info.get('download_url', '')
         changelog = version_info.get('changelog', '')
+        global _pending_sha256
+        _pending_sha256 = version_info.get('sha256', '')
         _manual_signal.show_dialog.emit(remote_version, download_url, changelog)
 
     threading.Thread(target=_check, daemon=True).start()
@@ -250,11 +257,11 @@ def show_update_dialog(version: str, download_url: str, changelog: str, parent=N
     _save_notified_version(version)
 
     if result == QMessageBox.Yes:
-        download_and_install(version, download_url, changelog, parent)
+        download_and_install(version, download_url, changelog, parent, sha256=_pending_sha256)
 
 
-def download_and_install(version: str, download_url: str, changelog: str, parent=None):
-    """Setup 파일 다운로드 → 실행 → 앱 종료."""
+def download_and_install(version: str, download_url: str, changelog: str, parent=None, sha256: str = ''):
+    """Setup 파일 다운로드 → 무결성 검증 → 실행 → 앱 종료."""
     if not getattr(sys, 'frozen', False):
         QMessageBox.information(parent, '개발 환경',
             '개발 환경에서는 업데이트를 지원하지 않습니다.\n'
@@ -288,6 +295,28 @@ def download_and_install(version: str, download_url: str, changelog: str, parent
         return
 
     progress.close()
+
+    # ── 무결성 검증 (SHA256) ──────────────────────────────────
+    if sha256:
+        try:
+            h = hashlib.sha256()
+            with open(tmp_setup, 'rb') as f:
+                for chunk in iter(lambda: f.read(65536), b''):
+                    h.update(chunk)
+            actual = h.hexdigest()
+            if actual.lower() != sha256.lower():
+                try:
+                    os.remove(tmp_setup)
+                except OSError:
+                    pass
+                QMessageBox.warning(parent, '설치 차단',
+                    '다운로드한 설치 파일의 무결성 검증에 실패했습니다.\n'
+                    '파일이 손상되었거나 변조되었을 수 있어 설치를 중단합니다.')
+                return
+        except Exception as e:
+            QMessageBox.warning(parent, '검증 오류',
+                f'설치 파일 검증 중 오류가 발생했습니다.\n{e}')
+            return
 
     try:
         os.startfile(tmp_setup)
