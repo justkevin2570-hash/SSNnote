@@ -1387,7 +1387,7 @@ class _InlineNoteEdit(QWidget):
 
 class TaskRow(QWidget):
     def __init__(self, task, on_delete, on_update, scale=1.0, expanded=False, on_toggle=None,
-                 on_select=None, on_navigate=None):
+                 on_select=None, on_navigate=None, on_clear=None):
         super().__init__()
         # 행이 남는 공간을 먹고 세로로 늘어나지 않게 (여유 공간은 addStretch가 흡수)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -1398,6 +1398,7 @@ class TaskRow(QWidget):
         self._on_toggle = on_toggle
         self._on_select = on_select
         self._on_navigate = on_navigate
+        self._on_clear = on_clear
         self._selected = False
         self._hovered = False
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -1648,6 +1649,10 @@ class TaskRow(QWidget):
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_F2:
             self._start_rename()
+            return
+        if e.key() == Qt.Key_Escape:
+            if self._on_clear:
+                self._on_clear()
             return
         if e.key() in (Qt.Key_Up, Qt.Key_Down):
             if self._on_navigate:
@@ -3912,7 +3917,8 @@ class MemoWindow(QMainWindow):
                           expanded=task['id'] in self._expanded_note_ids,
                           on_toggle=self._on_task_note_toggle,
                           on_select=self._select_task,
-                          on_navigate=self._move_selection)
+                          on_navigate=self._move_selection,
+                          on_clear=self._clear_selection)
             self.task_list_layout.insertWidget(self.task_list_layout.count() - 1, row)
             if row._expanded:
                 row._show_note_editor()
