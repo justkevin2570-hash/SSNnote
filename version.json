@@ -1,6 +1,6 @@
 {
   "version": "v2.61",
   "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.61/SSNnote_Setup.exe",
-  "sha256": "",
+  "sha256": "6702eb3d20fc615c4b65adbcc0f7fde3ce44eaba75acf4f16d58dfc494ef8249",
   "changelog": "- 단축키 메뉴를 '사용 설명서'로 개편: 업무 조작법·기타·단축키 안내 다이얼로그로 교체\n- 업무 행 선택 상태에서 ESC 키로 선택 해제 (행 포커스 상태)\n- 보안 강화: 업데이트 설치 파일 SHA256 무결성 검증 / 자격증명 DPAPI 암호화 / 단일 인스턴스 뮤텍스"
 }
