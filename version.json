@@ -1,6 +1,6 @@
 {
   "version": "v2.60",
   "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.60/SSNnote_Setup.exe",
-  "sha256": "",
-  "changelog": "- 업무 행 선택 상태에서 ESC 키 누르면 선택 해제 (행 포커스 상태)"
+  "sha256": "66018c42a13af2bb45d64947ac159bf05bcdcb2fbf0eedf38f49ff471e0023d3",
+  "changelog": "- 업무 행 선택 상태에서 ESC 키로 선택 해제 (행 포커스 상태)\n- 보안 강화: 업데이트 설치 파일 SHA256 무결성 검증 / 자격증명 DPAPI 암호화 / 단일 인스턴스 뮤텍스"
 }
