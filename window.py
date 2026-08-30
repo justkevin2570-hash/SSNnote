@@ -4759,8 +4759,9 @@ class MemoWindow(QMainWindow):
         layout.setContentsMargins(12, 12, 12, 12)
         icon_path = os.path.join(_base_path(), 'assets', '수정 아이콘.png')
         icon_url = QUrl.fromLocalFile(icon_path).toString()
+        _load_pretendard()
         lbl = QLabel(
-            '<p style="line-height: 175%; font-family: Malgun Gothic; font-size: 11pt;">'
+            '<p style="line-height: 160%; font-family: Pretendard; font-size: 12pt;">'
             '<b>〈업무〉</b><br>'
             '1. 업무명 칸에서 <b>Tab</b> 키를 누르면 다음 설정 칸으로 이동<br>'
             '2. 업무 목록에서 업무를 더블 클릭하거나 선택한 후 <b>F2</b> 키를 누르면 업무명 변경 가능<br>'
