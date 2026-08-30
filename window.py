@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QListWidget, QAbstractItemView, QComboBox, QListWidgetItem, QTableWidget, QTableWidgetItem,
     QSplitter, QGraphicsDropShadowEffect, QCheckBox, QScrollBar
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QMimeData
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QMimeData, QUrl
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor, QMouseEvent
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
@@ -4288,7 +4288,7 @@ class MemoWindow(QMainWindow):
         autostart_on = autostart_is_enabled()
         act_auto = QAction(('✅ ' if autostart_on else '☐ ') + '시작 시 자동실행', self)
         act_auto.triggered.connect(lambda: autostart_set(not autostart_on))
-        act_help   = QAction('💡 단축키', self)
+        act_help   = QAction('💡 사용 설명서', self)
         act_update = QAction('⬇️ 업데이트 확인', self)
         act_delete = QAction('🗑️ 메모장 삭제', self)
 
@@ -4753,19 +4753,30 @@ class MemoWindow(QMainWindow):
 
     def show_help(self):
         dlg = QDialog(self)
-        dlg.setWindowTitle('단축키')
-        dlg.setMinimumWidth(370)
+        dlg.setWindowTitle('사용 설명서')
+        dlg.setMinimumWidth(460)
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(12, 12, 12, 12)
+        icon_path = os.path.join(_base_path(), 'assets', '수정 아이콘.png')
+        icon_url = QUrl.fromLocalFile(icon_path).toString()
         lbl = QLabel(
-            '<p style="line-height: 195%; font-family: Malgun Gothic; font-size: 11pt;">'
-            '① Tab키, Enter키만 잘 쓰면 편하게 쓰실 수 있습니다.<br>'
-            '② 단축키: <b>Ctrl + Shift</b> 를 누른 후<br>'
-            '&nbsp;&nbsp;&nbsp;&nbsp;- <b>X</b> : 화면 캡처<br>'
-            '&nbsp;&nbsp;&nbsp;&nbsp;- <b>S</b> : 포커싱<br>'
-            '&nbsp;&nbsp;&nbsp;&nbsp;- <b>R</b> : 롤업<br>'
-            '&nbsp;&nbsp;&nbsp;&nbsp;- <b>F</b> : 항상 위<br>'
-            '③ 캡처는 공문을 전체화면으로 키워야 정확합니다.'
+            '<p style="line-height: 175%; font-family: Malgun Gothic; font-size: 11pt;">'
+            '<b>〈업무〉</b><br>'
+            '1. 업무명 칸에서 <b>Tab</b> 키를 누르면 다음 설정 칸으로 이동<br>'
+            '2. 업무 목록에서 업무를 더블 클릭하거나 선택한 후 <b>F2</b> 키를 누르면 업무명 변경 가능<br>'
+            '3. 업무 목록을 선택하고 위아래 방향키로 이동 가능<br>'
+            '4. 업무 목록을 선택하고 <b>Enter</b> 키를 누르면 메모장 열림<br>'
+            '<br>'
+            '<b>〈기타〉</b><br>'
+            "1. '메뉴 - 업데이트 확인' 누르면 업데이트 가능. 이때, 학교 컴퓨터에서는 2번 해야 가능함.<br>"
+            '&nbsp;&nbsp;(방화벽 때문에 처음 한 번은 막히는 듯?)<br>'
+            f'2. <img src="{icon_url}" width="20" height="20" style="vertical-align: middle;"> 버튼을 누르면 메모 모드로 변환. 한 번 더 누르면 원위치.<br>'
+            '3. 나머지는 직접 눌러보세요. 단순합니다.<br>'
+            '<br>'
+            '<b>〈단축키〉</b><br>'
+            '1. <b>ctrl + s</b> : 앱 포커싱 (다른 작업 하다가 이거 누르면 서서니 노트 앱으로 집중)<br>'
+            '2. <b>ctrl + r</b> : 제목표시줄만 남기고 접기/펼치기<br>'
+            '3. <b>ctrl + f</b> : 항상 화면 위에 고정(Fix)'
             '</p>'
         )
         lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
