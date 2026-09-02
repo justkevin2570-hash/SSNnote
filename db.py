@@ -241,11 +241,11 @@ def get_all_tasks_for_calendar():
         return {row['d']: row['cnt'] for row in rows}
 
 
-def add_task(window_id, name, deadline, strikethrough=0, priority=0, recurrence=''):
+def add_task(window_id, name, deadline, strikethrough=0, priority=0, recurrence='', notes='', related_no=''):
     with _connect() as conn:
         cur = conn.execute(
-            'INSERT INTO tasks (window_id, name, deadline, strikethrough, priority, recurrence) VALUES (?,?,?,?,?,?)',
-            (window_id, name, deadline, strikethrough, priority, recurrence)
+            'INSERT INTO tasks (window_id, name, deadline, strikethrough, priority, recurrence, notes, related_no) VALUES (?,?,?,?,?,?,?,?)',
+            (window_id, name, deadline, strikethrough, priority, recurrence, notes, related_no)
         )
         return cur.lastrowid
 

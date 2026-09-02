@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QSplitter, QGraphicsDropShadowEffect, QCheckBox, QScrollBar
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSize, QSettings, pyqtSignal, QPropertyAnimation, QEasingCurve, QRectF, QMimeData, QUrl
-from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor, QMouseEvent
+from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QPixmap, QFontDatabase, QPen, QTextBlockFormat, QTextCursor, QCursor, QMouseEvent, QKeySequence
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
                 set_task_priority, set_task_recurrence, get_task_notes, set_task_notes,
@@ -1092,12 +1092,26 @@ class _AutoHeightEdit(QPlainTextEdit):
         self._v_pad = max(0, (fixed_h - int(y)) // 2)
 
 
+class _SelectableLabel(QLabel):
+    """마우스 드래그로 텍스트 선택 가능한 라벨. 선택 후 Ctrl+C 복사 지원."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        self.setFocusPolicy(Qt.ClickFocus)
+
+    def keyPressEvent(self, e):
+        if e.matches(QKeySequence.Copy) and self.hasSelectedText():
+            QApplication.clipboard().setText(self.selectedText())
+            return
+        super().keyPressEvent(e)
+
 class _NoteButton(QPushButton):
     """업무 메모 펼치기/접기 토글 버튼. 접힘 ▼ / 펼침 ▲."""
     _CODEPOINT_COLLAPSED = '\u25bc'  # ▼
     _CODEPOINT_EXPANDED  = '\u25b2'  # ▲
 
-    def __init__(self, scale=1.0):
+    def __init__(self, scale=1.0, glyph_offset=4):
         super().__init__()
         self._color_normal = QColor('#555555')
         self._color_hover  = QColor('#d4b800')
@@ -1105,6 +1119,7 @@ class _NoteButton(QPushButton):
         self._has_note     = False
         self._overdue      = False
         self._expanded     = False
+        self._glyph_offset = glyph_offset
         self.setFlat(True)
         sz = int(22 * scale)
         self.setFixedSize(sz, sz)
@@ -1141,7 +1156,7 @@ class _NoteButton(QPushButton):
         p.setFont(self.font())
         p.setPen(self._color_hover if self._hovered else self._color_normal)
         rect = self.rect()
-        rect.translate(0, 4)
+        rect.translate(0, self._glyph_offset)
         p.drawText(rect, Qt.AlignCenter,
                    self._CODEPOINT_EXPANDED if self._expanded else self._CODEPOINT_COLLAPSED)
         p.end()
@@ -3141,7 +3156,9 @@ class MonthlyCalendarDialog(QDialog):
         add_task(task['window_id'], task['name'], task.get('deadline', ''),
                  strikethrough=task.get('strikethrough', 0),
                  priority=task.get('priority', 0),
-                 recurrence=task.get('recurrence', ''))
+                 recurrence=task.get('recurrence', ''),
+                 notes=task.get('notes', ''),
+                 related_no=task.get('related_no', ''))
         delete_task_history(task['id'])
         self._load_data()
         self._render()
@@ -3462,12 +3479,12 @@ class MemoWindow(QMainWindow):
         self.input_recurrence = QComboBox()
         self.input_recurrence.addItems(['반복 없음', '매주', '격주', '매월', '매년', '사용자 설정...'])
         for _i in range(self.input_recurrence.count()):
-            self.input_recurrence.setItemData(_i, Qt.AlignCenter, Qt.TextAlignmentRole)
+            self.input_recurrence.setItemData(_i, Qt.AlignLeft, Qt.TextAlignmentRole)
         self.input_recurrence.installEventFilter(self)
         self.input_recurrence.setFixedWidth(90)
         self.input_recurrence.setFont(QFont('Malgun Gothic', 11))
         self._recurrence_style_base = (
-            "QComboBox {{ border: 1px solid #d4b800; border-radius: 4px; padding: 0 4px; "
+            "QComboBox {{ border: 1px solid #d4b800; border-radius: 4px; padding: 0 6px; "
             "background: #fffde7; color: {color}; }}"
             "QComboBox:focus {{ border: 2px solid #4a90d9; background: rgba(255,255,255,0.85); }}"
             "QComboBox::drop-down {{ border: none; width: 0px; }}"
@@ -4511,6 +4528,7 @@ class MemoWindow(QMainWindow):
         else:
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
             scroll.setStyleSheet('QScrollArea { border: none; }')
             scroll.setMaximumHeight(440)
 
@@ -4525,6 +4543,7 @@ class MemoWindow(QMainWindow):
                 visible = sum(
                     1 for i in range(layout.count())
                     if layout.itemAt(i).widget() and layout.itemAt(i).widget().isVisible()
+                    and not getattr(layout.itemAt(i).widget(), '_is_memo_panel', False)
                 )
                 if visible == 0:
                     btn_toggle.hide()
@@ -4537,14 +4556,22 @@ class MemoWindow(QMainWindow):
                 add_task(self.window_id, r['name'], r['deadline'],
                          strikethrough=r.get('strikethrough', 0),
                          priority=r.get('priority', 0),
-                         recurrence=r.get('recurrence', ''))
+                         recurrence=r.get('recurrence', ''),
+                         notes=r.get('notes', ''),
+                         related_no=r.get('related_no', ''))
                 delete_task_history(r['id'])
                 self._refresh_tasks()
+                mw = getattr(row_widget, '_memo_widget', None)
+                if mw is not None:
+                    mw.hide()
                 row_widget.hide()
                 refresh_folder(btn_toggle, container, year, month)
 
             def delete_history(r, row_widget, btn_toggle, container, year, month):
                 delete_task_history(r['id'])
+                mw = getattr(row_widget, '_memo_widget', None)
+                if mw is not None:
+                    mw.hide()
                 row_widget.hide()
                 refresh_folder(btn_toggle, container, year, month)
 
@@ -4552,6 +4579,9 @@ class MemoWindow(QMainWindow):
                 name     = r['name']
                 deadline = r['deadline']
                 cleared  = r['cleared_at'][:10]
+                note     = r.get('notes', '') or ''
+                related  = r.get('related_no', '') or ''
+                has_memo = bool(note.strip() or related.strip())
 
                 overdue = False
                 if deadline:
@@ -4581,11 +4611,17 @@ class MemoWindow(QMainWindow):
                     }
                 """)
                 lbl_task.setCursorPosition(0)
-                lbl_cleared = QLabel(f'삭제: {cleared}')
+                lbl_cleared = _SelectableLabel(f'삭제: {cleared}')
                 lbl_cleared.setStyleSheet('color: #999; font-size: 9pt; background: transparent;')
                 lbl_cleared.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
                 rh.addWidget(lbl_task, 1)
+                btn_note = None
+                if has_memo:
+                    btn_note = _NoteButton(scale=1.0, glyph_offset=0)
+                    btn_note.set_note_color(True)
+                    btn_note.setToolTip('업무 메모 (펼치기/접기)')
+                    rh.addWidget(btn_note)
                 rh.addSpacing(11)
                 rh.addWidget(lbl_cleared)
 
@@ -4615,6 +4651,39 @@ class MemoWindow(QMainWindow):
                 """)
                 btn_del.clicked.connect(lambda _, rec=r, rw=row_widget: delete_history(rec, rw, btn_toggle, container, year, month))
                 rh.addWidget(btn_del)
+
+                container.layout().addWidget(row_widget)
+
+                if has_memo:
+                    memo_widget = QWidget()
+                    memo_widget._is_memo_panel = True
+                    memo_widget.setStyleSheet('background: rgba(255,255,255,0.7); border-radius: 4px;')
+                    mv = QVBoxLayout(memo_widget)
+                    mv.setContentsMargins(28, 4, 8, 4)
+                    mv.setSpacing(3)
+                    if related.strip():
+                        lbl_ref = _SelectableLabel(f'공문: {related}')
+                        lbl_ref.setStyleSheet('color: #7a6a00; font-size: 9pt; background: transparent; font-weight: bold;')
+                        lbl_ref.setWordWrap(True)
+                        mv.addWidget(lbl_ref)
+                    if note.strip():
+                        lbl_note = _SelectableLabel(note)
+                        lbl_note.setStyleSheet('color: #444; font-size: 10pt; background: transparent;')
+                        lbl_note.setWordWrap(True)
+                        mv.addWidget(lbl_note)
+                    memo_widget.hide()
+
+                    def toggle_note(_, w=memo_widget, b=btn_note):
+                        if w.isHidden():
+                            w.show()
+                            b.set_expanded(True)
+                        else:
+                            w.hide()
+                            b.set_expanded(False)
+
+                    btn_note.clicked.connect(toggle_note)
+                    row_widget._memo_widget = memo_widget
+                    container.layout().addWidget(memo_widget)
 
                 return row_widget
 
@@ -4660,7 +4729,7 @@ class MemoWindow(QMainWindow):
                 month_container.hide()
 
                 for r in grp:
-                    mc_vbox.addWidget(make_row(r, btn_toggle, month_container, year, month))
+                    make_row(r, btn_toggle, month_container, year, month)
 
                 def toggle_month(_, container=month_container, btn=btn_toggle,
                                  txt_exp=header_text_expanded, txt_col=header_text_collapsed):
@@ -4714,7 +4783,7 @@ class MemoWindow(QMainWindow):
                 cur_vbox.setSpacing(4)
 
                 for r in current_records:
-                    cur_vbox.addWidget(make_row(r, btn_cur, cur_container, cur_year, cur_month))
+                    make_row(r, btn_cur, cur_container, cur_year, cur_month)
 
                 def toggle_current(_, container=cur_container, btn=btn_cur,
                                    txt_exp=cur_txt_exp, txt_col=cur_txt_col):
