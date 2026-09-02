@@ -1,6 +1,6 @@
 {
-  "version": "v2.61",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.61/SSNnote_Setup.exe",
+  "version": "v2.62",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.62/SSNnote_Setup.exe",
   "sha256": "6702eb3d20fc615c4b65adbcc0f7fde3ce44eaba75acf4f16d58dfc494ef8249",
-  "changelog": "- 단축키 메뉴를 '사용 설명서'로 개편: 업무 조작법·기타·단축키 안내 다이얼로그로 교체\n- 업무 행 선택 상태에서 ESC 키로 선택 해제 (행 포커스 상태)\n- 보안 강화: 업데이트 설치 파일 SHA256 무결성 검증 / 자격증명 DPAPI 암호화 / 단일 인스턴스 뮤텍스"
+  "changelog": "- 완료 업무 지난 기록에 인라인 메모 표시: 공문 번호·메모 내용 펼침/접기 토글 버튼 추가\n- 지난 기록 텍스트 드래그 선택 및 Ctrl+C 복사 지원 (메모·공문 번호·삭제일)\n- 지난 기록 메모 토글 버튼 세로 중앙 정렬 및 스크롤바 등장에 따른 좌우 흔들림 방지\n- 업무 입력 반복 설정 콤보박스 텍스트 왼쪽 정렬 (업무명·마감일 플레이스홀더와 간격 통일)"
 }
