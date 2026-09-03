@@ -1,6 +1,6 @@
 {
-  "version": "v2.62",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.62/SSNnote_Setup.exe",
-  "sha256": "427a97316d77d97cf82b1b0112146004221de90c5d278a9be2e452a747a719b3",
-  "changelog": "- 완료 업무 지난 기록에 인라인 메모 표시: 공문 번호·메모 내용 펼침/접기 토글 버튼 추가\n- 지난 기록 텍스트 드래그 선택 및 Ctrl+C 복사 지원 (메모·공문 번호·삭제일)\n- 지난 기록 메모 토글 버튼 세로 중앙 정렬 및 스크롤바 등장에 따른 좌우 흔들림 방지\n- 업무 입력 반복 설정 콤보박스 텍스트 왼쪽 정렬 (업무명·마감일 플레이스홀더와 간격 통일)"
+  "version": "v2.63",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.63/SSNnote_Setup.exe",
+  "sha256": "",
+  "changelog": "- 업무별 붙임파일 지원: 파일을 업무 줄에 드래그앤드롭하면 붙임 (바로가기 방식 — 원본 파일은 원래 위치 유지)\n- 붙임파일 클릭 시 Windows 기본 프로그램으로 바로 열기, ✕ 버튼으로 붙임만 제거\n- 붙임 목록 펼침/접힘 지원 및 확장 상태 기억 (글자 크기 변경 시에도 유지)\n- 글자 크기 설정이 붙임 버튼·목록에도 동일하게 적용"
 }
