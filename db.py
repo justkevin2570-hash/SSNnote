@@ -30,7 +30,12 @@ def init_db():
                 window_id     INTEGER NOT NULL,
                 name          TEXT NOT NULL,
                 deadline      TEXT NOT NULL DEFAULT '',
-                strikethrough INTEGER NOT NULL DEFAULT 0
+                strikethrough INTEGER NOT NULL DEFAULT 0,
+                priority      INTEGER NOT NULL DEFAULT 0,
+                recurrence    TEXT NOT NULL DEFAULT '',
+                notes         TEXT NOT NULL DEFAULT '',
+                related_no    TEXT NOT NULL DEFAULT '',
+                attachments   TEXT NOT NULL DEFAULT '[]'
             );
 
             CREATE TABLE IF NOT EXISTS task_history (
@@ -121,6 +126,11 @@ def init_db():
             conn.execute("ALTER TABLE tasks ADD COLUMN related_no TEXT NOT NULL DEFAULT ''")
         if 'related_no' not in hcols:
             conn.execute("ALTER TABLE task_history ADD COLUMN related_no TEXT NOT NULL DEFAULT ''")
+
+        # attachments 컬럼 마이그레이션 (업무 붙임파일 — 파일 경로 JSON 배열)
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(tasks)').fetchall()]
+        if 'attachments' not in cols:
+            conn.execute("ALTER TABLE tasks ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'")
 
         # 기존 window_state 마이그레이션
         tables = [r[0] for r in conn.execute(
@@ -301,6 +311,17 @@ def get_task_related_no(task_id: int) -> str:
 def set_task_related_no(task_id: int, related_no: str):
     with _connect() as conn:
         conn.execute('UPDATE tasks SET related_no=? WHERE id=?', (related_no, task_id))
+
+
+def get_task_attachments(task_id: int) -> str:
+    with _connect() as conn:
+        row = conn.execute('SELECT attachments FROM tasks WHERE id=?', (task_id,)).fetchone()
+        return row['attachments'] if row else '[]'
+
+
+def set_task_attachments(task_id: int, attachments_json: str):
+    with _connect() as conn:
+        conn.execute('UPDATE tasks SET attachments=? WHERE id=?', (attachments_json, task_id))
 
 
 def search_tasks_all(query):

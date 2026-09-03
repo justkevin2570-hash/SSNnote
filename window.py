@@ -1,6 +1,8 @@
 import os
 import sys
 import html
+import json
+import subprocess
 import ctypes
 import calendar
 from PyQt5.QtSvg import QSvgRenderer
@@ -20,6 +22,7 @@ from db import (update_window, delete_window, get_tasks, add_task, delete_task, 
                 add_task_history, get_task_history, delete_task_history,
                 set_task_priority, set_task_recurrence, get_task_notes, set_task_notes,
                 get_task_related_no, set_task_related_no,
+                get_task_attachments, set_task_attachments,
                 search_tasks_all,
                 get_documents, add_document, update_document, delete_document,
                 get_official_documents, delete_official_document,
@@ -1402,7 +1405,8 @@ class _InlineNoteEdit(QWidget):
 
 class TaskRow(QWidget):
     def __init__(self, task, on_delete, on_update, scale=1.0, expanded=False, on_toggle=None,
-                 on_select=None, on_navigate=None, on_clear=None):
+                 on_select=None, on_navigate=None, on_clear=None,
+                 attach_expanded=False, on_attach_toggle=None):
         super().__init__()
         # 행이 남는 공간을 먹고 세로로 늘어나지 않게 (여유 공간은 addStretch가 흡수)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -1414,6 +1418,8 @@ class TaskRow(QWidget):
         self._on_select = on_select
         self._on_navigate = on_navigate
         self._on_clear = on_clear
+        self._attach_expanded_init = attach_expanded
+        self._on_attach_toggle = on_attach_toggle
         self._selected = False
         self._hovered = False
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -1495,6 +1501,8 @@ class TaskRow(QWidget):
 
         self.name_edit = _AutoHeightEdit(task['name'])
         self.name_edit.setFocusPolicy(Qt.NoFocus)
+        # 파일 드롭이 name_edit(텍스트 위젯)에 가로채지고 부모 TaskRow로 버블업되도록 끔
+        self.name_edit.setAcceptDrops(False)
         _base_pt = 12 * scale
         name_font = pr_font(12)
         name_font.setPointSizeF(_base_pt)  # 기한 지나도(overdue) 크기 유지 — 축소하지 않음
@@ -1566,11 +1574,46 @@ class TaskRow(QWidget):
         self.btn_note.clicked.connect(self._toggle_note)
         self.btn_note.set_expanded(expanded)
 
+        # ── 붙임파일 버튼 (클립 아이콘) ─────────────────────────
+        self.btn_attach = QPushButton()
+        self.btn_attach.setCursor(Qt.PointingHandCursor)
+        self.btn_attach.setToolTip('붙임파일 목록 (펼치기/접기)')
+        self.btn_attach.setFlat(True)
+        self.btn_attach.setFixedSize(round(19 * scale), round(19 * scale))
+        self.btn_attach.setFont(pr_font(round(9 * scale)))
+        self.btn_attach.setStyleSheet(
+            'QPushButton { border: none; color: #555555; background: transparent; padding: 0; }'
+            'QPushButton:pressed { color: #d4b800; }'
+        )
+        _att_icon = os.path.join(_base_path(), 'assets',
+                                 'attach_file_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.png')
+        self._attach_icon_ok = os.path.exists(_att_icon)
+        if self._attach_icon_ok:
+            self.btn_attach.setIcon(QIcon(_att_icon))
+            self.btn_attach.setIconSize(QSize(round(15 * scale), round(15 * scale)))
+        else:
+            self.btn_attach.setText('📎')
+        self.btn_attach.clicked.connect(self._toggle_attach)
+        self.btn_attach.hide()
+
+        # ── 붙임파일 목록 상태 ──────────────────────────────
+        self._attachments = self._load_attachments()
+        self._attach_expanded = self._attach_expanded_init and bool(self._attachments)
+        self._attach_container = None
+        self._drag_hover = False
+        self.setAcceptDrops(True)
+        self.installEventFilter(self)
+        self._refresh_attach_btn()
+        if self._attach_expanded:
+            self._rebuild_attach_list()
+            self._sync_row_height()
+
         name_note_layout = QHBoxLayout()
         name_note_layout.setContentsMargins(0, 0, 0, 0)
         name_note_layout.setSpacing(0)
         name_note_layout.addWidget(self.name_edit, 0, Qt.AlignVCenter)
         name_note_layout.addWidget(self.btn_note, 0, Qt.AlignTop)
+        name_note_layout.addWidget(self.btn_attach, 0, Qt.AlignVCenter)
         layout.addLayout(name_note_layout)
         layout.addStretch(1)
         if task.get('recurrence', ''):
@@ -1628,7 +1671,9 @@ class TaskRow(QWidget):
         self._apply_row_style()
 
     def _apply_row_style(self):
-        if self._selected:
+        if getattr(self, '_drag_hover', False):
+            style = 'QWidget#TaskRow { background: rgba(212,184,0,0.16); border-radius: 4px; }'
+        elif self._selected:
             style = 'QWidget#TaskRow { background: rgba(212,184,0,0.25); border-radius: 4px; }'
         elif self._hovered:
             style = 'QWidget#TaskRow { background: rgba(0,0,0,18); }'
@@ -1649,6 +1694,7 @@ class TaskRow(QWidget):
         """업무명 줄바꿈 높이 변화를 행 높이에 즉시 반영.
         (sizeHint 캐시 갱신이 행까지 늦게 전파되는 문제를 setFixedHeight로 우회)"""
         need = max(self.name_edit._fixed_height, 31)  # 31 = 우측 버튼군(메뉴) 높이
+        need += self._attach_area_height()
         if self.height() != need:
             self.setFixedHeight(need)
 
@@ -1681,6 +1727,17 @@ class TaskRow(QWidget):
     def eventFilter(self, watched, event):
         if watched is self.name_edit and event.type() == QEvent.FocusOut:
             self._save()
+        elif event.type() == QEvent.DragEnter and self._drag_has_files(event):
+            self._set_drag_hover(True)
+            event.acceptProposedAction()
+            return True
+        elif event.type() == QEvent.DragLeave:
+            self._set_drag_hover(False)
+        elif event.type() == QEvent.Drop and watched is self.name_edit and self._drag_has_files(event):
+            self._set_drag_hover(False)
+            self._add_attachment_paths(self._drop_file_paths(event))
+            event.acceptProposedAction()
+            return True
         return super().eventFilter(watched, event)
 
     def _save(self):
@@ -1857,6 +1914,228 @@ class TaskRow(QWidget):
         ref = self.note_editor.ref_edit.text().strip()
         set_task_related_no(self.task['id'], ref)
         self._update_note_color()
+
+    # ── 붙임파일 ──────────────────────────────────────────────
+    def _load_attachments(self) -> list:
+        raw = self.task.get('attachments')
+        if not raw:
+            raw = get_task_attachments(self.task['id'])
+        try:
+            lst = json.loads(raw) if raw else []
+            return [p for p in lst if isinstance(p, str) and p.strip()] if isinstance(lst, list) else []
+        except Exception:
+            return []
+
+    def _save_attachments(self):
+        try:
+            set_task_attachments(self.task['id'], json.dumps(self._attachments, ensure_ascii=False))
+        except Exception:
+            pass
+
+    def _refresh_attach_btn(self):
+        n = len(self._attachments)
+        if n == 0:
+            self.btn_attach.hide()
+        else:
+            if getattr(self, '_attach_icon_ok', False):
+                # 아이콘 모드: 개수는 숫자 텍스트로, 버튼 폭을 숫자만큼 넓힘
+                self.btn_attach.setText(str(n) if n > 1 else '')
+                if n > 1:
+                    fm = self.btn_attach.fontMetrics()
+                    w = fm.horizontalAdvance(str(n)) + round(19 * self._scale)
+                    self.btn_attach.setFixedSize(max(round(19 * self._scale), w),
+                                                 round(19 * self._scale))
+            else:
+                self.btn_attach.setText('📎' if n == 1 else f'📎{n}')
+                self.btn_attach.setFixedSize(round(19 * self._scale), round(19 * self._scale))
+            accent = 'QPushButton { border: none; color: #d4b800; background: transparent; padding: 0; }' \
+                     'QPushButton:pressed { color: #d4b800; }' if self._attach_expanded else \
+                     'QPushButton { border: none; color: #555555; background: transparent; padding: 0; }' \
+                     'QPushButton:pressed { color: #d4b800; }'
+            self.btn_attach.setStyleSheet(accent)
+            self.btn_attach.show()
+
+    def _attach_area_height(self) -> int:
+        if not getattr(self, '_attach_expanded', False) or not self._attachments:
+            return 0
+        # 컨테이너 minimumSizeHint는 위젯 추가 직후 캐시 미갱신으로 최소값을
+        # 반환함 → 자식 위젯 sizeHint를 직접 합산하는 방식이 정확 (잘림 방지)
+        if self._attach_container is not None:
+            lay = self._attach_container.layout()
+            if lay is not None:
+                m = lay.contentsMargins()
+                total = m.top() + m.bottom()
+                cnt = lay.count()
+                for i in range(cnt):
+                    w = lay.itemAt(i).widget()
+                    if w is not None:
+                        h = w.minimumSizeHint().height() or w.sizeHint().height()
+                        total += h
+                total += lay.spacing() * max(cnt - 1, 0)
+                if total > 0:
+                    return total
+        n = len(self._attachments)
+        # 폴백: 상하 패딩(4) + 헤더(16) + 행(26 × N) + 간격(2 × N-1) — 모두 스케일 반영
+        s = self._scale
+        return round(4 * s) + round(16 * s) + n * round(26 * s) + (n - 1) * round(2 * s)
+
+    def _rebuild_attach_list(self):
+        """붙임 목록 컨테이너를 현재 목록에 맞게 재구성."""
+        if not self._attachments:
+            self._attach_expanded = False
+        if self._attach_container is None:
+            self._attach_container = QWidget()
+            self._attach_layout = QVBoxLayout(self._attach_container)
+            self._attach_layout.setContentsMargins(6, 2, 6, 2)
+            self._attach_layout.setSpacing(2)
+            self._outer.addWidget(self._attach_container)
+        while self._attach_layout.count():
+            item = self._attach_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._attach_container.setVisible(self._attach_expanded)
+        self._attach_container.setStyleSheet('background: transparent;')
+        if not self._attach_expanded:
+            self._refresh_attach_btn()
+            return
+        header = QLabel(f'붙임파일 {len(self._attachments)}개')
+        header.setFont(pr_font(round(9 * self._scale)))
+        header.setStyleSheet('color: #888; background: transparent;')
+        header.setFixedHeight(round(16 * self._scale))
+        self._attach_layout.addWidget(header)
+        for p in self._attachments:
+            self._attach_layout.addWidget(self._make_attach_row(p))
+        self._refresh_attach_btn()
+
+    def _make_attach_row(self, path):
+        s = self._scale
+        row = QWidget()
+        row.setFixedHeight(round(26 * s))
+        row.setStyleSheet('QWidget { background: rgba(255,255,255,0.4); border-radius: 4px; }')
+        h = QHBoxLayout(row)
+        h.setContentsMargins(4, 1, 2, 1)
+        h.setSpacing(2)
+        fname = os.path.basename(path)
+        btn = QPushButton('📄 ' + fname)
+        btn.setFixedHeight(round(24 * s))
+        btn.setFlat(True)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setToolTip(path)
+        btn.setFont(pr_font(round(10 * s)))
+        btn.setStyleSheet(
+            'QPushButton { border: none; background: transparent; color: #333; text-align: left; padding: 1px 2px; }'
+            'QPushButton:hover { color: #d4b800; }'
+        )
+        btn.clicked.connect(lambda: self._open_attachment(path))
+        h.addWidget(btn, 1)
+        x = QPushButton('✕')
+        x.setFixedSize(round(18 * s), round(18 * s))
+        x.setCursor(Qt.PointingHandCursor)
+        x.setStyleSheet(
+            'QPushButton { border: none; background: transparent; color: #999; font-size: 11px; }'
+            'QPushButton:hover { color: #e74c3c; }'
+        )
+        x.clicked.connect(lambda: self._remove_attachment(path))
+        h.addWidget(x)
+        return row
+
+    def _toggle_attach(self):
+        if not self._attachments:
+            return
+        self._attach_expanded = not self._attach_expanded
+        self._rebuild_attach_list()
+        self._sync_row_height()
+        self.setFocus()
+        if self._on_attach_toggle:
+            self._on_attach_toggle(self.task['id'], self._attach_expanded)
+
+    def _add_attachment_paths(self, paths):
+        added = False
+        for p in paths:
+            norm = os.path.normpath(p)
+            if norm not in self._attachments:
+                self._attachments.append(norm)
+                added = True
+        if added:
+            self._save_attachments()
+            self._attach_expanded = True
+            self._refresh_attach_btn()
+            self._rebuild_attach_list()
+            self._sync_row_height()
+            if self._on_attach_toggle:
+                self._on_attach_toggle(self.task['id'], True)
+
+    def _remove_attachment(self, path):
+        if path in self._attachments:
+            self._attachments.remove(path)
+        self._save_attachments()
+        self._refresh_attach_btn()
+        self._rebuild_attach_list()
+        self._sync_row_height()
+        if not self._attachments and self._on_attach_toggle:
+            self._on_attach_toggle(self.task['id'], False)
+
+    def _open_attachment(self, path):
+        if not os.path.exists(path):
+            QMessageBox.information(
+                self, '붙임파일',
+                f'파일을 찾을 수 없습니다.\n\n{path}\n\n파일이 이동되거나 삭제되었을 수 있습니다.'
+            )
+            return
+        try:
+            if sys.platform == 'win32' and hasattr(os, 'startfile'):
+                os.startfile(path)
+            else:
+                subprocess.Popen(['xdg-open', path])
+        except Exception:
+            QMessageBox.warning(self, '붙임파일', f'파일을 열 수 없습니다.\n{path}')
+
+    # ── 드래그앤드롭 ──────────────────────────────────────────
+    def _drag_has_files(self, event) -> bool:
+        mime = event.mimeData()
+        if mime is None or not mime.hasUrls():
+            return False
+        return any(u.isLocalFile() for u in mime.urls())
+
+    def _drop_file_paths(self, event) -> list:
+        paths = []
+        for u in event.mimeData().urls():
+            if u.isLocalFile():
+                p = u.toLocalFile()
+                if p and os.path.isfile(p):
+                    paths.append(os.path.normpath(p))
+        return paths
+
+    def _set_drag_hover(self, on: bool):
+        if self._drag_hover != on:
+            self._drag_hover = on
+            self._apply_row_style()
+
+    def dragEnterEvent(self, e):
+        if self._drag_has_files(e):
+            self._set_drag_hover(True)
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def dragMoveEvent(self, e):
+        if self._drag_has_files(e):
+            e.acceptProposedAction()
+        else:
+            e.ignore()
+
+    def dragLeaveEvent(self, e):
+        self._set_drag_hover(False)
+        super().dragLeaveEvent(e)
+
+    def dropEvent(self, e):
+        self._set_drag_hover(False)
+        if self._drag_has_files(e):
+            self._add_attachment_paths(self._drop_file_paths(e))
+            e.acceptProposedAction()
+        else:
+            e.ignore()
 
     def _update_note_color(self):
         has = bool(self.note_editor.toPlainText().strip()
@@ -3229,6 +3508,7 @@ class MemoWindow(QMainWindow):
         self._capture_hint_shown = False
         self._scale          = 1.0
         self._expanded_note_ids = set()
+        self._expanded_attach_ids = set()
         self._selected_task_id = None
         self._memo_mode      = False
         self._memo_save_timer = None
@@ -3933,6 +4213,8 @@ class MemoWindow(QMainWindow):
             row = TaskRow(task, self._delete_task, self._refresh_tasks, scale=self._scale,
                           expanded=task['id'] in self._expanded_note_ids,
                           on_toggle=self._on_task_note_toggle,
+                          attach_expanded=task['id'] in self._expanded_attach_ids,
+                          on_attach_toggle=self._on_task_attach_toggle,
                           on_select=self._select_task,
                           on_navigate=self._move_selection,
                           on_clear=self._clear_selection)
@@ -3947,6 +4229,12 @@ class MemoWindow(QMainWindow):
             self._expanded_note_ids.add(task_id)
         else:
             self._expanded_note_ids.discard(task_id)
+
+    def _on_task_attach_toggle(self, task_id, expanded):
+        if expanded:
+            self._expanded_attach_ids.add(task_id)
+        else:
+            self._expanded_attach_ids.discard(task_id)
 
     def _select_task(self, task_id):
         self._selected_task_id = task_id
