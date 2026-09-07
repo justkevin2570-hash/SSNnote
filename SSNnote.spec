@@ -21,6 +21,7 @@ a = Analysis(
         ('assets/Pretendard-Regular.ttf', 'assets'),
         ('assets/ic_fluent_star_emphasis_20_filled.svg', 'assets'),
         ('assets/icons.png', 'assets'),
+        ('assets/clip.png', 'assets'),
     ],
     hiddenimports=[
         'PyQt5.sip',
