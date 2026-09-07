@@ -1,6 +1,6 @@
 {
-  "version": "v2.63",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.63/SSNnote_Setup.exe",
-  "sha256": "6d8b24d2c924632b4f9e363c1dfd1fd1c8dacfbac03dd92dbdbe068565ced167",
-  "changelog": "- 업무별 붙임파일 지원: 파일을 업무 줄에 드래그앤드롭하면 붙임 (바로가기 방식 — 원본 파일은 원래 위치 유지)\n- 붙임파일 클릭 시 Windows 기본 프로그램으로 바로 열기, ✕ 버튼으로 붙임만 제거\n- 붙임 목록 펼침/접힘 지원 및 확장 상태 기억 (글자 크기 변경 시에도 유지)\n- 글자 크기 설정이 붙임 버튼·목록에도 동일하게 적용"
+  "version": "v2.64",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.64/SSNnote_Setup.exe",
+  "sha256": "",
+  "changelog": "- 붙임파일 아이콘을 클립 이미지로 교체\n- 긴 파일명은 말줄임표(...)로 표시해 붙임 목록 레이아웃 유지 (호버 시 원색 강조)\n- 붙임파일 개수 헤더 가독성 개선 (글자 크기·색상)\n- 메모 펼침/접힘 시 붙임 목록도 함께 펼침/접힘"
 }
