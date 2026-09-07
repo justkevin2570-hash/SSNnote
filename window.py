@@ -1165,6 +1165,41 @@ class _NoteButton(QPushButton):
         p.end()
 
 
+class _ElideButton(QPushButton):
+    """폭을 넘는 텍스트를 오른쪽 '…'로 잘라내는 버튼 (붙임 파일명 표시용)."""
+
+    def __init__(self, text=''):
+        super().__init__(text)
+        self._hovered = False
+        self.setFlat(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+
+    def enterEvent(self, e):
+        self._hovered = True
+        self.update()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(e)
+
+    def minimumSizeHint(self):
+        sz = super().minimumSizeHint()
+        return QSize(0, sz.height())
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setFont(self.font())
+        p.setPen(QColor('#d4b800') if self._hovered else QColor('#333333'))
+        fm = self.fontMetrics()
+        elided = fm.elidedText(self.text(), Qt.ElideRight, max(0, self.width() - 4))
+        p.drawText(self.rect().adjusted(2, 0, -2, 0), Qt.AlignLeft | Qt.AlignVCenter, elided)
+        p.end()
+
+
 class _RefLineEdit(QLineEdit):
     """Pretendard 입력 텍스트 + Pretendard placeholder를 직접 그리는 관련번호 입력줄.
     (QLineEdit::placeholder 스타일시트는 Windows 네이티브 스타일에서 무시되므로 직접 페인트)"""
@@ -1580,13 +1615,12 @@ class TaskRow(QWidget):
         self.btn_attach.setToolTip('붙임파일 목록 (펼치기/접기)')
         self.btn_attach.setFlat(True)
         self.btn_attach.setFixedSize(round(19 * scale), round(19 * scale))
-        self.btn_attach.setFont(pr_font(round(9 * scale)))
+        self.btn_attach.setFont(pr_font(round(11 * scale)))
         self.btn_attach.setStyleSheet(
             'QPushButton { border: none; color: #555555; background: transparent; padding: 0; }'
             'QPushButton:pressed { color: #d4b800; }'
         )
-        _att_icon = os.path.join(_base_path(), 'assets',
-                                 'attach_file_24dp_1F1F1F_FILL0_wght400_GRAD0_opsz24.png')
+        _att_icon = os.path.join(_base_path(), 'assets', 'clip.png')
         self._attach_icon_ok = os.path.exists(_att_icon)
         if self._attach_icon_ok:
             self.btn_attach.setIcon(QIcon(_att_icon))
@@ -1880,6 +1914,13 @@ class TaskRow(QWidget):
 
     def _expand_note(self):
         self._expanded = True
+        # ▼ 토글은 메모와 붙임 목록을 함께 펼침 (행 높이부터 늘린 후 오버레이 배치)
+        if self._attachments and not self._attach_expanded:
+            self._attach_expanded = True
+            self._rebuild_attach_list()
+            self._sync_row_height()
+            if self._on_attach_toggle:
+                self._on_attach_toggle(self.task['id'], True)
         self.note_editor.setPlainText(get_task_notes(self.task['id']))
         self.note_editor.ref_edit.setText(get_task_related_no(self.task['id']))
         self._show_note_editor()
@@ -1891,6 +1932,13 @@ class TaskRow(QWidget):
 
     def _collapse_note(self):
         self._expanded = False
+        # ▼ 토글은 메모와 붙임 목록을 함께 접음 (클립 토글로 이미 접힌 경우는 무시)
+        if self._attach_expanded:
+            self._attach_expanded = False
+            self._rebuild_attach_list()
+            self._sync_row_height()
+            if self._on_attach_toggle:
+                self._on_attach_toggle(self.task['id'], False)
         self._flush_note()
         self._flush_ref()
         self.note_editor.hide()
@@ -2000,8 +2048,8 @@ class TaskRow(QWidget):
             self._refresh_attach_btn()
             return
         header = QLabel(f'붙임파일 {len(self._attachments)}개')
-        header.setFont(pr_font(round(9 * self._scale)))
-        header.setStyleSheet('color: #888; background: transparent;')
+        header.setFont(pr_font(round(10 * self._scale)))
+        header.setStyleSheet('color: #666; background: transparent;')
         header.setFixedHeight(round(16 * self._scale))
         self._attach_layout.addWidget(header)
         for p in self._attachments:
@@ -2017,15 +2065,12 @@ class TaskRow(QWidget):
         h.setContentsMargins(4, 1, 2, 1)
         h.setSpacing(2)
         fname = os.path.basename(path)
-        btn = QPushButton('📄 ' + fname)
+        btn = _ElideButton(fname)
         btn.setFixedHeight(round(24 * s))
-        btn.setFlat(True)
-        btn.setCursor(Qt.PointingHandCursor)
+        btn.setFont(pr_font(round(11 * s)))
         btn.setToolTip(path)
-        btn.setFont(pr_font(round(10 * s)))
         btn.setStyleSheet(
-            'QPushButton { border: none; background: transparent; color: #333; text-align: left; padding: 1px 2px; }'
-            'QPushButton:hover { color: #d4b800; }'
+            'QPushButton { border: none; background: transparent; }'
         )
         btn.clicked.connect(lambda: self._open_attachment(path))
         h.addWidget(btn, 1)
