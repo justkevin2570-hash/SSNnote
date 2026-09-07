@@ -1,6 +1,6 @@
 {
   "version": "v2.64",
   "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.64/SSNnote_Setup.exe",
-  "sha256": "",
+  "sha256": "CFBE0F3C1ABE3A41C0624DB7C5C72BFAC2C8B4A45DE93000EF9E0B3195EE9109",
   "changelog": "- 붙임파일 아이콘을 클립 이미지로 교체\n- 긴 파일명은 말줄임표(...)로 표시해 붙임 목록 레이아웃 유지 (호버 시 원색 강조)\n- 붙임파일 개수 헤더 가독성 개선 (글자 크기·색상)\n- 메모 펼침/접힘 시 붙임 목록도 함께 펼침/접힘"
 }
