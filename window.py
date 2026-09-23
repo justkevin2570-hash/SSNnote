@@ -58,6 +58,7 @@ _FI_FONT_ID        = -1
 _FI_FILLED_FONT_ID = -1
 _MAT_FONT_ID       = -1
 _PR_FONT_ID        = -1
+_PRETENDARD_LOADED = False
 
 def _load_fluent_icons():
     global _FI_FONT_ID, _FI_FILLED_FONT_ID, _MAT_FONT_ID
@@ -91,11 +92,23 @@ def mat_font(size=14):
     return QFont(families[0] if families else 'Material Icons', size)
 
 def _load_pretendard():
-    global _PR_FONT_ID
-    if _PR_FONT_ID == -1:
-        base = _base_path()
-        _PR_FONT_ID = QFontDatabase.addApplicationFont(
-            os.path.join(base, 'assets', 'Pretendard-Regular.ttf'))
+    """assets 안의 Pretendard 정적 폰트(여러 굵기)를 앱 폰트로 등록한다.
+
+    QSS의 font-family: 'Pretendard' 가 이 등록된 패밀리를 쓰고,
+    굵은 글씨는 합성 볼드 대신 실제 굵기 파일로 그려진다.
+    Regular 파일의 id는 pr_font()용으로 _PR_FONT_ID에 남긴다.
+    """
+    global _PR_FONT_ID, _PRETENDARD_LOADED
+    if _PRETENDARD_LOADED:
+        return
+    _PRETENDARD_LOADED = True
+    for dirpath, _dirs, files in os.walk(os.path.join(_base_path(), 'assets')):
+        for fn in sorted(files):
+            low = fn.lower()
+            if low.startswith('pretendard') and low.endswith(('.ttf', '.otf')):
+                fid = QFontDatabase.addApplicationFont(os.path.join(dirpath, fn))
+                if fid != -1 and low == 'pretendard-regular.ttf':
+                    _PR_FONT_ID = fid
 
 def pr_font(size=11):
     """Pretendard Regular QFont 반환."""

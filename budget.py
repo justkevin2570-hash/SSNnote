@@ -7,6 +7,7 @@
 """
 
 import os
+import sys
 import json
 
 import qtawesome as qta
@@ -17,12 +18,38 @@ from PyQt5.QtWidgets import (
     QProgressBar, QFileDialog, QCheckBox, QButtonGroup, QTextEdit, QPlainTextEdit
 )
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QColor, QFont, QKeySequence
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence
 
 from db import (get_budget_categories, add_budget_category, rename_budget_category,
                 delete_budget_category, get_budget_items, add_budget_item,
                 update_budget_item, delete_budget_item, set_budget_item_spent,
                 toggle_budget_item_completed, clear_budget_data)
+
+
+# ── 번들 Pretendard 등록 ──────────────────────────────────────────
+# Pretendard가 설치되지 않은 PC에서도 예산 창이 Pretendard로 보이도록
+# assets의 정적 폰트(여러 굵기)를 앱 폰트로 등록한다. QSS의
+# font-family: 'Pretendard' 가 이 등록된 패밀리를 사용한다.
+_pretendard_loaded = False
+
+
+def _base_path():
+    if getattr(sys, 'frozen', False):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_pretendard():
+    """assets 안의 Pretendard 정적 폰트(.ttf/.otf)를 모두 등록한다. 1회만."""
+    global _pretendard_loaded
+    if _pretendard_loaded:
+        return
+    _pretendard_loaded = True
+    for dirpath, _dirs, files in os.walk(os.path.join(_base_path(), 'assets')):
+        for fn in sorted(files):
+            low = fn.lower()
+            if low.startswith('pretendard') and low.endswith(('.ttf', '.otf')):
+                QFontDatabase.addApplicationFont(os.path.join(dirpath, fn))
 
 
 # ── 전체 QSS 테마 ─────────────────────────────────────────────────
@@ -151,6 +178,12 @@ _STATE_FILE = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'budget_st
 
 _ROW_H = 46
 _HEADER_H = 38
+
+# 열 폭: 넉넉할 때의 폭과, 좁아져도 이 아래로는 줄이지 않는 최소 폭.
+# 최소 폭은 실제 내용(헤더 텍스트·금액·진행바/버튼 셀)에 맞춘 값이라
+# 숫자가 '1,200,0…'처럼 잘리지 않는다. 합계 939px + 창 여백 ≈ 최소 창 폭 1000.
+_COL_W = (160, 258, 130, 160, 130, 150, 118, 86)
+_COL_MIN = (120, 136, 124, 149, 112, 142, 90, 66)
 
 _BG_ZEBRA = QColor('#f8fafc')
 _BG_WHITE = QColor('#ffffff')
@@ -427,9 +460,73 @@ def parse_budget_clipboard(text):
     return categories
 
 
+# ── 표 열 폭 / 높이 자동 맞춤 ──────────────────────────────────────
+def _fit_columns(table):
+    """표 폭에 맞춰 열 폭을 배분한다(넘치면 최소 폭까지 비례 축소).
+
+    가로 스크롤바가 생기면 마지막 행이 잘리므로, 폭이 모자라면 열을 줄여
+    스크롤바 없이 표 전체가 보이게 한다.
+    """
+    hdr = table.horizontalHeader()
+    avail = table.viewport().width()
+    n = len(_COL_W)
+    if avail <= 0 or hdr.count() < n:
+        return
+    total = sum(_COL_W)
+    if avail >= total:
+        widths = list(_COL_W)
+        widths[1] += avail - total            # 남는 폭은 산출내역 열이 흡수
+    else:
+        slack = [max(0, _COL_W[i] - _COL_MIN[i]) for i in range(n)]
+        pool = sum(slack)
+        if pool <= 0:
+            return
+        cut = min(total - avail, pool)
+        widths = [max(_COL_MIN[i], int(_COL_W[i] - cut * slack[i] / pool))
+                  for i in range(n)]
+        over = sum(widths) - avail            # 반올림 초과분은 여유 있는 열에서 깎는다
+        while over > 0:
+            i = max(range(n), key=lambda k: widths[k] - _COL_MIN[k])
+            if widths[i] <= _COL_MIN[i]:
+                break
+            widths[i] -= 1
+            over -= 1
+    for i, wd in enumerate(widths):
+        if hdr.sectionSize(i) != wd:
+            hdr.resizeSection(i, wd)
+
+
+class _BudgetTable(QTableWidget):
+    """폭에 맞춰 열 폭을 줄이고, 높이를 (헤더 + 행 높이 합)에 맞추는 표.
+
+    기존 고정 높이(_HEADER_H + _ROW_H*n)는 실제 헤더 높이(46px)보다 작아
+    마지막 행이 늘 조금씩 잘렸고, 가로 스크롤바가 뜨면 그만큼 더 잘렸다.
+    """
+
+    def sync_geometry(self):
+        _fit_columns(self)
+        self._sync_height()
+
+    def _sync_height(self):
+        hdr = self.horizontalHeader()
+        rows_h = sum(self.rowHeight(r) for r in range(self.rowCount()))
+        cols = sum(hdr.sectionSize(c) for c in range(hdr.count()))
+        hbar_h = 0
+        if cols > self.viewport().width() > 0:   # 열이 다 안 들어가면 스크롤바 높이 확보
+            hbar_h = self.horizontalScrollBar().sizeHint().height()
+        target = hdr.height() + rows_h + hbar_h
+        if self.height() != target:
+            self.setFixedHeight(target)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.sync_geometry()
+
+
 class BudgetWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
+        _load_pretendard()
         self.categories = []
         self.items = []
         self.active_tab = 'ALL'
@@ -443,7 +540,7 @@ class BudgetWindow(QMainWindow):
     # ── UI 구성 ────────────────────────────────────────────────────
     def _init_ui(self):
         self.setWindowTitle('예산 관리')
-        self.setMinimumSize(900, 560)
+        self.setMinimumSize(1000, 560)
         self.setStyleSheet(STYLE)
         self.setAcceptDrops(True)
 
@@ -470,7 +567,7 @@ class BudgetWindow(QMainWindow):
         header.addLayout(title_box)
         header.addStretch()
 
-        btn_categories = QPushButton('세부항목(추경) 관리')
+        btn_categories = QPushButton('예산 등록·관리')
         btn_categories.setObjectName('Dark')
         btn_categories.setIcon(qta.icon('fa5s.folder-open', color='white'))
         btn_categories.setIconSize(QSize(14, 14))
@@ -508,14 +605,6 @@ class BudgetWindow(QMainWindow):
         self.tabs_layout.setSpacing(8)
         tb_layout.addWidget(self.tabs_container)
         tb_layout.addStretch()
-        self.btn_import = QPushButton('엑셀 가져오기')
-        self.btn_import.setObjectName('Ghost')
-        self.btn_import.setIcon(qta.icon('fa5s.file-import', color='#334155'))
-        self.btn_import.setIconSize(QSize(14, 14))
-        self.btn_import.setToolTip('사업관리카드(예산) 엑셀 파일을 선택하거나 창에 끌어다 놓으세요.\n'
-                                   '엑셀에서 셀 범위 복사 후 Ctrl+V 붙여넣기도 가능합니다.')
-        self.btn_import.clicked.connect(lambda: self._choose_excel())
-        tb_layout.addWidget(self.btn_import)
         self.btn_add_item = QPushButton('새 예산 항목 추가')
         self.btn_add_item.setObjectName('Primary')
         self.btn_add_item.setIcon(qta.icon('fa5s.plus-circle', color='white'))
@@ -641,8 +730,8 @@ class BudgetWindow(QMainWindow):
 
         if not self.categories:
             lbl = QLabel('등록된 세부항목이 없습니다.\n'
-                         '[세부항목(추경) 관리]에서 직접 추가하거나, '
-                         '[엑셀 가져오기]로 사업관리카드 엑셀 파일(.xls/.xlsx)을 불러오세요.\n'
+                         '[예산 등록·관리]에서 직접 추가하거나, '
+                         '사업관리카드 엑셀 파일(.xls/.xlsx)을 창에 끌어다 놓으세요.\n'
                          '(엑셀에서 셀 범위를 복사해 Ctrl+V 붙여넣기도 가능합니다.)')
             lbl.setObjectName('EmptyBox')
             lbl.setAlignment(Qt.AlignCenter)
@@ -693,7 +782,7 @@ class BudgetWindow(QMainWindow):
         v.addWidget(header)
 
         # 테이블
-        table = QTableWidget()
+        table = _BudgetTable()
         table.setColumnCount(8)
         table.setHorizontalHeaderLabels(['원가통계비목', '산출내역 (내용)', '예산현액',
                                          '집행액 (입력)', '예산잔액', '집행률',
@@ -704,26 +793,20 @@ class BudgetWindow(QMainWindow):
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setFocusPolicy(Qt.NoFocus)
         table.setShowGrid(False)
-        table.setFont(QFont('Malgun Gothic', 10))
+        table.setFont(QFont('Pretendard', 10))
         hdr = table.horizontalHeader()
         hdr.setHighlightSections(False)
         hdr.setSectionsClickable(False)
+        hdr.setMinimumSectionSize(40)      # 기본 71px 바닥 때문에 좁은 폭에서 넘쳤다
         for col in range(8):
             hdr.setSectionResizeMode(col, QHeaderView.Interactive)
-        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
-        table.setColumnWidth(0, 160)
-        table.setColumnWidth(2, 130)
-        table.setColumnWidth(3, 160)
-        table.setColumnWidth(4, 130)
-        table.setColumnWidth(5, 150)
-        table.setColumnWidth(6, 118)
-        table.setColumnWidth(7, 86)
+        for col, wd in enumerate(_COL_W):
+            table.setColumnWidth(col, wd)
 
         if cat_items:
             table.setRowCount(len(cat_items))
             for idx, item in enumerate(cat_items):
                 self._add_item_row(table, idx, item)
-            table.setFixedHeight(_HEADER_H + _ROW_H * len(cat_items))
         else:
             table.setRowCount(1)
             msg = QTableWidgetItem('해당 세부항목에 등록된 예산 내역이 없습니다.')
@@ -733,8 +816,8 @@ class BudgetWindow(QMainWindow):
             table.setItem(0, 0, msg)
             table.setSpan(0, 0, 1, 8)
             table.setRowHeight(0, 60)
-            table.setFixedHeight(_HEADER_H + 60)
 
+        table.sync_geometry()
         v.addWidget(table)
         self._update_cat_header(cat['id'])
         return section
@@ -942,8 +1025,8 @@ class BudgetWindow(QMainWindow):
     def _open_add_item(self):
         if not self.categories:
             QMessageBox.information(self, '세부항목 필요',
-                                    '먼저 [세부항목(추경) 관리]에서 세부항목을 추가하거나 '
-                                    '[엑셀 가져오기]로 불러오세요.')
+                                    '먼저 [예산 등록·관리]에서 세부항목을 추가하거나 '
+                                    '사업관리카드 엑셀 파일을 창에 끌어다 놓으세요.')
             self._open_category_manager()
             return
         default_cat = self.active_tab if self.active_tab != 'ALL' else self.categories[0]['id']
@@ -1158,7 +1241,7 @@ class _ImportPreviewDialog(QDialog):
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setFocusPolicy(Qt.NoFocus)
         table.setShowGrid(False)
-        table.setFont(QFont('Malgun Gothic', 9))
+        table.setFont(QFont('Pretendard', 9))
         hdr = table.horizontalHeader()
         hdr.setHighlightSections(False)
         hdr.setSectionsClickable(False)
