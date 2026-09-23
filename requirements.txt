@@ -8,6 +8,8 @@ anthropic
 openai
 requests==2.33.1
 pillow==12.1.1
+xlrd==2.0.2
+openpyxl==3.1.5
 pywin32==311
 winrt-runtime==3.2.1
 winrt-Windows.Foundation==3.2.1

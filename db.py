@@ -73,6 +73,22 @@ def init_db():
                 embedding   BLOB,
                 created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
             );
+
+            CREATE TABLE IF NOT EXISTS budget_categories (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL UNIQUE,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS budget_items (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_id INTEGER NOT NULL,
+                cost_type   TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                budget      INTEGER NOT NULL DEFAULT 0,
+                spent       INTEGER NOT NULL DEFAULT 0,
+                completed   INTEGER NOT NULL DEFAULT 0
+            );
         """)
 
         # tasks 테이블에 window_id 컬럼 없으면 추가 (기존 DB 마이그레이션)
@@ -448,3 +464,99 @@ def get_all_embeddings():
 def delete_embedding(emb_id: int):
     with _connect() as conn:
         conn.execute('DELETE FROM doc_embeddings WHERE id=?', (emb_id,))
+
+
+# ── 예산 관리 CRUD ──────────────────────────────────────────────
+
+def get_budget_categories():
+    with _connect() as conn:
+        rows = conn.execute(
+            'SELECT * FROM budget_categories ORDER BY sort_order ASC, id ASC'
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_budget_category(name):
+    with _connect() as conn:
+        try:
+            row = conn.execute('SELECT MAX(sort_order) FROM budget_categories').fetchone()
+            next_order = (row[0] or 0) + 1
+            cur = conn.execute(
+                'INSERT INTO budget_categories (name, sort_order) VALUES (?, ?)',
+                (name, next_order)
+            )
+            return cur.lastrowid
+        except sqlite3.IntegrityError:
+            return None
+
+
+def rename_budget_category(cat_id, new_name):
+    with _connect() as conn:
+        try:
+            conn.execute('UPDATE budget_categories SET name=? WHERE id=?', (new_name, cat_id))
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def delete_budget_category(cat_id):
+    with _connect() as conn:
+        conn.execute('DELETE FROM budget_items WHERE category_id=?', (cat_id,))
+        conn.execute('DELETE FROM budget_categories WHERE id=?', (cat_id,))
+
+
+def get_budget_items(category_id=None):
+    with _connect() as conn:
+        if category_id is None:
+            rows = conn.execute(
+                'SELECT * FROM budget_items ORDER BY id ASC'
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                'SELECT * FROM budget_items WHERE category_id=? ORDER BY id ASC',
+                (category_id,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_budget_item(category_id, cost_type, description, budget, spent):
+    with _connect() as conn:
+        cur = conn.execute(
+            'INSERT INTO budget_items (category_id, cost_type, description, budget, spent) VALUES (?,?,?,?,?)',
+            (category_id, cost_type, description, budget, spent)
+        )
+        return cur.lastrowid
+
+
+def update_budget_item(item_id, category_id, cost_type, description, budget, spent):
+    with _connect() as conn:
+        conn.execute(
+            'UPDATE budget_items SET category_id=?, cost_type=?, description=?, budget=?, spent=? WHERE id=?',
+            (category_id, cost_type, description, budget, spent, item_id)
+        )
+
+
+def delete_budget_item(item_id):
+    with _connect() as conn:
+        conn.execute('DELETE FROM budget_items WHERE id=?', (item_id,))
+
+
+def set_budget_item_spent(item_id, spent):
+    with _connect() as conn:
+        conn.execute('UPDATE budget_items SET spent=? WHERE id=?', (spent, item_id))
+
+
+def toggle_budget_item_completed(item_id):
+    with _connect() as conn:
+        row = conn.execute('SELECT completed FROM budget_items WHERE id=?', (item_id,)).fetchone()
+        if not row:
+            return 0
+        new_val = 0 if row['completed'] else 1
+        conn.execute('UPDATE budget_items SET completed=? WHERE id=?', (new_val, item_id))
+        return new_val
+
+
+def clear_budget_data():
+    with _connect() as conn:
+        conn.execute('DELETE FROM budget_items')
+        conn.execute('DELETE FROM budget_categories')

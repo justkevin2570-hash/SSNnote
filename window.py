@@ -31,6 +31,7 @@ from db import (update_window, delete_window, get_tasks, add_task, delete_task, 
                 get_all_tasks, get_all_task_history)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, OcrWorker, _normalize_doc_number
+import qtawesome as qta
 import updater
 
 def _base_path():
@@ -709,15 +710,15 @@ class TitleBar(QWidget):
             }}
             QPushButton:hover {{ background: rgba(0,0,0,0.12); border-radius: 3px; }}
             QPushButton:pressed {{ background: rgba(0,0,0,0.22); border-radius: 3px; }}
-            QPushButton#btn_mode {{
+            QPushButton#btn_mode, QPushButton#btn_budget {{
                 background: transparent;
                 border: 1px solid transparent;
                 border-radius: 6px;
                 padding: 0px 6px;
                 color: #2979ff;
             }}
-            QPushButton#btn_mode:hover {{ background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.12); }}
-            QPushButton#btn_mode:pressed {{ background: rgba(0,0,0,0.20); border-color: rgba(0,0,0,0.20); }}
+            QPushButton#btn_mode:hover, QPushButton#btn_budget:hover {{ background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.12); }}
+            QPushButton#btn_mode:pressed, QPushButton#btn_budget:pressed {{ background: rgba(0,0,0,0.20); border-color: rgba(0,0,0,0.20); }}
         """)
 
         layout = QHBoxLayout(self)
@@ -764,8 +765,17 @@ class TitleBar(QWidget):
         self.btn_mode.setGraphicsEffect(_gray_mode)
         self.btn_mode.clicked.connect(parent._toggle_memo_mode)
 
+        self.btn_budget = QPushButton()
+        self.btn_budget.setObjectName('btn_budget')
+        self.btn_budget.setIcon(qta.icon('fa5s.won-sign', color='#888888'))
+        self.btn_budget.setIconSize(QSize(18, 18))
+        self.btn_budget.setFixedSize(26, 26)
+        self.btn_budget.setToolTip('예산 관리')
+        self.btn_budget.clicked.connect(parent._open_budget_window)
+
         layout.addWidget(self.label)
         layout.addStretch()
+        layout.addWidget(self.btn_budget, 0, Qt.AlignVCenter)
         layout.addWidget(self.btn_mode, 0, Qt.AlignVCenter)
         layout.addWidget(btn_menu)
         layout.addWidget(self.btn_pin)
@@ -3965,6 +3975,7 @@ class MemoWindow(QMainWindow):
                 self._flush_memo_save()
         if self._force_memo_mode:
             self.title_bar.btn_mode.hide()
+            self.title_bar.btn_budget.hide()
 
     def _is_empty_area_click(self, obj, event=None):
         """클릭 대상이 '아무 효과 없는 빈 공간'인지 판정.
@@ -4390,6 +4401,14 @@ class MemoWindow(QMainWindow):
         except Exception as e:
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.critical(self, '오류', f'공문 작성 창 열기 실패:\n{e}')
+
+    def _open_budget_window(self):
+        try:
+            import budget
+            budget.open_budget_window()
+        except Exception as e:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(self, '오류', f'예산 관리 창 열기 실패:\n{e}')
 
     def _show_monthly_calendar(self):
         dlg = MonthlyCalendarDialog(self)
@@ -5174,7 +5193,8 @@ class MemoWindow(QMainWindow):
             "1. '메뉴 - 업데이트 확인' 누르면 업데이트 가능. 이때, 학교 컴퓨터에서는 2번 해야 가능함.<br>"
             '&nbsp;&nbsp;(방화벽 때문에 처음 한 번은 막히는 듯?)<br>'
             f'2. <img src="{icon_url}" width="20" height="20" style="vertical-align: middle;"> 버튼을 누르면 메모 모드로 변환. 한 번 더 누르면 원위치.<br>'
-            '3. 나머지는 직접 눌러보세요. 단순합니다.<br>'
+            '3. <b>₩</b> 버튼을 누르면 예산 관리 창이 열립니다.<br>'
+            '4. 나머지는 직접 눌러보세요. 단순합니다.<br>'
             '<br>'
             '<b>〈단축키〉</b><br>'
             '1. <b>ctrl + s</b> : 앱 포커싱 (다른 작업 하다가 이거 누르면 서서니 노트 앱으로 집중)<br>'
