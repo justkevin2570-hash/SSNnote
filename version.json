@@ -1,6 +1,6 @@
 {
   "version": "v2.65",
   "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.65/SSNnote_Setup.exe",
-  "sha256": "CFBE0F3C1ABE3A41C0624DB7C5C72BFAC2C8B4A45DE93000EF9E0B3195EE9109",
+  "sha256": "EE071F062DF3385115B68A4C162F1B5FDC2E39AF338FEB9BBFF4D9D479977B4C",
   "changelog": "- 예산 창 글꼴을 Pretendard로 통일 (9굵기 등록 — 굵은 글씨가 선명해짐)\n- 예산 창 '세부항목(추경) 관리' → '예산 등록·관리' 버튼명 변경\n- 예산 창 툴바 '엑셀 가져오기' 버튼 제거 (창에 파일 끌어다 놓기 · Ctrl+V 붙여넣기는 유지)\n- 예산 창: 좁은 창에서 가로 스크롤바가 생기거나 마지막 행이 잘리던 문제 수정\n- 앱 전체 굵은 글씨를 Pretendard 실제 굵기로 렌더링"
 }
