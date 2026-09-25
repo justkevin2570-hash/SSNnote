@@ -3575,6 +3575,7 @@ class MemoWindow(QMainWindow):
         self._bg_color       = '#FEFFA7'  # 기본값
         self._capture_hint_shown = False
         self._scale          = 1.0
+        self._row_gap        = 0
         self._expanded_note_ids = set()
         self._expanded_attach_ids = set()
         self._selected_task_id = None
@@ -3604,7 +3605,7 @@ class MemoWindow(QMainWindow):
             for sc in self._shortcuts:
                 sc.setEnabled(False)
 
-    def apply_state(self, x, y, width, height, collapsed, color='', scale=1.0):
+    def apply_state(self, x, y, width, height, collapsed, color='', scale=1.0, row_gap=0):
         self.expanded_height = height
         self.collapsed       = collapsed
         self.move(x, y)
@@ -3618,6 +3619,9 @@ class MemoWindow(QMainWindow):
             self._scale = scale
             self._apply_scale_to_inputs()
             self._refresh_tasks()
+        if row_gap:
+            self._row_gap = row_gap
+            self._apply_row_gap()
 
     def _build_ui(self):
         central = QWidget()
@@ -4759,10 +4763,20 @@ class MemoWindow(QMainWindow):
             act_sz.triggered.connect(lambda _, v=val: self._set_scale(v, menu))
             size_menu.addAction(act_sz)
 
+        # 줄 간격 서브메뉴 (업무 칸 사이 간격)
+        gap_menu = QMenu('↕️ 줄 간격', self)
+        gap_menu.setStyleSheet(self._make_menu_style().replace('min-width: 176px', 'min-width: 100px'))
+        for label, val in [('간격 0px', 0), ('간격 5px', 5), ('간격 10px', 10), ('간격 15px', 15)]:
+            check = '✅ ' if self._row_gap == val else '　 '
+            act_gap = QAction(check + label, self)
+            act_gap.triggered.connect(lambda _, v=val: self._set_row_gap(v, menu))
+            gap_menu.addAction(act_gap)
+
         menu.addAction(act_new)
         menu.addAction(act_search)
         menu.addMenu(color_menu)
         menu.addMenu(size_menu)
+        menu.addMenu(gap_menu)
         menu.addMenu(alarm_menu)
         menu.addAction(act_auto)
         menu.addAction(act_sc)
@@ -5620,6 +5634,17 @@ class MemoWindow(QMainWindow):
         if menu:
             menu.close()
 
+    def _apply_row_gap(self):
+        """업무 목록 칸(TaskRow) 사이 간격 적용."""
+        self.task_list_layout.setSpacing(self._row_gap)
+
+    def _set_row_gap(self, gap, menu=None):
+        self._row_gap = gap
+        self._apply_row_gap()
+        self.save_state()
+        if menu:
+            menu.close()
+
     def save_state(self):
         pos = self.pos()
         update_window(
@@ -5630,6 +5655,7 @@ class MemoWindow(QMainWindow):
             collapsed=self.collapsed,
             color=self._bg_color,
             scale=self._scale,
+            row_gap=self._row_gap,
         )
 
     def showEvent(self, e):

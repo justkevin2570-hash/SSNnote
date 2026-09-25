@@ -154,6 +154,7 @@ def new_window(offset_from=None, memo_mode=False, on_toggle_hotkey=None, on_shor
 _alarm_callbacks = {}  # 정의 전 참조 문제 우회용
 
 def _launch_window(wid, x, y, width, height, collapsed, color='', scale=1.0, memo_mode=False,
+                   row_gap=0,
                    on_toggle_hotkey=None, on_shortcut_change=None, get_shortcut_enabled=None):
     win = MemoWindow(
         window_id=wid,
@@ -168,7 +169,7 @@ def _launch_window(wid, x, y, width, height, collapsed, color='', scale=1.0, mem
         get_shortcut_enabled=get_shortcut_enabled,
         force_memo_mode=memo_mode,
     )
-    win.apply_state(x, y, width, height, collapsed, color, scale)
+    win.apply_state(x, y, width, height, collapsed, color, scale, row_gap)
     win.show()
     _open_windows.append(win)
     win.destroyed.connect(lambda _: _open_windows.remove(win) if win in _open_windows else None)
@@ -283,7 +284,7 @@ if __name__ == '__main__':
         _first_id = min((w['id'] for w in _all), default=None)
         for w in _all:
             _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''), w.get('scale', 1.0),
-                           memo_mode=(w['id'] != _first_id),
+                           memo_mode=(w['id'] != _first_id), row_gap=w.get('row_gap', 0),
                            on_toggle_hotkey=_hotkey_filter.set_enabled,
                            on_shortcut_change=_set_shortcut_enabled,
                            get_shortcut_enabled=_get_shortcut_enabled)
@@ -304,7 +305,7 @@ if __name__ == '__main__':
     first_id = min((w['id'] for w in all_db_windows), default=None)
     for w in all_db_windows:
         _launch_window(w['id'], w['x'], w['y'], w['width'], w['height'], bool(w['collapsed']), w.get('color', ''), w.get('scale', 1.0),
-                       memo_mode=(w['id'] != first_id),
+                       memo_mode=(w['id'] != first_id), row_gap=w.get('row_gap', 0),
                        on_toggle_hotkey=_hotkey_filter.set_enabled,
                        on_shortcut_change=_set_shortcut_enabled,
                        get_shortcut_enabled=_get_shortcut_enabled)

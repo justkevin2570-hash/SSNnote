@@ -107,6 +107,8 @@ def init_db():
             conn.execute("ALTER TABLE windows ADD COLUMN memo_text TEXT DEFAULT ''")
         if 'merge_group_id' not in wcols:
             conn.execute("ALTER TABLE windows ADD COLUMN merge_group_id INTEGER DEFAULT NULL")
+        if 'row_gap' not in wcols:
+            conn.execute("ALTER TABLE windows ADD COLUMN row_gap INTEGER DEFAULT 0")
 
         if 'strikethrough' not in cols:
             conn.execute('ALTER TABLE tasks ADD COLUMN strikethrough INTEGER NOT NULL DEFAULT 0')
@@ -189,11 +191,11 @@ def create_window(x=130, y=130, width=320, height=400):
         return cur.lastrowid
 
 
-def update_window(window_id, x, y, width, height, collapsed, color='', scale=1.0):
+def update_window(window_id, x, y, width, height, collapsed, color='', scale=1.0, row_gap=0):
     with _connect() as conn:
         conn.execute(
-            'UPDATE windows SET x=?,y=?,width=?,height=?,collapsed=?,color=?,scale=? WHERE id=?',
-            (x, y, width, height, 1 if collapsed else 0, color, scale, window_id)
+            'UPDATE windows SET x=?,y=?,width=?,height=?,collapsed=?,color=?,scale=?,row_gap=? WHERE id=?',
+            (x, y, width, height, 1 if collapsed else 0, color, scale, row_gap, window_id)
         )
 
 
