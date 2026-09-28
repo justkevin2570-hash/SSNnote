@@ -1,6 +1,6 @@
 {
   "version": "v2.66",
   "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.66/SSNnote_Setup.exe",
-  "sha256": "EE071F062DF3385115B68A4C162F1B5FDC2E39AF338FEB9BBFF4D9D479977B4C",
+  "sha256": "9C3A3979380DEA23039288CA7EE4D7F42829BCC91DA69DC1199452E11D8E4807",
   "changelog": "- 업무 목록의 위아래 칸 사이 간격을 조절할 수 있습니다 (메뉴 → ↕️ 줄 간격: 0/5/10/15px)\n- 간격 설정은 창마다 저장되어 껐다 켜도 그대로 유지됩니다"
 }
