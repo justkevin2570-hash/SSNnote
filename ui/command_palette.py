@@ -1,4 +1,4 @@
-"""ui/command_palette.py — 명령 팔레트 (Ctrl+K).
+"""ui/command_palette.py — 빠른 찾기 (Ctrl+K).
 
 키보드만으로 기능을 실행하고 업무를 찾는다. 초성 검색 지원 ('ㅇㅅ' → 예산 관리).
   ↑↓ 이동 · Enter 실행 · Esc 닫기

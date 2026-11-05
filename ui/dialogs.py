@@ -1,13 +1,10 @@
-"""ui/dialogs.py — 범용 대화상자 (사용자 지정 반복, 전체 검색)."""
+"""ui/dialogs.py — 범용 대화상자 (사용자 지정 반복)."""
 from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QDialog, QListWidget, QComboBox, QListWidgetItem
+    QPushButton, QLabel, QDialog, QComboBox
 )
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QFont, QColor
-from db import (search_tasks_all)
-from .dates import calc_dday
-from .theme import T, tc, tct, note_color
+from PyQt5.QtCore import Qt
+from .theme import tc, tct
 
 class CustomRecurrenceDialog(QDialog):
     """월/주/요일 사용자 설정 다이얼로그"""
@@ -78,65 +75,3 @@ class CustomRecurrenceDialog(QDialog):
         w = self.combo_w.currentData()
         wd = self.combo_wd.currentData()
         return f'custom:{m}|{w}|{wd}'
-
-
-class GlobalSearchDialog(QDialog):
-    def __init__(self, open_windows, parent=None):
-        super().__init__(parent, Qt.WindowStaysOnTopHint)
-        self.setWindowTitle('통합 검색')
-        self.setMinimumSize(440, 380)
-        self._open_windows = open_windows
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        layout.setContentsMargins(12, 12, 12, 12)
-
-        self._input = QLineEdit()
-        self._input.setPlaceholderText('검색어 입력…')
-        self._input.setFont(QFont('Malgun Gothic', 11))
-        self._input.setStyleSheet(
-            f"QLineEdit {{ border: 1px solid {T.ACCENT}; border-radius: 4px; padding: 4px 8px; }}"
-        )
-        layout.addWidget(self._input)
-
-        self._list = QListWidget()
-        self._list.setFont(QFont('Malgun Gothic', 10))
-        self._list.setAlternatingRowColors(True)
-        self._list.setStyleSheet(
-            f"QListWidget {{ border: 1px solid {tc('#ddd')}; border-radius: 4px; }}"
-            "QListWidget::item { padding: 5px 8px; }"
-            f"QListWidget::item:selected {{ background: {tc('rgba(212,184,0,0.4)')}; color: {tct('#333')}; }}"
-        )
-        layout.addWidget(self._list)
-
-        self._timer = QTimer()
-        self._timer.setSingleShot(True)
-        self._timer.setInterval(250)
-        self._input.textChanged.connect(lambda: self._timer.start())
-        self._timer.timeout.connect(self._do_search)
-        self._list.itemDoubleClicked.connect(self._jump_to)
-
-    def _do_search(self):
-        q = self._input.text().strip()
-        self._list.clear()
-        if not q:
-            return
-        for r in search_tasks_all(q):
-            dday = calc_dday(r['deadline']) if r.get('deadline') else ''
-            text = f"[{dday}]  {r['name']}" if dday else r['name']
-            item = QListWidgetItem(text)
-            item.setData(Qt.UserRole, r)
-            if r.get('color'):
-                item.setBackground(QColor(note_color(r['color'])).lighter(140))
-            self._list.addItem(item)
-
-    def _jump_to(self, item):
-        r = item.data(Qt.UserRole)
-        for win in self._open_windows:
-            if win.window_id == r['window_id']:
-                win.show()
-                win.raise_()
-                win.activateWindow()
-                win._highlight_task(r['id'])
-                break
-        self.accept()

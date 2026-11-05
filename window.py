@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit, QTextEdit, QGraphicsColorizeEffect, QTimeEdit,
     QComboBox, QScrollBar
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QSize, QSettings, QUrl
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSettings, QUrl
 from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextBlockFormat, QTextCursor
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
@@ -23,7 +23,7 @@ import updater
 from ui.common import _base_path, _load_pretendard, pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT
 from ui.dates import _next_recurrence_deadline, calc_dday
 from ui.widgets import _SelectableLabel, AddDateButton, CustomCalendarWidget, DdayLabel, PlainPasteMemoEdit
-from ui.dialogs import CustomRecurrenceDialog, GlobalSearchDialog
+from ui.dialogs import CustomRecurrenceDialog
 from ui.chrome import EdgeHandle, MergeButton, TitleBar
 from ui.task_row import _NoteButton, TaskRow
 from ui.document_row import DocumentRow
@@ -705,10 +705,6 @@ class MemoWindow(QMainWindow):
             self._selected_task_id = None
         self._refresh_tasks()
 
-    def _open_global_search(self):
-        dlg = GlobalSearchDialog(self._open_windows, parent=self)
-        dlg.exec_()
-
     def _highlight_task(self, task_id):
         for i in range(self.task_list_layout.count()):
             item = self.task_list_layout.itemAt(i)
@@ -1078,7 +1074,7 @@ class MemoWindow(QMainWindow):
 
         self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
 
-    # ── 명령 팔레트 (Ctrl+K) / 오늘 한눈에 보기 ─────────────────────
+    # ── 빠른 찾기 (Ctrl+K) / 오늘 한눈에 보기 ───────────────────────
     def _palette_commands(self):
         from ui.command_palette import Command
         from school_profile import privacy_enabled
@@ -1091,29 +1087,29 @@ class MemoWindow(QMainWindow):
             target.activateWindow()
             target.input_name.setFocus()
 
+        new_memo = lambda: self.on_new(offset_from=self, memo_mode=True,  # noqa: E731
+                                       on_toggle_hotkey=self._on_toggle_hotkey,
+                                       on_shortcut_change=self._on_shortcut_change,
+                                       get_shortcut_enabled=self._get_shortcut_enabled)
+        # 순서·이름은 「…」 메뉴와 맞춘다 (자주 쓰는 기능 → 창 → 이 메모장 → 설정 → 도움말)
         return [
-            Command('✏️ 새 업무 입력', new_task, '', 'task add 추가 할일'),
-            Command('📸 AI 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷'),
             Command('📋 오늘 한눈에 보기', self._open_dashboard, '', 'dashboard today 대시보드 마감'),
+            Command('📸 AI 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷'),
+            Command('✏️ 새 업무 입력', new_task, '', 'task add 추가 할일'),
+            Command('🆕 새 메모장', new_memo, '', 'new memo 메모'),
             Command('✍️ 공문 작성', self._open_document_editor, '', 'document 기안 초안 회신'),
             Command('₩ 예산 관리', self._open_budget_window, '', 'budget money 돈 집행'),
             Command('📅 월간 달력', self._show_monthly_calendar, '', 'calendar 일정 캘린더'),
-            Command('🔍 통합 검색', self._open_global_search, '', 'search find 찾기'),
             Command('📜 지난 기록', self._show_history, '', 'history 완료 삭제'),
-            Command('🆕 새 메모장', lambda: self.on_new(offset_from=self, memo_mode=True,
-                                                    on_toggle_hotkey=self._on_toggle_hotkey,
-                                                    on_shortcut_change=self._on_shortcut_change,
-                                                    get_shortcut_enabled=self._get_shortcut_enabled),
-                    '', 'new memo 메모'),
             Command('📌 항상 위에 ' + ('고정 끄기' if on_top else '고정'), self.toggle_always_on_top,
                     'Ctrl+Shift+F', 'pin top 핀'),
             Command('↕️ 메모장 접기/펼치기', self.toggle_shade, 'Ctrl+Shift+R', 'shade fold collapse'),
-            Command('🏫 학교 정보 설정', self._open_profile_dialog, '', 'profile school 프로필 담당자'),
+            Command('🌙 다크 모드 켜기/끄기', self._toggle_theme, '', 'dark light theme 테마 어둡게 밝게 설정'),
             Command('🛡️ 개인정보 보호 모드 ' + ('끄기' if privacy_enabled() else '켜기'),
-                    self._toggle_privacy_mode, '', 'privacy 보안 마스킹'),
-            Command('🌙 다크 모드 켜기/끄기', self._toggle_theme, '', 'dark light theme 테마 어둡게 밝게'),
-            Command('⬇️ 업데이트 확인', lambda: updater.check_for_update_manual(self), '', 'update 버전'),
+                    self._toggle_privacy_mode, '', 'privacy 보안 마스킹 설정'),
+            Command('🏫 학교 정보 설정', self._open_profile_dialog, '', 'profile school 프로필 담당자 설정'),
             Command('💡 사용 설명서', self.show_help, '', 'help 도움말'),
+            Command('⬇️ 업데이트 확인', lambda: updater.check_for_update_manual(self), '', 'update 버전 도움말'),
         ]
 
     def _open_command_palette(self):
@@ -1232,58 +1228,6 @@ class MemoWindow(QMainWindow):
         from school_profile import privacy_enabled, set_privacy_enabled
         set_privacy_enabled(not privacy_enabled())
 
-    @staticmethod
-    def _make_check_icon(checked, size=20):
-        from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen, QIcon
-        px = QPixmap(size, size)
-        px.fill(QColor(0, 0, 0, 0))
-        p = QPainter(px)
-        p.setRenderHint(QPainter.Antialiasing)
-        if checked:
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(tc('#2ecc71')))
-            p.drawRoundedRect(1, 1, size - 2, size - 2, 4, 4)
-            p.setPen(QPen(QColor(tc('#ffffff')), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
-            bx, by = int(size * 0.40), int(size * 0.62)
-            p.drawLine(int(size * 0.18), int(size * 0.50), bx, by)
-            p.drawLine(bx, by, int(size * 0.82), int(size * 0.25))
-        else:
-            p.setPen(QPen(QColor(tc('#555555')), 1.5))
-            p.setBrush(QColor(0, 0, 0, 0))
-            p.drawRoundedRect(2, 2, size - 4, size - 4, 3, 3)
-        p.end()
-        return QIcon(px)
-
-    def _make_check_widget_action(self, parent_menu, text, checked, on_trigger):
-        from PyQt5.QtWidgets import QWidgetAction, QToolButton, QSizePolicy
-        wa = QWidgetAction(parent_menu)
-        btn = QToolButton()
-        btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        btn.setIcon(self._make_check_icon(checked))
-        btn.setIconSize(QSize(20, 20))
-        btn.setText(text)
-        btn.setFont(QFont('Malgun Gothic', 11))
-        btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        btn.setStyleSheet(f"""
-            QToolButton {{
-                background: transparent;
-                border: none;
-                padding: 7px 16px 7px 4px;
-                color: {tct("#333")};
-                text-align: left;
-            }}
-            QToolButton:hover {{
-                background: {tc("rgba(212,184,0,0.3)")};
-                border-radius: 4px;
-            }}
-        """)
-        def _clicked():
-            on_trigger()
-            QTimer.singleShot(0, parent_menu.close)
-        btn.pressed.connect(_clicked)
-        wa.setDefaultWidget(btn)
-        return wa
-
     def _make_menu_style(self):
         return f"""
             QMenu {{
@@ -1298,163 +1242,144 @@ class MemoWindow(QMainWindow):
             }}
             QMenu::item {{ padding: 7px 16px 7px 4px; }}
             QMenu::item:selected {{ background: {tc("rgba(212,184,0,0.3)")}; }}
+            QMenu::item:disabled {{ color: {T.TEXT_WARM_MUTED}; font-size: 9pt; padding: 6px 16px 2px 10px; }}
+            QMenu::item:disabled:selected {{ background: transparent; }}
         """
 
+    @staticmethod
+    def _menu_check_icon(checked, size=16):
+        """메뉴용 체크 표시 — 켜짐은 ✓, 꺼짐은 같은 크기의 빈 칸 (글자 줄이 맞도록)."""
+        from PyQt5.QtGui import QPixmap, QPainter, QPen, QIcon
+        px = QPixmap(size, size)
+        px.fill(Qt.transparent)
+        if checked:
+            p = QPainter(px)
+            p.setRenderHint(QPainter.Antialiasing)
+            pen = QPen(QColor(T.TEXT_ON_NOTE), 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            p.setPen(pen)
+            p.drawPolyline(QPointF(size * 0.18, size * 0.52), QPointF(size * 0.42, size * 0.76),
+                           QPointF(size * 0.84, size * 0.26))
+            p.end()
+        return QIcon(px)
+
+    def _menu_add(self, menu, text, on_trigger, checked=None, shortcut=''):
+        """메뉴 항목 추가. checked가 True/False면 체크 항목, shortcut은 오른쪽 끝에 표시."""
+        act = QAction(text + (f'\t{shortcut}' if shortcut else ''), menu)
+        if checked is not None:
+            act.setIcon(self._menu_check_icon(checked))
+        act.triggered.connect(lambda *_: on_trigger())
+        menu.addAction(act)
+        return act
+
+    @staticmethod
+    def _menu_header(menu, text):
+        """누를 수 없는 작은 머리글 (스타일시트를 쓴 메뉴에서는 addSection 글자가 안 보여서 대신 사용)."""
+        act = QAction(text, menu)
+        act.setEnabled(False)
+        menu.addAction(act)
+        return act
+
+    def _submenu(self, parent, title, min_width=None):
+        sub = QMenu(title, parent)
+        style = self._make_menu_style()
+        if min_width:
+            style = style.replace('min-width: 176px', f'min-width: {min_width}px')
+        sub.setStyleSheet(style)
+        sub.setToolTipsVisible(True)
+        parent.addMenu(sub)
+        return sub
+
     def show_menu(self, btn):
+        """「…」 메뉴: 자주 쓰는 기능 → 이 메모장 → 설정 → 도움말 → (삭제)."""
         menu = QMenu(self)
         menu.setStyleSheet(self._make_menu_style())
+        add = self._menu_add
 
-        act_new    = QAction('🆕 새 메모장', self)
-        act_search = QAction('🔍 통합 검색', self)
-        autostart_on = autostart_is_enabled()
-        act_auto = QAction(('✅ ' if autostart_on else '☐ ') + '시작 시 자동실행', self)
-        act_auto.triggered.connect(lambda: autostart_set(not autostart_on))
-        act_palette = QAction('⌨️ 명령 팔레트  (Ctrl+K)', self)
-        act_palette.triggered.connect(self._open_command_palette)
-        act_dash = QAction('📋 오늘 한눈에 보기', self)
-        act_dash.triggered.connect(self._open_dashboard)
-        act_ai_cap = QAction('📸 AI 공문 캡처  (Ctrl+Shift+X)', self)
-        act_ai_cap.triggered.connect(self._start_ai_capture)
-        from db import get_setting as _gs
-        from ui.theme import MODE as _mode
-        _dark_next = _gs('theme', _mode) == 'dark'
-        act_theme = QAction(('✅ ' if _dark_next else '☐ ') + '🌙 다크 모드', self)
-        act_theme.triggered.connect(self._toggle_theme)
-        act_profile = QAction('🏫 학교 정보 설정', self)
-        act_profile.triggered.connect(self._open_profile_dialog)
-        from school_profile import privacy_enabled
-        act_privacy = QAction(('✅ ' if privacy_enabled() else '☐ ') + '🛡️ 개인정보 보호 모드', self)
-        act_privacy.triggered.connect(self._toggle_privacy_mode)
-        act_help   = QAction('💡 사용 설명서', self)
-        act_update = QAction('⬇️ 업데이트 확인', self)
-        act_delete = QAction('🗑️ 메모장 삭제', self)
+        # ── 자주 쓰는 기능 ──
+        add(menu, '📋 오늘 한눈에 보기', self._open_dashboard)
+        add(menu, '📸 AI 공문 캡처', self._start_ai_capture, shortcut='Ctrl+Shift+X')
+        add(menu, '🔍 빠른 찾기', self._open_command_palette, shortcut='Ctrl+K')
+        add(menu, '🆕 새 메모장', lambda: self.on_new(offset_from=self, memo_mode=True,
+                                                    on_toggle_hotkey=self._on_toggle_hotkey,
+                                                    on_shortcut_change=self._on_shortcut_change,
+                                                    get_shortcut_enabled=self._get_shortcut_enabled))
+        menu.addSeparator()
 
-        # 배경색 서브메뉴
-        color_menu = QMenu('🎨 배경색 바꾸기', self)
-        color_menu.setStyleSheet(self._make_menu_style())
-
+        # ── 이 메모장 (이 창에만 적용) ──
+        memo = self._submenu(menu, '🎨 이 메모장')
         color_widget = QWidget()
         color_widget.setStyleSheet('background: transparent;')
         grid = QGridLayout(color_widget)
-        grid.setContentsMargins(8, 8, 8, 8)
+        grid.setContentsMargins(10, 8, 10, 8)
         grid.setSpacing(6)
         for i, color in enumerate(PALETTE):
             border = f'2px solid {tc("#333")}' if color == '#FFFFFF' else f'1px solid {tc("rgba(0,0,0,0.15)")}'
             cb = QPushButton()
-            cb.setFixedSize(30, 30)
+            cb.setFixedSize(26, 26)
+            cb.setToolTip('배경색')
             cb.setStyleSheet(f"""
                 QPushButton {{
                     background: {note_color(color)};
-                    border-radius: 15px;
+                    border-radius: 13px;
                     border: {border};
                 }}
                 QPushButton:hover {{ border: 2px solid {tc("rgba(0,0,0,0.5)")}; }}
             """)
             cb.clicked.connect(lambda _, c=color: (self._apply_color(c), self.save_state(), menu.close()))
-            grid.addWidget(cb, i // 7, i % 7)
-
-        wa = QWidgetAction(color_menu)
+            grid.addWidget(cb, i // 6, i % 6)
+        self._menu_header(memo, '배경색')
+        wa = QWidgetAction(memo)
         wa.setDefaultWidget(color_widget)
-        color_menu.addAction(wa)
-
-        # 마감 알림 메뉴
-        alarm_menu = QMenu('⏰ 마감 알림', self)
-        alarm_menu.setStyleSheet(self._make_menu_style())
-        alarm_menu.setToolTipsVisible(True)
-
-        # ── D-day 5일 이내 알림 서브메뉴 ──
-        dday_menu = QMenu('D-day 5일 이내 알림', self)
-        dday_menu.setStyleSheet(self._make_menu_style())
-
-        current_min = self._get_alarm_interval() if self._get_alarm_interval else 180
-        alarm_options = [
-            ('잡도리 모드 (30분마다)', 30),
-            ('긴장 모드 (1시간마다)', 60),
-            ('기본 설정 (3시간마다)', 180),
-        ]
-
-        off_check = '✅ ' if current_min == 0 else '　 '
-        act_off = QAction(off_check + '사용 안함', self)
-        act_off.triggered.connect(lambda: self._set_alarm_interval(0, menu))
-        dday_menu.addAction(act_off)
-
-        dday_menu.addSeparator()
-        for label, minutes in alarm_options:
-            check = '✅ ' if current_min == minutes else '　 '
-            act = QAction(check + label, self)
-            act.triggered.connect(lambda _, m=minutes: self._set_alarm_interval(m, menu))
-            dday_menu.addAction(act)
-
-        dday_menu.addSeparator()
-        custom_label = '✅ 사용자 설정' if current_min not in [m for _, m in alarm_options] and current_min != 0 else '　 사용자 설정'
-        act_custom = QAction(custom_label, self)
-        act_custom.triggered.connect(lambda: self._set_alarm_interval_custom(menu))
-        dday_menu.addAction(act_custom)
-
-        alarm_menu.addMenu(dday_menu)
-
-        # ── 당일 3시간 이내 알림 토글 ──
-        timed_enabled = self._get_timed_alarm_enabled() if self._get_timed_alarm_enabled else True
-        act_timed = QAction(('✅ ' if timed_enabled else '☐ ') + '당일 3시간 알림', self)
-        act_timed.setToolTip('3시간, 2시간, 1시간, 30분 전에 팝업 알림이 뜹니다.')
-        act_timed.triggered.connect(lambda: self._set_timed_alarm_enabled(not timed_enabled, menu))
-        alarm_menu.addAction(act_timed)
-
-        # 단축키 사용 체크 액션
-        sc_enabled = self._get_shortcut_enabled() if self._get_shortcut_enabled else True
-        act_sc = QAction(('✅ ' if sc_enabled else '☐ ') + '단축키 사용', self)
-        act_sc.triggered.connect(lambda: self._toggle_shortcut(not sc_enabled))
-
-        # 글자 크기 서브메뉴
-        size_menu = QMenu('🔠 글자 크기', self)
-        size_menu.setStyleSheet(self._make_menu_style().replace('min-width: 176px', 'min-width: 100px'))
+        memo.addAction(wa)
+        size_menu = self._submenu(memo, '글자 크기', 110)
         for label, val in [('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2)]:
-            check = '✅ ' if abs(self._scale - val) < 0.01 else '　 '
-            act_sz = QAction(check + label, self)
-            act_sz.triggered.connect(lambda _, v=val: self._set_scale(v, menu))
-            size_menu.addAction(act_sz)
+            add(size_menu, label, lambda v=val: self._set_scale(v, menu), checked=abs(self._scale - val) < 0.01)
+        gap_menu = self._submenu(memo, '줄 간격', 110)
+        for label, val in [('0px', 0), ('5px', 5), ('10px', 10), ('15px', 15)]:
+            add(gap_menu, label, lambda v=val: self._set_row_gap(v, menu), checked=self._row_gap == val)
 
-        # 줄 간격 서브메뉴 (업무 칸 사이 간격)
-        gap_menu = QMenu('↕️ 줄 간격', self)
-        gap_menu.setStyleSheet(self._make_menu_style().replace('min-width: 176px', 'min-width: 100px'))
-        for label, val in [('간격 0px', 0), ('간격 5px', 5), ('간격 10px', 10), ('간격 15px', 15)]:
-            check = '✅ ' if self._row_gap == val else '　 '
-            act_gap = QAction(check + label, self)
-            act_gap.triggered.connect(lambda _, v=val: self._set_row_gap(v, menu))
-            gap_menu.addAction(act_gap)
+        # ── 설정 (앱 전체에 적용) ──
+        settings = self._submenu(menu, '⚙️ 설정', 230)
+        alarm = self._submenu(settings, '마감 알림', 230)
+        self._menu_header(alarm, 'D-day 5일 이내 알림')
+        current_min = self._get_alarm_interval() if self._get_alarm_interval else 180
+        alarm_options = [('사용 안 함', 0), ('30분마다 (잡도리 모드)', 30),
+                         ('1시간마다 (긴장 모드)', 60), ('3시간마다 (기본)', 180)]
+        for label, minutes in alarm_options:
+            add(alarm, label, lambda m=minutes: self._set_alarm_interval(m, menu), checked=current_min == minutes)
+        is_custom = current_min not in [m for _, m in alarm_options]
+        add(alarm, '사용자 설정…' + (f' ({max(1, round(current_min / 60))}시간마다)' if is_custom else ''),
+            lambda: self._set_alarm_interval_custom(menu), checked=is_custom)
+        alarm.addSeparator()
+        timed_enabled = self._get_timed_alarm_enabled() if self._get_timed_alarm_enabled else True
+        act_timed = add(alarm, '당일 마감 3시간 전부터 알림', lambda: self._set_timed_alarm_enabled(not timed_enabled, menu),
+                        checked=timed_enabled)
+        act_timed.setToolTip('3시간, 2시간, 1시간, 30분 전에 팝업 알림이 뜹니다.')
 
-        menu.addAction(act_palette)
-        menu.addAction(act_dash)
-        menu.addAction(act_new)
-        menu.addAction(act_search)
-        menu.addAction(act_ai_cap)
-        menu.addMenu(color_menu)
-        menu.addMenu(size_menu)
-        menu.addMenu(gap_menu)
-        menu.addMenu(alarm_menu)
-        menu.addAction(act_auto)
-        menu.addAction(act_sc)
-        menu.addSeparator()
-        menu.addAction(act_profile)
-        menu.addAction(act_privacy)
-        menu.addAction(act_theme)
-        menu.addSeparator()
-        menu.addAction(act_help)
-        menu.addAction(act_update)
+        sc_enabled = self._get_shortcut_enabled() if self._get_shortcut_enabled else True
+        add(settings, '단축키 사용', lambda: self._toggle_shortcut(not sc_enabled), checked=sc_enabled)
+        autostart_on = autostart_is_enabled()
+        add(settings, '시작 시 자동실행', lambda: autostart_set(not autostart_on), checked=autostart_on)
+        settings.addSeparator()
+        from db import get_setting as _gs
+        from ui.theme import MODE as _mode
+        from school_profile import privacy_enabled
+        add(settings, '다크 모드 (다시 켜면 적용)', self._toggle_theme, checked=_gs('theme', _mode) == 'dark')
+        add(settings, '개인정보 보호 모드', self._toggle_privacy_mode, checked=privacy_enabled())
+        add(settings, '학교 정보 설정…', self._open_profile_dialog)
+
+        # ── 도움말 ──
+        help_menu = self._submenu(menu, '💡 도움말', 150)
+        add(help_menu, '사용 설명서', self.show_help)
+        add(help_menu, '업데이트 확인', lambda: updater.check_for_update_manual(self))
+
+        # ── 메모장 삭제 (첫 메모장 제외) ──
         _all_ids = [w['id'] for w in get_all_windows()]
         if not _all_ids or self.window_id != min(_all_ids):
             menu.addSeparator()
-            menu.addAction(act_delete)
+            add(menu, '🗑️ 메모장 삭제', self.delete_memo)
 
-        act_search.triggered.connect(self._open_global_search)
-        act_new.triggered.connect(lambda: self.on_new(offset_from=self, memo_mode=True,
-                                                       on_toggle_hotkey=self._on_toggle_hotkey,
-                                                       on_shortcut_change=self._on_shortcut_change,
-                                                       get_shortcut_enabled=self._get_shortcut_enabled))
-        act_help.triggered.connect(self.show_help)
-        act_update.triggered.connect(lambda: updater.check_for_update_manual(self))
-        act_delete.triggered.connect(self.delete_memo)
-
+        self._last_menu = menu  # 테스트·디버그용 참조
         pos = btn.mapToGlobal(btn.rect().bottomLeft())
         menu.exec_(pos)
 
