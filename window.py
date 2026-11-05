@@ -1108,6 +1108,7 @@ class MemoWindow(QMainWindow):
             Command('🛡️ 개인정보 보호 모드 ' + ('끄기' if privacy_enabled() else '켜기'),
                     self._toggle_privacy_mode, '', 'privacy 보안 마스킹 설정'),
             Command('🏫 학교 정보 설정', self._open_profile_dialog, '', 'profile school 프로필 담당자 설정'),
+            Command('🤖 Claude 연결', self._open_claude_connect, '', 'claude mcp ai 연결 클로드 설정'),
             Command('💡 사용 설명서', self.show_help, '', 'help 도움말'),
             Command('⬇️ 업데이트 확인', lambda: updater.check_for_update_manual(self), '', 'update 버전 도움말'),
         ]
@@ -1207,6 +1208,20 @@ class MemoWindow(QMainWindow):
     def _open_profile_dialog(self):
         from ui.profile_dialog import ProfileDialog
         ProfileDialog(self).exec_()
+
+    def _open_claude_connect(self):
+        """Claude Code / Claude 데스크톱 앱에 서서니 노트 연결 (MCP)."""
+        from ui.claude_connect_dialog import ClaudeConnectDialog
+        old = getattr(self, '_claude_dlg', None)
+        try:
+            if old is not None and old.isVisible():
+                old.raise_()
+                old.activateWindow()
+                return
+        except RuntimeError:
+            pass
+        self._claude_dlg = ClaudeConnectDialog()
+        self._claude_dlg.show()
 
     def _toggle_theme(self):
         """라이트 ↔ 다크. 화면들이 켤 때 색을 정하므로 다음 실행부터 적용."""
@@ -1367,6 +1382,7 @@ class MemoWindow(QMainWindow):
         add(settings, '다크 모드 (다시 켜면 적용)', self._toggle_theme, checked=_gs('theme', _mode) == 'dark')
         add(settings, '개인정보 보호 모드', self._toggle_privacy_mode, checked=privacy_enabled())
         add(settings, '학교 정보 설정…', self._open_profile_dialog)
+        add(settings, 'Claude 연결…', self._open_claude_connect)
 
         # ── 도움말 ──
         help_menu = self._submenu(menu, '💡 도움말', 150)

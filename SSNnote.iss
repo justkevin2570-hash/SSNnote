@@ -35,6 +35,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 Type: files; Name: "{app}\_internal"
 Type: files; Name: "{app}\null"
 Type: files; Name: "{app}\SSNnote.exe"
+Type: files; Name: "{app}\SSNnote_MCP.exe"
 
 [UninstallDelete]
 Type: dirifempty; Name: "{app}"

@@ -17,25 +17,29 @@ Claude 구독(Pro/Max)으로 **Claude Code**나 **Claude 데스크톱 앱**에�
 - **삭제는 할 수 없습니다** (실수 방지). 삭제는 메모 창에서 직접 해주세요.
 - Claude는 추가·수정 전에 이름과 마감일을 한 번 확인합니다.
 
-## 준비물
+## 연결하기 (버튼 한 번)
 
-1. **Claude Pro 또는 Max 구독**
-2. **Claude Code** 또는 **Claude 데스크톱 앱** (둘 중 하나)
-3. **Python 3.10 이상** — 연결 프로그램(`mcp_server.py`)을 실행하는 데 필요합니다.
-   - 확인: 명령 프롬프트에서 `python --version`
-4. 연결용 패키지 설치 (서서니 노트 폴더에서 한 번만):
+1. Claude 데스크톱 앱이나 Claude Code를 설치하고 **Claude 구독(Pro/Max) 계정으로 로그인**해 둡니다.
+2. 서서니 노트 메뉴 **「…」 → ⚙️ 설정 → Claude 연결…** 을 엽니다.
+3. 쓰는 쪽(Claude Code / Claude 데스크톱 앱)의 **[연결]** 을 누릅니다. `✓ 연결됨`이 보이면 끝입니다.
+   - **Claude 데스크톱 앱**은 연결 후 **완전히 종료(트레이 아이콘까지)했다가 다시 켜야** 적용됩니다.
+     연결하기 전에 Claude 앱을 먼저 꺼 두면 가장 확실합니다.
+   - 서서니 노트를 다른 폴더로 옮기거나 다시 설치했다면 **[다시 연결]** 을 누르세요.
+   - 그만 쓰려면 **[연결 해제]** — 서서니 노트 항목만 지우고 Claude의 다른 설정은 그대로 둡니다.
+
+버튼이 하는 일:
+- **Claude Code**: `claude mcp add --scope user ssnnote -- <서서니 노트 연결 프로그램>` 을 대신 실행합니다.
+- **Claude 데스크톱 앱**: Claude 설정 파일(`claude_desktop_config.json`)에 서서니 노트 항목을 추가합니다.
+  바꾸기 전 원본은 같은 폴더에 `claude_desktop_config.json.ssnnote-backup`으로 남겨 둡니다.
+- 연결 프로그램은 설치판에서는 설치 폴더의 `SSNnote_MCP.exe`, 소스로 실행할 때는 `python mcp_server.py` 입니다.
+  (소스 실행이고 구성요소가 없으면 창에 **[필요한 구성요소 설치]** 버튼이 나타납니다.)
+
+## 직접 등록하기 (버튼이 안 될 때)
+
+Claude Code — `C:\경로\SSNnote` 부분을 서서니 노트 설치 폴더로 바꿔서 실행:
 
 ```bash
-pip install -r requirements-mcp.txt
-```
-
-## 등록 — Claude Code
-
-`C:\경로\SSNnote` 부분을 서서니 노트 폴더 경로로 바꿔서 한 번 실행합니다.
-`--scope user`를 붙이면 어느 폴더에서 Claude Code를 켜도 연결됩니다.
-
-```bash
-claude mcp add --scope user ssnnote -- python "C:\경로\SSNnote\mcp_server.py"
+claude mcp add --scope user ssnnote -- "C:\경로\SSNnote\SSNnote_MCP.exe"
 ```
 
 연결 확인 (`ssnnote: ... √ Connected`가 보이면 성공):
@@ -44,25 +48,22 @@ claude mcp add --scope user ssnnote -- python "C:\경로\SSNnote\mcp_server.py"
 claude mcp list
 ```
 
-`python` 명령이 안 되면 `python` 대신 `py`를 넣어보세요.
-
-## 등록 — Claude 데스크톱 앱
-
-1. Claude 앱 → **설정 → 개발자 → 설정 편집(Edit Config)** 을 누르면 `claude_desktop_config.json` 파일이 열립니다.
-2. 아래 내용을 넣고 저장합니다. 경로의 `\`는 **두 번씩** 씁니다. 이미 `mcpServers`가 있으면 그 안에 `"ssnnote": {...}`만 추가합니다.
+Claude 데스크톱 앱 — **설정 → 개발자 → 설정 편집(Edit Config)** 에서 아래 항목을 넣고 앱을 다시 켭니다.
+경로의 `\`는 **두 번씩** 씁니다. 이미 `mcpServers`가 있으면 그 안에 `"ssnnote": {...}`만 추가합니다.
 
 ```json
 {
   "mcpServers": {
     "ssnnote": {
-      "command": "python",
-      "args": ["C:\\경로\\SSNnote\\mcp_server.py"]
+      "command": "C:\\경로\\SSNnote\\SSNnote_MCP.exe",
+      "args": []
     }
   }
 }
 ```
 
-3. Claude 앱을 **완전히 종료했다가 다시 켭니다** (트레이 아이콘까지 종료).
+소스(`python`)로 실행하는 경우에는 `SSNnote_MCP.exe` 대신 `python` + `mcp_server.py` 경로를 쓰고,
+먼저 `pip install -r requirements-mcp.txt` 로 구성요소를 설치합니다.
 
 ## 개인정보 안내
 
@@ -74,7 +75,8 @@ claude mcp list
 
 | 증상 | 확인할 것 |
 |---|---|
-| `claude mcp list`에 연결 실패 | `python "C:\경로\SSNnote\mcp_server.py"`를 직접 실행해 오류가 나는지 확인 (정상이면 아무 출력 없이 대기 — Ctrl+C로 종료) |
-| `No module named 'mcp'` | `pip install -r requirements-mcp.txt` 다시 실행 |
+| 「Claude 연결」 창에 "설치되어 있지 않음" | Claude Code / Claude 앱을 설치한 뒤 창을 다시 열기. Claude Code는 설치 후 PC를 다시 시작해야 보일 수 있음 |
+| `✓ 연결됨`인데 Claude가 서서니 노트를 모름 | Claude 데스크톱 앱이면 트레이 아이콘까지 완전히 종료 후 다시 켜기. Claude Code는 새 대화를 시작 |
+| "등록됐지만 응답 없음" | [다시 연결]. 그래도 안 되면 설치 폴더의 `SSNnote_MCP.exe`를 명령 프롬프트에서 직접 실행해 오류가 나는지 확인 (정상이면 아무 출력 없이 대기 — Ctrl+C로 종료) |
 | 추가한 업무가 메모 창에 안 보임 | 서서니 노트를 최신 버전으로 실행 중인지 확인 (3초마다 새로고침) |
 | Claude가 날짜를 잘못 넣음 | "마감은 2026-11-14 17:00"처럼 날짜를 정확히 말해주세요 |

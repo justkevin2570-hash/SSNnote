@@ -111,11 +111,42 @@ exe = EXE(
     entitlements_file=None,
 )
 
+# ── Claude 연결 프로그램 (MCP 서버, 콘솔 프로그램) ───────────────────
+# Claude Code / Claude 데스크톱 앱이 실행해 표준입출력으로 대화한다.
+# 메뉴 → 설정 → Claude 연결…이 이 exe를 등록한다. GUI(PyQt)는 넣지 않는다.
+a_mcp = Analysis(
+    ['mcp_server.py'],
+    pathex=[],
+    hiddenimports=['anyio._backends._asyncio'],
+    excludes=['PyQt5', 'numpy', 'PIL', 'matplotlib', 'pandas', 'tkinter',
+              'google', 'anthropic', 'openai', 'sentence_transformers', 'sklearn', 'torch'],
+    noarchive=False,
+    optimize=0,
+)
+pyz_mcp = PYZ(a_mcp.pure, a_mcp.zipped_data)
+
+exe_mcp = EXE(
+    pyz_mcp,
+    a_mcp.scripts,
+    [],
+    exclude_binaries=True,
+    name='SSNnote_MCP',
+    icon='icon.ico',
+    debug=False,
+    strip=False,
+    upx=False,
+    console=True,
+)
+
 coll = COLLECT(
     exe,
     a.binaries,
     a.zipfiles,
     a.datas,
+    exe_mcp,                 # 같은 폴더(dist\SSNnote)에 SSNnote_MCP.exe도 함께
+    a_mcp.binaries,
+    a_mcp.zipfiles,
+    a_mcp.datas,
     strip=False,
     upx=False,
     upx_exclude=[],
