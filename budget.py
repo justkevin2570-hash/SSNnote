@@ -24,7 +24,7 @@ from db import (get_budget_categories, add_budget_category, rename_budget_catego
                 delete_budget_category, get_budget_items, add_budget_item,
                 update_budget_item, delete_budget_item, set_budget_item_spent,
                 toggle_budget_item_completed, clear_budget_data)
-from ui.theme import T
+from ui.theme import TL as T, keep_light  # 예산·공문 창은 아직 라이트 전용
 
 
 # ── 번들 Pretendard 등록 ──────────────────────────────────────────
@@ -537,6 +537,7 @@ class BudgetWindow(QMainWindow):
         self._restore_window_state()
         self._init_ui()
         self.refresh()
+        keep_light(self)  # 예산 창은 아직 라이트 전용 (다크 테마에서도 원래 모습 유지)
 
     # ── UI 구성 ────────────────────────────────────────────────────
     def _init_ui(self):

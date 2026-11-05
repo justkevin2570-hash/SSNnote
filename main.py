@@ -203,6 +203,8 @@ if __name__ == '__main__':
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    from ui.theme import apply_app_palette
+    apply_app_palette(app)  # 다크 테마면 기본 팔레트도 어둡게
 
     def _on_focus_changed(old, new):
         global _last_active_window

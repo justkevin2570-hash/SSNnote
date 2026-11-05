@@ -32,7 +32,7 @@ from ai_client import (AiStreamThread,
                         load_opencode_model, save_opencode_model, OPENCODE_DEFAULT_MODELS)
 from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
 from rag import search_similar, make_search_prompt, embedding_to_bytes, encode
-from ui.theme import T
+from ui.theme import TL as T, keep_light  # 예산·공문 창은 아직 라이트 전용
 
 
 # ── 전체 QSS 테마 ─────────────────────────────────────────────────
@@ -421,6 +421,7 @@ class DocumentEditorWindow(QMainWindow):
         super().__init__(parent)
         self.ai_thread = None
         self.init_ui()
+        keep_light(self)  # 공문 작성 창은 아직 라이트 전용 (다크 테마에서도 원래 모습 유지)
 
     def init_ui(self):
         self.setWindowTitle("AI 공문 도우미")

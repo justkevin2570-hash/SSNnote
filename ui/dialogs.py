@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QColor
 from db import (search_tasks_all)
 from .dates import calc_dday
-from .theme import T
+from .theme import T, tc, tct, note_color
 
 class CustomRecurrenceDialog(QDialog):
     """월/주/요일 사용자 설정 다이얼로그"""
@@ -16,7 +16,7 @@ class CustomRecurrenceDialog(QDialog):
         self.setWindowTitle('사용자 설정 반복')
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setMinimumWidth(300)
-        self.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 10pt; background-color: #ffffff; color: #111111;")
+        self.setStyleSheet(f"font-family: 'Malgun Gothic'; font-size: 10pt; background-color: {tc('#ffffff')}; color: {tct('#111111')};")
         
         layout = QVBoxLayout(self)
         
@@ -103,9 +103,9 @@ class GlobalSearchDialog(QDialog):
         self._list.setFont(QFont('Malgun Gothic', 10))
         self._list.setAlternatingRowColors(True)
         self._list.setStyleSheet(
-            "QListWidget { border: 1px solid #ddd; border-radius: 4px; }"
+            f"QListWidget {{ border: 1px solid {tc('#ddd')}; border-radius: 4px; }}"
             "QListWidget::item { padding: 5px 8px; }"
-            "QListWidget::item:selected { background: rgba(212,184,0,0.4); color: #333; }"
+            f"QListWidget::item:selected {{ background: {tc('rgba(212,184,0,0.4)')}; color: {tct('#333')}; }}"
         )
         layout.addWidget(self._list)
 
@@ -127,7 +127,7 @@ class GlobalSearchDialog(QDialog):
             item = QListWidgetItem(text)
             item.setData(Qt.UserRole, r)
             if r.get('color'):
-                item.setBackground(QColor(r['color']).lighter(140))
+                item.setBackground(QColor(note_color(r['color'])).lighter(140))
             self._list.addItem(item)
 
     def _jump_to(self, item):

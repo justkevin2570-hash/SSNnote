@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
 import doc_ai
 from privacy import describe
 from .common import pr_font
-from .theme import T
+from .theme import T, tc, tct
 
 # 창을 닫아도 분석 스레드가 끝날 때까지 참조를 유지 (실행 중인 QThread가 파괴되면 앱이 종료됨)
 _ALIVE_WORKERS = set()
@@ -29,7 +29,7 @@ _STYLE = f"""
     QLabel#Status[state="done"] {{ color: {T.TEXT_ON_NOTE}; }}
     QLabel#Privacy {{ color: {T.TEXT_WARM_MUTED}; font-size: 9pt; }}
     QLineEdit, QPlainTextEdit, QDateEdit, QTimeEdit {{
-        background: white; border: 1px solid {T.SURFACE_WARM}; border-radius: 4px;
+        background: {tc("white")}; border: 1px solid {T.SURFACE_WARM}; border-radius: 4px;
         padding: 3px 6px; color: {T.INK};
     }}
     QLineEdit:focus, QPlainTextEdit:focus, QDateEdit:focus, QTimeEdit:focus {{ border: 1px solid {T.ACCENT}; }}
@@ -41,7 +41,7 @@ _STYLE = f"""
     QPushButton:hover {{ background: {T.SURFACE_WARM_HOVER}; }}
     QPushButton:pressed {{ background: {T.SURFACE_WARM_PRESSED}; }}
     QPushButton:disabled {{ color: {T.TEXT_WARM_MUTED}; }}
-    QPushButton#Primary {{ background: {T.ACCENT}; color: white; font-weight: 700; }}
+    QPushButton#Primary {{ background: {T.ACCENT}; color: {tct("white")}; font-weight: 700; }}
     QPushButton#Primary:hover {{ background: {T.ACCENT_HOVER}; }}
 """
 
@@ -79,7 +79,7 @@ class CaptureResultDialog(QDialog):
             thumb.setPixmap(self._pixmap.scaled(96, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         thumb.setFixedSize(96, 72)
         thumb.setAlignment(Qt.AlignCenter)
-        thumb.setStyleSheet(f'background: white; border: 1px solid {T.SURFACE_WARM}; border-radius: 4px;')
+        thumb.setStyleSheet(f'background: {tc("white")}; border: 1px solid {T.SURFACE_WARM}; border-radius: 4px;')
         head.addWidget(thumb)
         titles = QVBoxLayout()
         lbl_title = QLabel('공문 분석')

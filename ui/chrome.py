@@ -9,9 +9,9 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QPoint, QSize, QPropertyAnimation, QEasingCurve, QRectF
 from PyQt5.QtGui import QFont, QColor, QPainter, QIcon, QPixmap, QCursor
 import qtawesome as qta
-from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR
+from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR, themed_pixmap
 from .dates import calc_dday
-from .theme import T
+from .theme import T, tc, tct
 
 class EdgeHandle(QWidget):
     EDGE  = 6   # 가장자리 감지 두께(px)
@@ -270,7 +270,7 @@ class MergeButton(QWidget):
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(T.DANGER))
         p.drawRoundedRect(nx, by, bw, bh, 4, 4)
-        p.setBrush(QColor('#3498db'))
+        p.setBrush(QColor(tc('#3498db')))
         p.drawRoundedRect(sx, by, bw, bh, 4, 4)
         if not self._merged:
             p.setBrush(QColor(255, 255, 255))
@@ -328,17 +328,17 @@ class TitleBar(QWidget):
                 border-radius: 4px;
                 padding: 0;
             }}
-            QPushButton:hover {{ background: rgba(0,0,0,0.12); border-radius: 3px; }}
-            QPushButton:pressed {{ background: rgba(0,0,0,0.22); border-radius: 3px; }}
+            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.12)")}; border-radius: 3px; }}
+            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.22)")}; border-radius: 3px; }}
             QPushButton#btn_mode, QPushButton#btn_budget {{
                 background: transparent;
                 border: 1px solid transparent;
                 border-radius: 6px;
                 padding: 0px 6px;
-                color: #2979ff;
+                color: {tct("#2979ff")};
             }}
-            QPushButton#btn_mode:hover, QPushButton#btn_budget:hover {{ background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.12); }}
-            QPushButton#btn_mode:pressed, QPushButton#btn_budget:pressed {{ background: rgba(0,0,0,0.20); border-color: rgba(0,0,0,0.20); }}
+            QPushButton#btn_mode:hover, QPushButton#btn_budget:hover {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.12)")}; }}
+            QPushButton#btn_mode:pressed, QPushButton#btn_budget:pressed {{ background: {tc("rgba(0,0,0,0.20)")}; border-color: {tc("rgba(0,0,0,0.20)")}; }}
         """)
 
         layout = QHBoxLayout(self)
@@ -357,37 +357,37 @@ class TitleBar(QWidget):
         self.btn_pin.setFixedSize(26, 26)
         self.btn_pin.setFont(QFont('Segoe UI Emoji', 12))
         _gray = QGraphicsColorizeEffect()
-        _gray.setColor(QColor('#888888'))
+        _gray.setColor(QColor(tc('#888888')))
         _gray.setStrength(1.0)
         self.btn_pin.setGraphicsEffect(_gray)
         _x_icon_path = os.path.join(_base_path(), 'assets', '엑스아이콘.png')
         self.btn_close = QPushButton()
-        self.btn_close.setIcon(QIcon(QPixmap(_x_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+        self.btn_close.setIcon(QIcon(themed_pixmap(_x_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         self.btn_close.setIconSize(QSize(18, 18))
         self.btn_close.setFixedSize(26, 26)
         self.btn_close.setToolTip('닫기')
-        self.btn_close.setStyleSheet("""
-            QPushButton { background: transparent; border: none; }
-            QPushButton:hover { background: rgba(0,0,0,0.12); border-radius: 3px; }
-            QPushButton:pressed { background: rgba(0,0,0,0.22); border-radius: 3px; padding: 2px 0 0 2px; }
+        self.btn_close.setStyleSheet(f"""
+            QPushButton {{ background: transparent; border: none; }}
+            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.12)")}; border-radius: 3px; }}
+            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.22)")}; border-radius: 3px; padding: 2px 0 0 2px; }}
         """)
 
         _edit_icon_path = os.path.join(_base_path(), 'assets', '수정 아이콘.png')
         self.btn_mode = QPushButton()
         self.btn_mode.setObjectName('btn_mode')
-        self.btn_mode.setIcon(QIcon(QPixmap(_edit_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+        self.btn_mode.setIcon(QIcon(themed_pixmap(_edit_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         self.btn_mode.setIconSize(QSize(18, 18))
         self.btn_mode.setFixedSize(26, 26)
         self.btn_mode.setToolTip('메모 모드로 전환')
         _gray_mode = QGraphicsColorizeEffect()
-        _gray_mode.setColor(QColor('#888888'))
+        _gray_mode.setColor(QColor(tc('#888888')))
         _gray_mode.setStrength(1.0)
         self.btn_mode.setGraphicsEffect(_gray_mode)
         self.btn_mode.clicked.connect(parent._toggle_memo_mode)
 
         self.btn_budget = QPushButton()
         self.btn_budget.setObjectName('btn_budget')
-        self.btn_budget.setIcon(qta.icon('fa5s.won-sign', color='#888888'))
+        self.btn_budget.setIcon(qta.icon('fa5s.won-sign', color=tc('#888888')))
         self.btn_budget.setIconSize(QSize(18, 18))
         self.btn_budget.setFixedSize(26, 26)
         self.btn_budget.setToolTip('예산 관리')
@@ -528,11 +528,11 @@ class UrgentToast(QWidget):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
 
-        self.setStyleSheet("""
-            QWidget#toast {
-                background: #fff0e6;
-            }
-            QLabel { background: transparent; border: none; }
+        self.setStyleSheet(f"""
+            QWidget#toast {{
+                background: {tc("#fff0e6")};
+            }}
+            QLabel {{ background: transparent; border: none; }}
         """)
         self.setObjectName('toast')
 
@@ -579,14 +579,14 @@ class UrgentToast(QWidget):
         header_row.setSpacing(9)
         header = QLabel('마감 임박')
         header.setFont(QFont('Malgun Gothic', 16, QFont.Bold))
-        header.setStyleSheet('color: #7a3000;')
+        header.setStyleSheet(f'color: {tct("#7a3000")};')
         header_row.addWidget(header)
         header_row.addStretch()
         layout.addLayout(header_row)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet('background: #e8a070; max-height: 2px; border: none;')
+        sep.setStyleSheet(f'background: {tc("#e8a070")}; max-height: 2px; border: none;')
         layout.addWidget(sep)
 
         for task in tasks:
@@ -596,7 +596,7 @@ class UrgentToast(QWidget):
                 name = name[:29] + '…'
             row = QLabel(f'• {name}  <b>{dday}</b>')
             row.setFont(QFont('Malgun Gothic', 14))
-            row.setStyleSheet('color: #3a2000;')
+            row.setStyleSheet(f'color: {tct("#3a2000")};')
             layout.addWidget(row)
 
         self.setMinimumWidth(300)
@@ -657,7 +657,7 @@ class UrgentToast(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)
         pen = painter.pen()
-        pen.setColor(QColor('#d4637a'))
+        pen.setColor(QColor(tc('#d4637a')))
         pen.setWidth(5)
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)

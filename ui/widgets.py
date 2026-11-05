@@ -7,19 +7,19 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QDate, QTime, QTimer, QPoint, QSize, pyqtSignal
 from PyQt5.QtGui import QFontMetrics, QColor, QPainter, QTextCharFormat, QTextCursor, QKeySequence
 from .common import pr_font
-from .theme import T
+from .theme import T, tc, tct, qcolor
 
 class AddDateButton(QLabel):
     """deadline이 없는 태스크에서 날짜 자리에 표시되는 클릭 가능한 레이블."""
     clicked = pyqtSignal()
 
     _STYLE_NORMAL = (
-        'color: #bbb; background: transparent;'
-        'border: 1px dashed #ccc; border-radius: 3px;'
+        f'color: {tct("#bbb")}; background: transparent;'
+        f'border: 1px dashed {tc("#ccc")}; border-radius: 3px;'
         'padding: 1px 5px;'
     )
     _STYLE_HOVER = (
-        'color: #888; background: rgba(212,184,0,0.1);'
+        f'color: {tct("#888")}; background: {tc("rgba(212,184,0,0.1)")};'
         f'border: 1px dashed {T.ACCENT}; border-radius: 3px;'
         'padding: 1px 5px;'
     )
@@ -86,7 +86,7 @@ class DdayLabel(QLabel):
         self.setFont(f)
         self._original_style = self.styleSheet()
         if T.DANGER in self._original_style:
-            self.setStyleSheet(self._original_style.replace(T.DANGER, '#e96060'))
+            self.setStyleSheet(self._original_style.replace(T.DANGER, tc('#e96060')))
         super().enterEvent(event)
 
     def leaveEvent(self, event):
@@ -128,14 +128,14 @@ class RotatedMenuButton(QPushButton):
         p.setRenderHint(QPainter.Antialiasing)
 
         if self._hovered:
-            p.setBrush(QColor(0, 0, 0, 30))
+            p.setBrush(qcolor('#000000', 30))  # 다크에선 흰 음영
             p.setPen(Qt.NoPen)
             p.drawRoundedRect(self.rect(), 4, 4)
 
         p.translate(self.width() / 2.0, self.height() / 2.0)
         p.rotate(90)
         p.setFont(self.font())
-        p.setPen(QColor(0, 0, 0))
+        p.setPen(qcolor('#000000'))
         p.drawText(
             -self.height() // 2, -self.width() // 2,
             self.height(), self.width(),
@@ -212,7 +212,7 @@ class TimePickerPopup(QFrame):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
         self.setStyleSheet(f"""
             QFrame {{
-                background: #fffbe6;
+                background: {tc("#fffbe6")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 6px;
             }}
@@ -221,12 +221,12 @@ class TimePickerPopup(QFrame):
                 border: none;
                 font-family: 'Malgun Gothic';
                 font-size: 11pt;
-                color: #333;
+                color: {tct("#333")};
                 outline: 0;
             }}
             QListWidget::item {{ padding: 3px 10px; border-radius: 3px; }}
-            QListWidget::item:selected {{ background: {T.ACCENT}; color: white; }}
-            QListWidget::item:hover {{ background: #fff3a0; }}
+            QListWidget::item:selected {{ background: {T.ACCENT}; color: {tct("white")}; }}
+            QListWidget::item:hover {{ background: {tc("#fff3a0")}; }}
         """)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
@@ -284,7 +284,7 @@ class ClickToCopyLabel(QLabel):
         popup.setStyleSheet(f"""
             QLabel {{
                 background: {T.TEXT_ON_NOTE};
-                color: white;
+                color: {tct("white")};
                 border-radius: 4px;
                 padding: 3px 8px;
                 font-family: 'Malgun Gothic';
@@ -331,7 +331,7 @@ class SmartDocLineEdit(QLineEdit):
         popup.setStyleSheet(f"""
             QLabel {{
                 background: {T.TEXT_ON_NOTE};
-                color: white;
+                color: {tct("white")};
                 border-radius: 4px;
                 padding: 3px 8px;
                 font-family: 'Malgun Gothic';
@@ -358,7 +358,7 @@ class ClickToCopyLineEdit(QLineEdit):
         popup.setStyleSheet(f"""
             QLabel {{
                 background: {T.TEXT_ON_NOTE};
-                color: white;
+                color: {tct("white")};
                 border-radius: 4px;
                 padding: 3px 8px;
                 font-family: 'Malgun Gothic';

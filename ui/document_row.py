@@ -5,9 +5,9 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 from db import (update_document)
-from .common import _base_path
+from .common import _base_path, themed_pixmap
 from .widgets import SmartDocLineEdit
-from .theme import T
+from .theme import T, tc, tct
 
 class DocumentRow(QWidget):
     """공문번호 한 항목 행: [공문제목 입력] [공문번호(읽기전용)] [삭제메뉴]"""
@@ -24,19 +24,19 @@ class DocumentRow(QWidget):
 
         field_style = f"""
             QLineEdit {{
-                background: rgba(255,255,255,0.5);
+                background: {tc("rgba(255,255,255,0.5)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
-                color: #333;
+                color: {tct("#333")};
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
             }}
         """
         readonly_style = f"""
             QLineEdit {{
-                background: rgba(255,255,255,0.25);
-                border: 1px solid #c0a800;
+                background: {tc("rgba(255,255,255,0.25)")};
+                border: 1px solid {tc("#c0a800")};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: {T.TEXT_ON_NOTE};
@@ -45,16 +45,16 @@ class DocumentRow(QWidget):
             }}
         """
 
-        editing_style = """
-            QLineEdit {
-                background: rgba(255,255,255,0.9);
-                border: 1px solid #a08800;
+        editing_style = f"""
+            QLineEdit {{
+                background: {tc("rgba(255,255,255,0.9)")};
+                border: 1px solid {tc("#a08800")};
                 border-radius: 4px;
                 padding: 2px 6px;
-                color: #111;
+                color: {tct("#111")};
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
-            }
+            }}
         """
 
         self.title_edit = SmartDocLineEdit(doc.get('title', ''))
@@ -66,19 +66,19 @@ class DocumentRow(QWidget):
         lay.addSpacing(0)
 
         import os
-        from PyQt5.QtGui import QIcon, QPixmap
+        from PyQt5.QtGui import QIcon
         from PyQt5.QtCore import QSize
         _edit_icon_path = os.path.join(_base_path(), 'assets', '수정 아이콘.png')
         btn_edit = QPushButton()
-        btn_edit.setIcon(QIcon(QPixmap(_edit_icon_path).scaled(15, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)))
+        btn_edit.setIcon(QIcon(themed_pixmap(_edit_icon_path).scaled(15, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)))
         btn_edit.setIconSize(QSize(15, 16))
         btn_edit.setFixedSize(17, 18)
         btn_edit.setToolTip('')
         btn_edit.setCursor(Qt.PointingHandCursor)
-        btn_edit.setStyleSheet("""
-            QPushButton { background: transparent; border: none; padding: 0; }
-            QPushButton:hover { background: rgba(0,0,0,0.08); border-radius: 3px; }
-            QPushButton:pressed { background: rgba(0,0,0,0.18); border-radius: 3px; }
+        btn_edit.setStyleSheet(f"""
+            QPushButton {{ background: transparent; border: none; padding: 0; }}
+            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.08)")}; border-radius: 3px; }}
+            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.18)")}; border-radius: 3px; }}
         """)
         lay.addWidget(btn_edit)
         lay.addSpacing(1)
@@ -91,15 +91,15 @@ class DocumentRow(QWidget):
         lay.addWidget(self.num_edit, 11)
 
         btn_edit_num = QPushButton()
-        btn_edit_num.setIcon(QIcon(QPixmap(_edit_icon_path).scaled(15, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)))
+        btn_edit_num.setIcon(QIcon(themed_pixmap(_edit_icon_path).scaled(15, 16, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)))
         btn_edit_num.setIconSize(QSize(15, 16))
         btn_edit_num.setFixedSize(17, 18)
         btn_edit_num.setToolTip('')
         btn_edit_num.setCursor(Qt.PointingHandCursor)
-        btn_edit_num.setStyleSheet("""
-            QPushButton { background: transparent; border: none; padding: 0; }
-            QPushButton:hover { background: rgba(0,0,0,0.08); border-radius: 3px; }
-            QPushButton:pressed { background: rgba(0,0,0,0.18); border-radius: 3px; }
+        btn_edit_num.setStyleSheet(f"""
+            QPushButton {{ background: transparent; border: none; padding: 0; }}
+            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.08)")}; border-radius: 3px; }}
+            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.18)")}; border-radius: 3px; }}
         """)
         lay.addWidget(btn_edit_num)
         lay.addSpacing(4)
@@ -167,21 +167,21 @@ class DocumentRow(QWidget):
             return
 
         import os
-        from PyQt5.QtGui import QIcon, QPixmap
+        from PyQt5.QtGui import QIcon
         from PyQt5.QtCore import QSize
         _del_icon_path = os.path.join(_base_path(), 'assets', '엑스아이콘.png')
         btn_del = QPushButton()
-        btn_del.setIcon(QIcon(QPixmap(_del_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
+        btn_del.setIcon(QIcon(themed_pixmap(_del_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         btn_del.setIconSize(QSize(18, 18))
         btn_del.setFixedSize(22, 26)
-        btn_del.setStyleSheet("""
-            QPushButton {
+        btn_del.setStyleSheet(f"""
+            QPushButton {{
                 background: transparent;
                 border: none;
                 padding: 0;
-            }
-            QPushButton:hover { background: rgba(0,0,0,0.08); border-radius: 3px; }
-            QPushButton:pressed { background: rgba(0,0,0,0.18); border-radius: 3px; padding: 2px 0 0 2px; }
+            }}
+            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.08)")}; border-radius: 3px; }}
+            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.18)")}; border-radius: 3px; padding: 2px 0 0 2px; }}
         """)
         btn_del.clicked.connect(lambda: self._on_delete(self._doc['id']))
         lay.addWidget(btn_del)

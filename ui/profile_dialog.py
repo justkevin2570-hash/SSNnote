@@ -10,7 +10,7 @@ from privacy import parse_name_list
 from school_profile import (PROFILE_FIELDS, load_profile, save_profile,
                             privacy_enabled, set_privacy_enabled)
 from .common import pr_font
-from .theme import T
+from .theme import T, tc, tct
 
 _STYLE = f"""
     QDialog {{ background: {T.BG_WARM}; }}
@@ -18,7 +18,7 @@ _STYLE = f"""
     QLabel#Title {{ color: {T.INK}; font-size: 13pt; font-weight: 700; }}
     QLabel#Hint {{ color: {T.TEXT_WARM_MUTED}; font-size: 9pt; }}
     QLineEdit, QPlainTextEdit {{
-        background: white; border: 1px solid {T.SURFACE_WARM}; border-radius: 4px;
+        background: {tc("white")}; border: 1px solid {T.SURFACE_WARM}; border-radius: 4px;
         padding: 3px 6px; color: {T.INK};
     }}
     QLineEdit:focus, QPlainTextEdit:focus {{ border: 1px solid {T.ACCENT}; }}
@@ -27,7 +27,7 @@ _STYLE = f"""
         padding: 6px 14px;
     }}
     QPushButton:hover {{ background: {T.SURFACE_WARM_HOVER}; }}
-    QPushButton#Primary {{ background: {T.ACCENT}; color: white; font-weight: 700; }}
+    QPushButton#Primary {{ background: {T.ACCENT}; color: {tct("white")}; font-weight: 700; }}
     QPushButton#Primary:hover {{ background: {T.ACCENT_HOVER}; }}
 """
 

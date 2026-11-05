@@ -83,8 +83,11 @@ def pr_font(size=11):
     families = QFontDatabase.applicationFontFamilies(_PR_FONT_ID)
     return QFont(families[0] if families else 'Pretendard', size)
 
-def mi_icon(codepoint, size=18, color='#555555'):
-    """Fluent Icons 코드포인트를 QIcon으로 변환."""
+def mi_icon(codepoint, size=18, color=None):
+    """Fluent Icons 코드포인트를 QIcon으로 변환. 색을 안 주면 테마의 기본 아이콘 회색."""
+    if color is None:
+        from .theme import tc
+        color = tc('#555555')
     _load_fluent_icons()
     pix = QPixmap(size, size)
     pix.fill(Qt.transparent)
@@ -106,6 +109,38 @@ class MI:
 class MAT:
     REPEAT        = '\ue040'   # repeat
 
+
+
+def themed_pixmap(path) -> QPixmap:
+    """아이콘 PNG를 불러온다. 다크 테마에선 검은 단색 아이콘을 밝은 색으로 칠한다 (투명도 유지).
+
+    색이 있는 그림(금색 화살표, 설명서 이미지 등)은 그대로 둔다.
+    """
+    pm = QPixmap(path)
+    from .theme import DARK, T
+    if not DARK or pm.isNull():
+        return pm
+    img = pm.toImage()
+    # 불투명 픽셀 표본으로 '어두운 단색' 아이콘인지 판단
+    step = max(1, min(img.width(), img.height()) // 24)
+    dark = total = 0
+    for y in range(0, img.height(), step):
+        for x in range(0, img.width(), step):
+            c = img.pixelColor(x, y)
+            if c.alpha() > 128:
+                total += 1
+                if c.lightness() < 110 and c.saturation() < 60:
+                    dark += 1
+    if not total or dark / total < 0.8:
+        return pm
+    tinted = QPixmap(pm.size())
+    tinted.fill(Qt.transparent)
+    p = QPainter(tinted)
+    p.drawPixmap(0, 0, pm)
+    p.setCompositionMode(QPainter.CompositionMode_SourceIn)
+    p.fillRect(tinted.rect(), QColor(T.INK))
+    p.end()
+    return tinted
 
 
 def _svg_icon(svg_path, color, size) -> 'QIcon':

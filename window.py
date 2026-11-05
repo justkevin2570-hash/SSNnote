@@ -28,7 +28,7 @@ from ui.chrome import EdgeHandle, MergeButton, TitleBar
 from ui.task_row import _NoteButton, TaskRow
 from ui.document_row import DocumentRow
 from ui.calendar_view import MonthlyCalendarDialog, NativeCalendarDialog
-from ui.theme import T, PALETTE
+from ui.theme import T, PALETTE, tc, tct, note_color, DARK
 
 class MemoWindow(QMainWindow):
     def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None,
@@ -51,7 +51,7 @@ class MemoWindow(QMainWindow):
         self.collapsed       = False
         self.expanded_height = 400
         self.pin_active      = False
-        self._bg_color       = '#FEFFA7'  # 기본값
+        self._bg_color       = tc('#FEFFA7')  # 기본값
         self._capture_hint_shown = False
         self._scale          = 1.0
         self._row_gap        = 0
@@ -111,7 +111,7 @@ class MemoWindow(QMainWindow):
             QWidget#central {{
                 background: {T.INPUT_BG};
                 border-radius: 0;
-                border: 1px solid rgba(0,0,0,0.4);
+                border: 1px solid {tc("rgba(0,0,0,0.4)")};
             }}
         """)
         self.setCentralWidget(central)
@@ -150,11 +150,11 @@ class MemoWindow(QMainWindow):
 
         field_style_line = f"""
             QLineEdit {{
-                background: rgba(255,255,255,0.5);
+                background: {tc("rgba(255,255,255,0.5)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
-                color: #333;
+                color: {tct("#333")};
             }}
         """
         _date_base = """
@@ -164,21 +164,21 @@ class MemoWindow(QMainWindow):
         """
         self._field_style_date_empty = f"""
             QDateEdit {{
-                background: rgba(255,255,255,0.5);
+                background: {tc("rgba(255,255,255,0.5)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
-                color: #aaa;
+                color: {tct("#aaa")};
                 qproperty-alignment: AlignLeft;
             }}
         """ + _date_base
         self._field_style_date_filled = f"""
             QDateEdit {{
-                background: rgba(255,255,255,0.5);
+                background: {tc("rgba(255,255,255,0.5)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
-                color: #333;
+                color: {tct("#333")};
                 qproperty-alignment: AlignCenter;
             }}
         """ + _date_base
@@ -228,17 +228,17 @@ class MemoWindow(QMainWindow):
         self.input_time.setEnabled(False)
         self.input_time.setStyleSheet(f"""
             QTimeEdit {{
-                background: rgba(255,255,255,0.5);
+                background: {tc("rgba(255,255,255,0.5)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
-                color: #333;
+                color: {tct("#333")};
                 qproperty-alignment: AlignCenter;
             }}
             QTimeEdit:disabled {{
-                background: rgba(255,255,255,0.2);
-                border: 1px solid #ddd;
-                color: #bbb;
+                background: {tc("rgba(255,255,255,0.2)")};
+                border: 1px solid {tc("#ddd")};
+                color: {tct("#bbb")};
             }}
             QTimeEdit::up-button {{ width: 0px; }}
             QTimeEdit::down-button {{ width: 0px; }}
@@ -257,21 +257,21 @@ class MemoWindow(QMainWindow):
         self._cal_popup.setWindowFlags(Qt.Popup)
         self._cal_popup.setStyleSheet(f"""
             QCalendarWidget {{
-                background-color: white;
+                background-color: {tc("white")};
             }}
             QCalendarWidget QAbstractItemView {{
-                background-color: white;
+                background-color: {tc("white")};
                 color: black;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
                 selection-background-color: {T.ACCENT};
-                selection-color: white;
+                selection-color: {tc("white")};
             }}
             QCalendarWidget QWidget {{
-                background-color: white;
+                background-color: {tc("white")};
             }}
             QCalendarWidget QToolButton {{
-                background-color: white;
+                background-color: {tc("white")};
                 color: black;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
@@ -279,10 +279,10 @@ class MemoWindow(QMainWindow):
                 min-width: 40px;
             }}
             QCalendarWidget QWidget#qt_calendar_navigationbar {{
-                background-color: white;
+                background-color: {tc("white")};
             }}
             QCalendarWidget QSpinBox {{
-                background-color: white;
+                background-color: {tc("white")};
                 color: black;
             }}
         """)
@@ -298,13 +298,13 @@ class MemoWindow(QMainWindow):
         btn_history.setFont(QFont('Malgun Gothic', 10))
         btn_history.setStyleSheet(f"""
             QPushButton {{
-                background: rgba(255,255,255,0.5);
+                background: {tc("rgba(255,255,255,0.5)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: {T.TEXT_ON_NOTE};
             }}
-            QPushButton:hover {{ background: rgba(212,184,0,0.25); }}
+            QPushButton:hover {{ background: {tc("rgba(212,184,0,0.25)")}; }}
         """)
         btn_history.clicked.connect(self._show_history)
         row1.addWidget(btn_history)
@@ -318,12 +318,12 @@ class MemoWindow(QMainWindow):
         self.input_recurrence.setFont(QFont('Malgun Gothic', 11))
         self._recurrence_style_base = (
             f"QComboBox {{{{ border: 1px solid {T.ACCENT}; border-radius: 4px; padding: 0 6px; "
-            "background: #fffde7; color: {color}; }}"
-            "QComboBox:focus {{ border: 2px solid #4a90d9; background: rgba(255,255,255,0.85); }}"
+            f"background: {tc('#fffde7')}; color: {{color}}; }}}}"
+            f"QComboBox:focus {{{{ border: 2px solid {tc('#4a90d9')}; background: {tc('rgba(255,255,255,0.85)')}; }}}}"
             "QComboBox::drop-down {{ border: none; width: 0px; }}"
             "QComboBox QAbstractItemView {{ font-family: 'Malgun Gothic'; font-size: 11pt; }}"
         )
-        self.input_recurrence.setStyleSheet(self._recurrence_style_base.format(color='#aaa'))
+        self.input_recurrence.setStyleSheet(self._recurrence_style_base.format(color=tc('#aaa')))
         self._custom_recurrence_val = ''
         self.input_recurrence.currentIndexChanged.connect(self._on_recurrence_index_changed)
 
@@ -371,13 +371,13 @@ class MemoWindow(QMainWindow):
         _memo_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
         self.memo_editor.setFont(_memo_font)
         self.memo_editor.document().blockCountChanged.connect(self._apply_memo_line_spacing)
-        self.memo_editor.setStyleSheet("""
-            QTextEdit {
+        self.memo_editor.setStyleSheet(f"""
+            QTextEdit {{
                 background: transparent;
                 border: none;
-                color: #333;
+                color: {tct("#333")};
                 padding: 4px 8px;
-            }
+            }}
         """)
         self.memo_editor.textChanged.connect(self._on_memo_text_changed)
         self.memo_editor.hide()
@@ -393,13 +393,13 @@ class MemoWindow(QMainWindow):
 
         _btn_style = f"""
             QPushButton {{
-                background: rgba(255,255,255,0.5);
+                background: {tc("rgba(255,255,255,0.5)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 6px;
                 padding: 4px 8px;
                 color: {T.TEXT_ON_NOTE};
             }}
-            QPushButton:hover {{ background: rgba(212,184,0,0.25); }}
+            QPushButton:hover {{ background: {tc("rgba(212,184,0,0.25)")}; }}
         """
 
         btn_at_a_glance = QPushButton('달력')
@@ -410,9 +410,9 @@ class MemoWindow(QMainWindow):
                 border: 1px solid {T.ACCENT};
                 border-radius: 6px;
                 padding: 4px 8px;
-                color: #ffffff;
+                color: {tct("#ffffff")};
             }}
-            QPushButton:hover {{ background: #6b5410; }}
+            QPushButton:hover {{ background: {tc("#6b5410")}; }}
         """)
         btn_at_a_glance.clicked.connect(self._show_monthly_calendar)
         bottom_layout.addWidget(btn_at_a_glance)
@@ -595,7 +595,7 @@ class MemoWindow(QMainWindow):
             self._time_touched = False
 
     def _on_recurrence_index_changed(self, idx):
-        color = '#aaa' if idx == 0 else '#333'
+        color = tc('#aaa') if idx == 0 else tc('#333')
         self.input_recurrence.setStyleSheet(self._recurrence_style_base.format(color=color))
         if idx == 5:
             dlg = CustomRecurrenceDialog(self, current=self._custom_recurrence_val)
@@ -646,7 +646,7 @@ class MemoWindow(QMainWindow):
             self.input_name.setFocus()
             btn.setToolTip('메모 모드로 전환')
             _gray = QGraphicsColorizeEffect()
-            _gray.setColor(QColor('#888888'))
+            _gray.setColor(QColor(tc('#888888')))
             _gray.setStrength(1.0)
             btn.setGraphicsEffect(_gray)
 
@@ -715,7 +715,7 @@ class MemoWindow(QMainWindow):
             if item and item.widget() and hasattr(item.widget(), 'task'):
                 row = item.widget()
                 if row.task.get('id') == task_id:
-                    row.setStyleSheet('background: rgba(212,184,0,0.35); border-radius: 4px;')
+                    row.setStyleSheet(f'background: {tc("rgba(212,184,0,0.35)")}; border-radius: 4px;')
                     QTimer.singleShot(1500, lambda r=row: r._apply_row_style())
                     break
 
@@ -956,7 +956,7 @@ class MemoWindow(QMainWindow):
         lbl_title = QLabel()
         lbl_title.setStyleSheet('font-weight: bold; font-size: 11pt;')
         lbl_date = QLabel()
-        lbl_date.setStyleSheet('color: #888; font-size: 9pt;')
+        lbl_date.setStyleSheet(f'color: {tct("#888")}; font-size: 9pt;')
         text_view = QTextEdit()
         text_view.setReadOnly(True)
         rlay.addWidget(lbl_title)
@@ -981,10 +981,10 @@ class MemoWindow(QMainWindow):
 
         btn_row = QHBoxLayout()
         btn_del = QPushButton('선택 삭제')
-        btn_del.setStyleSheet("""
-            QPushButton { background: #fff0f0; border: 1px solid #e08080;
-                          border-radius: 4px; padding: 4px 10px; color: #a00; }
-            QPushButton:hover { background: #ffd8d8; }
+        btn_del.setStyleSheet(f"""
+            QPushButton {{ background: {tc("#fff0f0")}; border: 1px solid {tc("#e08080")};
+                          border-radius: 4px; padding: 4px 10px; color: {tct("#a00")}; }}
+            QPushButton:hover {{ background: {tc("#ffd8d8")}; }}
         """)
         def on_delete():
             item = list_widget.currentItem()
@@ -1000,10 +1000,10 @@ class MemoWindow(QMainWindow):
                 lbl_title.clear(); lbl_date.clear(); text_view.clear()
         btn_del.clicked.connect(on_delete)
         btn_close = QPushButton('닫기')
-        btn_close.setStyleSheet("""
-            QPushButton { background: rgba(255,255,255,0.8); border: 1px solid #aaa;
-                          border-radius: 4px; padding: 4px 10px; }
-            QPushButton:hover { background: #eee; }
+        btn_close.setStyleSheet(f"""
+            QPushButton {{ background: {tc("rgba(255,255,255,0.8)")}; border: 1px solid {tc("#aaa")};
+                          border-radius: 4px; padding: 4px 10px; }}
+            QPushButton:hover {{ background: {tc("#eee")}; }}
         """)
         btn_close.clicked.connect(dlg.accept)
         btn_row.addWidget(btn_del)
@@ -1111,6 +1111,7 @@ class MemoWindow(QMainWindow):
             Command('🏫 학교 정보 설정', self._open_profile_dialog, '', 'profile school 프로필 담당자'),
             Command('🛡️ 개인정보 보호 모드 ' + ('끄기' if privacy_enabled() else '켜기'),
                     self._toggle_privacy_mode, '', 'privacy 보안 마스킹'),
+            Command('🌙 다크 모드 켜기/끄기', self._toggle_theme, '', 'dark light theme 테마 어둡게 밝게'),
             Command('⬇️ 업데이트 확인', lambda: updater.check_for_update_manual(self), '', 'update 버전'),
             Command('💡 사용 설명서', self.show_help, '', 'help 도움말'),
         ]
@@ -1211,6 +1212,22 @@ class MemoWindow(QMainWindow):
         from ui.profile_dialog import ProfileDialog
         ProfileDialog(self).exec_()
 
+    def _toggle_theme(self):
+        """라이트 ↔ 다크. 화면들이 켤 때 색을 정하므로 다음 실행부터 적용."""
+        from ui.theme import MODE, set_theme
+        from db import get_setting
+        saved = get_setting('theme', MODE)
+        new = 'light' if saved == 'dark' else 'dark'
+        set_theme(new)
+        label = '다크' if new == 'dark' else '라이트'
+        if new == MODE:
+            msg = f'{label} 모드로 되돌렸습니다. 지금 화면 그대로 유지됩니다.'
+        else:
+            msg = (f'{label} 모드로 바꿨습니다.\n\n'
+                   '트레이 아이콘 → 종료 후 서서니 노트를 다시 켜면 적용됩니다.\n'
+                   '(예산 관리·공문 작성 창은 아직 라이트로 표시됩니다)')
+        QMessageBox.information(self, '화면 테마', msg)
+
     def _toggle_privacy_mode(self):
         from school_profile import privacy_enabled, set_privacy_enabled
         set_privacy_enabled(not privacy_enabled())
@@ -1224,14 +1241,14 @@ class MemoWindow(QMainWindow):
         p.setRenderHint(QPainter.Antialiasing)
         if checked:
             p.setPen(Qt.NoPen)
-            p.setBrush(QColor('#2ecc71'))
+            p.setBrush(QColor(tc('#2ecc71')))
             p.drawRoundedRect(1, 1, size - 2, size - 2, 4, 4)
-            p.setPen(QPen(QColor('#ffffff'), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setPen(QPen(QColor(tc('#ffffff')), 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             bx, by = int(size * 0.40), int(size * 0.62)
             p.drawLine(int(size * 0.18), int(size * 0.50), bx, by)
             p.drawLine(bx, by, int(size * 0.82), int(size * 0.25))
         else:
-            p.setPen(QPen(QColor('#555555'), 1.5))
+            p.setPen(QPen(QColor(tc('#555555')), 1.5))
             p.setBrush(QColor(0, 0, 0, 0))
             p.drawRoundedRect(2, 2, size - 4, size - 4, 3, 3)
         p.end()
@@ -1247,18 +1264,18 @@ class MemoWindow(QMainWindow):
         btn.setText(text)
         btn.setFont(QFont('Malgun Gothic', 11))
         btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        btn.setStyleSheet("""
-            QToolButton {
+        btn.setStyleSheet(f"""
+            QToolButton {{
                 background: transparent;
                 border: none;
                 padding: 7px 16px 7px 4px;
-                color: #333;
+                color: {tct("#333")};
                 text-align: left;
-            }
-            QToolButton:hover {
-                background: rgba(212,184,0,0.3);
+            }}
+            QToolButton:hover {{
+                background: {tc("rgba(212,184,0,0.3)")};
                 border-radius: 4px;
-            }
+            }}
         """)
         def _clicked():
             on_trigger()
@@ -1276,11 +1293,11 @@ class MemoWindow(QMainWindow):
                 padding: 4px 0;
                 font-family: 'Malgun Gothic';
                 font-size: 11pt;
-                color: #333;
+                color: {tct("#333")};
                 min-width: 176px;
             }}
             QMenu::item {{ padding: 7px 16px 7px 4px; }}
-            QMenu::item:selected {{ background: rgba(212,184,0,0.3); }}
+            QMenu::item:selected {{ background: {tc("rgba(212,184,0,0.3)")}; }}
         """
 
     def show_menu(self, btn):
@@ -1298,6 +1315,11 @@ class MemoWindow(QMainWindow):
         act_dash.triggered.connect(self._open_dashboard)
         act_ai_cap = QAction('📸 AI 공문 캡처  (Ctrl+Shift+A)', self)
         act_ai_cap.triggered.connect(self._start_ai_capture)
+        from db import get_setting as _gs
+        from ui.theme import MODE as _mode
+        _dark_next = _gs('theme', _mode) == 'dark'
+        act_theme = QAction(('✅ ' if _dark_next else '☐ ') + '🌙 다크 모드', self)
+        act_theme.triggered.connect(self._toggle_theme)
         act_profile = QAction('🏫 학교 정보 설정', self)
         act_profile.triggered.connect(self._open_profile_dialog)
         from school_profile import privacy_enabled
@@ -1317,16 +1339,16 @@ class MemoWindow(QMainWindow):
         grid.setContentsMargins(8, 8, 8, 8)
         grid.setSpacing(6)
         for i, color in enumerate(PALETTE):
-            border = '2px solid #333' if color == '#FFFFFF' else '1px solid rgba(0,0,0,0.15)'
+            border = f'2px solid {tc("#333")}' if color == '#FFFFFF' else f'1px solid {tc("rgba(0,0,0,0.15)")}'
             cb = QPushButton()
             cb.setFixedSize(30, 30)
             cb.setStyleSheet(f"""
                 QPushButton {{
-                    background: {color};
+                    background: {note_color(color)};
                     border-radius: 15px;
                     border: {border};
                 }}
-                QPushButton:hover {{ border: 2px solid rgba(0,0,0,0.5); }}
+                QPushButton:hover {{ border: 2px solid {tc("rgba(0,0,0,0.5)")}; }}
             """)
             cb.clicked.connect(lambda _, c=color: (self._apply_color(c), self.save_state(), menu.close()))
             grid.addWidget(cb, i // 7, i % 7)
@@ -1415,6 +1437,7 @@ class MemoWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction(act_profile)
         menu.addAction(act_privacy)
+        menu.addAction(act_theme)
         menu.addSeparator()
         menu.addAction(act_help)
         menu.addAction(act_update)
@@ -1448,13 +1471,14 @@ class MemoWindow(QMainWindow):
     }
 
     def _apply_color(self, hex_color):
-        self._bg_color = hex_color
-        title_color = QColor(hex_color).darker(115).name()
+        self._bg_color = hex_color            # 저장값(라이트 색) 그대로 유지
+        shown = note_color(hex_color)          # 다크 테마면 같은 색의 깊은 톤
+        title_color = QColor(shown).darker(115).name()
         self.centralWidget().setStyleSheet(f"""
             QWidget#central {{
-                background: {hex_color};
+                background: {shown};
                 border-radius: 0;
-                border: 1px solid rgba(0,0,0,0.4);
+                border: 1px solid {tc("rgba(0,0,0,0.4)")};
             }}
         """)
         self.title_bar.setStyleSheet(f"""
@@ -1468,7 +1492,7 @@ class MemoWindow(QMainWindow):
                 border-radius: 4px;
                 padding: 0;
             }}
-            QPushButton:hover {{ background: rgba(0,0,0,0.12); }}
+            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.12)")}; }}
             QPushButton#btn_mode {{
                 background: transparent;
                 border: 1px solid transparent;
@@ -1479,10 +1503,13 @@ class MemoWindow(QMainWindow):
                 font-size: 10pt;
                 font-weight: bold;
             }}
-            QPushButton#btn_mode:hover {{ background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.12); }}
-            QPushButton#btn_mode:pressed {{ background: rgba(0,0,0,0.20); border-color: rgba(0,0,0,0.20); }}
+            QPushButton#btn_mode:hover {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.12)")}; }}
+            QPushButton#btn_mode:pressed {{ background: {tc("rgba(0,0,0,0.20)")}; border-color: {tc("rgba(0,0,0,0.20)")}; }}
         """)
-        sep_color = self._SEP_COLOR_MAP.get(hex_color.upper(), T.DIVIDER)
+        if DARK:
+            sep_color = QColor(shown).lighter(160).name()
+        else:
+            sep_color = self._SEP_COLOR_MAP.get(hex_color.upper(), T.DIVIDER)
         sep_style = f'background: {sep_color}; border: none;'
         self._title_sep.setStyleSheet(sep_style)
         self._sep_date.setStyleSheet(sep_style)
@@ -1530,7 +1557,7 @@ class MemoWindow(QMainWindow):
         dlg.setWindowTitle('지난 기록')
         dlg.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
         dlg.setMinimumWidth(480)
-        dlg.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 11pt; background: #fffef0;")
+        dlg.setStyleSheet(f"font-family: 'Malgun Gothic'; font-size: 11pt; background: {tc('#fffef0')};")
 
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -1538,7 +1565,7 @@ class MemoWindow(QMainWindow):
 
         if not records:
             lbl = QLabel('기록이 없습니다.')
-            lbl.setStyleSheet('color: #999;')
+            lbl.setStyleSheet(f'color: {tct("#999")};')
             layout.addWidget(lbl)
         else:
             scroll = QScrollArea()
@@ -1607,7 +1634,7 @@ class MemoWindow(QMainWindow):
                     line = name
 
                 row_widget = QWidget()
-                row_widget.setStyleSheet('background: rgba(255,255,255,0.6); border-radius: 4px;')
+                row_widget.setStyleSheet(f'background: {tc("rgba(255,255,255,0.6)")}; border-radius: 4px;')
                 rh = QHBoxLayout(row_widget)
                 rh.setContentsMargins(20, 4, 8, 4)
                 rh.setSpacing(6)
@@ -1615,19 +1642,19 @@ class MemoWindow(QMainWindow):
                 lbl_task = QLineEdit(line)
                 lbl_task.setReadOnly(True)
                 lbl_task.setFrame(False)
-                lbl_task.setStyleSheet("""
-                    QLineEdit {
-                        color: #333;
+                lbl_task.setStyleSheet(f"""
+                    QLineEdit {{
+                        color: {tct("#333")};
                         background: transparent;
                         border: none;
                         padding: 0;
                         font-family: 'Malgun Gothic';
                         font-size: 11pt;
-                    }
+                    }}
                 """)
                 lbl_task.setCursorPosition(0)
                 lbl_cleared = _SelectableLabel(f'삭제: {cleared}')
-                lbl_cleared.setStyleSheet('color: #999; font-size: 9pt; background: transparent;')
+                lbl_cleared.setStyleSheet(f'color: {tct("#999")}; font-size: 9pt; background: transparent;')
                 lbl_cleared.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
                 rh.addWidget(lbl_task, 1)
@@ -1643,26 +1670,26 @@ class MemoWindow(QMainWindow):
                 if not overdue:
                     btn_restore = QPushButton('복원')
                     btn_restore.setFixedHeight(22)
-                    btn_restore.setStyleSheet("""
-                        QPushButton {
-                            background: #d4f0d4; border: 1px solid #7cc87c;
-                            border-radius: 4px; color: #2a6e2a;
+                    btn_restore.setStyleSheet(f"""
+                        QPushButton {{
+                            background: {tc("#d4f0d4")}; border: 1px solid {tc("#7cc87c")};
+                            border-radius: 4px; color: {tct("#2a6e2a")};
                             font-size: 9pt; padding: 0 8px;
-                        }
-                        QPushButton:hover { background: #b6e8b6; }
+                        }}
+                        QPushButton:hover {{ background: {tc("#b6e8b6")}; }}
                     """)
                     btn_restore.clicked.connect(lambda _, rec=r, rw=row_widget: restore_task(rec, rw, btn_toggle, container, year, month))
                     rh.addWidget(btn_restore)
 
                 btn_del = QPushButton('삭제')
                 btn_del.setFixedHeight(22)
-                btn_del.setStyleSheet("""
-                    QPushButton {
-                        background: #f0d4d4; border: 1px solid #c87c7c;
-                        border-radius: 4px; color: #6e2a2a;
+                btn_del.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {tc("#f0d4d4")}; border: 1px solid {tc("#c87c7c")};
+                        border-radius: 4px; color: {tct("#6e2a2a")};
                         font-size: 9pt; padding: 0 8px;
-                    }
-                    QPushButton:hover { background: #e8b6b6; }
+                    }}
+                    QPushButton:hover {{ background: {tc("#e8b6b6")}; }}
                 """)
                 btn_del.clicked.connect(lambda _, rec=r, rw=row_widget: delete_history(rec, rw, btn_toggle, container, year, month))
                 rh.addWidget(btn_del)
@@ -1672,18 +1699,18 @@ class MemoWindow(QMainWindow):
                 if has_memo:
                     memo_widget = QWidget()
                     memo_widget._is_memo_panel = True
-                    memo_widget.setStyleSheet('background: rgba(255,255,255,0.7); border-radius: 4px;')
+                    memo_widget.setStyleSheet(f'background: {tc("rgba(255,255,255,0.7)")}; border-radius: 4px;')
                     mv = QVBoxLayout(memo_widget)
                     mv.setContentsMargins(28, 4, 8, 4)
                     mv.setSpacing(3)
                     if related.strip():
                         lbl_ref = _SelectableLabel(f'공문: {related}')
-                        lbl_ref.setStyleSheet('color: #7a6a00; font-size: 9pt; background: transparent; font-weight: bold;')
+                        lbl_ref.setStyleSheet(f'color: {tct("#7a6a00")}; font-size: 9pt; background: transparent; font-weight: bold;')
                         lbl_ref.setWordWrap(True)
                         mv.addWidget(lbl_ref)
                     if note.strip():
                         lbl_note = _SelectableLabel(note)
-                        lbl_note.setStyleSheet('color: #444; font-size: 10pt; background: transparent;')
+                        lbl_note.setStyleSheet(f'color: {tct("#444")}; font-size: 10pt; background: transparent;')
                         lbl_note.setWordWrap(True)
                         mv.addWidget(lbl_note)
                     memo_widget.hide()
@@ -1717,16 +1744,16 @@ class MemoWindow(QMainWindow):
                 btn_toggle = QPushButton(header_text_collapsed)
                 btn_toggle.setStyleSheet(f"""
                     QPushButton {{
-                        background: rgba(200,190,150,0.25);
+                        background: {tc("rgba(200,190,150,0.25)")};
                         border: 1px solid {T.BORDER_SOFT};
                         border-radius: 4px;
-                        color: #5a4a00;
+                        color: {tct("#5a4a00")};
                         font-size: 10pt;
                         font-weight: bold;
                         text-align: left;
                         padding: 5px 10px;
                     }}
-                    QPushButton:hover {{ background: rgba(200,190,150,0.5); }}
+                    QPushButton:hover {{ background: {tc("rgba(200,190,150,0.5)")}; }}
                 """)
 
                 month_container = QWidget()
@@ -1772,16 +1799,16 @@ class MemoWindow(QMainWindow):
                 btn_cur = QPushButton(cur_txt_exp)
                 btn_cur.setStyleSheet(f"""
                     QPushButton {{
-                        background: rgba(200,190,150,0.25);
+                        background: {tc("rgba(200,190,150,0.25)")};
                         border: 1px solid {T.BORDER_SOFT};
                         border-radius: 4px;
-                        color: #5a4a00;
+                        color: {tct("#5a4a00")};
                         font-size: 10pt;
                         font-weight: bold;
                         text-align: left;
                         padding: 5px 10px;
                     }}
-                    QPushButton:hover {{ background: rgba(200,190,150,0.5); }}
+                    QPushButton:hover {{ background: {tc("rgba(200,190,150,0.5)")}; }}
                 """)
 
                 cur_container = QWidget()
@@ -1915,14 +1942,14 @@ class MemoWindow(QMainWindow):
         if self.pin_active:
             btn.setText('📍')
             btn.setToolTip('항상 위 켜짐')
-            btn.setStyleSheet('background: rgba(0,0,0,0.18); border-radius: 4px;')
+            btn.setStyleSheet(f'background: {tc("rgba(0,0,0,0.18)")}; border-radius: 4px;')
             btn.setGraphicsEffect(None)
         else:
             btn.setText('📌')
             btn.setToolTip('항상 위 꺼짐')
             btn.setStyleSheet('')
             _gray = QGraphicsColorizeEffect()
-            _gray.setColor(QColor('#888888'))
+            _gray.setColor(QColor(tc('#888888')))
             _gray.setStrength(1.0)
             btn.setGraphicsEffect(_gray)
 

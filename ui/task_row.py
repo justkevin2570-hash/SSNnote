@@ -19,11 +19,11 @@ from db import (update_task,
                 get_task_related_no, set_task_related_no,
                 get_task_attachments, set_task_attachments)
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
-from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font
+from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, themed_pixmap
 from .dates import calc_dday
 from .widgets import AddDateButton, CustomCalendarWidget, DdayLabel, RotatedMenuButton
 from .dialogs import CustomRecurrenceDialog
-from .theme import T
+from .theme import T, tc, tct, qcolor
 
 class _AutoHeightEdit(QPlainTextEdit):
     selectRequested = pyqtSignal()
@@ -174,7 +174,7 @@ class _NoteButton(QPushButton):
 
     def __init__(self, scale=1.0, glyph_offset=4):
         super().__init__()
-        self._color_normal = QColor('#555555')
+        self._color_normal = QColor(tc('#555555'))
         self._color_hover  = QColor(T.ACCENT)
         self._hovered      = False
         self._has_note     = False
@@ -192,9 +192,9 @@ class _NoteButton(QPushButton):
         if overdue is not None:
             self._overdue = overdue
         if self._overdue:
-            self._color_normal = QColor(102, 102, 102, 80)
+            self._color_normal = qcolor('#666666', 80)
         else:
-            self._color_normal = QColor(85, 85, 85, 255) if has_note else QColor(85, 85, 85, 80)
+            self._color_normal = qcolor('#555555', 255 if has_note else 80)
         self.update()
 
     def set_expanded(self, expanded: bool):
@@ -251,7 +251,7 @@ class _ElideButton(QPushButton):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setFont(self.font())
-        p.setPen(QColor(T.ACCENT) if self._hovered else QColor('#333333'))
+        p.setPen(QColor(T.ACCENT) if self._hovered else QColor(tc('#333333')))
         fm = self.fontMetrics()
         elided = fm.elidedText(self.text(), Qt.ElideRight, max(0, self.width() - 4))
         p.drawText(self.rect().adjusted(2, 0, -2, 0), Qt.AlignLeft | Qt.AlignVCenter, elided)
@@ -305,11 +305,11 @@ class _InlineNoteEdit(QWidget):
         self.ref_edit.setFont(_ref_font)
         self.ref_edit.setStyleSheet(f"""
             QLineEdit {{
-                background: rgba(255,255,255,0.6);
+                background: {tc("rgba(255,255,255,0.6)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
-                color: #333;
+                color: {tct("#333")};
             }}
             QLineEdit:focus {{ border: 1px solid {T.ACCENT_HOVER}; }}
         """)
@@ -325,14 +325,14 @@ class _InlineNoteEdit(QWidget):
         self.btn_copy.setFixedHeight(self.ref_edit.sizeHint().height())
         self.btn_copy.setStyleSheet(f"""
             QPushButton {{
-                background: rgba(255,255,255,0.6);
+                background: {tc("rgba(255,255,255,0.6)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: {T.TEXT_ON_NOTE};
             }}
-            QPushButton:hover {{ background: rgba(212,184,0,0.25); }}
-            QPushButton:pressed {{ background: rgba(212,184,0,0.42); padding: 2px 0 0 2px; }}
+            QPushButton:hover {{ background: {tc("rgba(212,184,0,0.25)")}; }}
+            QPushButton:pressed {{ background: {tc("rgba(212,184,0,0.42)")}; padding: 2px 0 0 2px; }}
         """)
         self.btn_copy.clicked.connect(self._copy_related_no)
         top.addWidget(self.btn_copy)
@@ -347,14 +347,14 @@ class _InlineNoteEdit(QWidget):
         self.btn_shot.setFixedHeight(self.ref_edit.sizeHint().height())  # 세로 = 복사와 동일
         self.btn_shot.setStyleSheet(f"""
             QPushButton {{
-                background: rgba(255,255,255,0.6);
+                background: {tc("rgba(255,255,255,0.6)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: {T.TEXT_ON_NOTE};
             }}
-            QPushButton:hover {{ background: rgba(212,184,0,0.25); }}
-            QPushButton:pressed {{ background: rgba(212,184,0,0.42); padding: 2px 0 0 2px; }}
+            QPushButton:hover {{ background: {tc("rgba(212,184,0,0.25)")}; }}
+            QPushButton:pressed {{ background: {tc("rgba(212,184,0,0.42)")}; padding: 2px 0 0 2px; }}
         """)
         self.btn_shot.clicked.connect(self._start_inline_capture)
         top.addWidget(self.btn_shot)
@@ -367,10 +367,10 @@ class _InlineNoteEdit(QWidget):
         self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.editor.setStyleSheet(f"""
             QPlainTextEdit {{
-                background: rgba(255,255,255,0.6);
+                background: {tc("rgba(255,255,255,0.6)")};
                 border: 1px solid {T.ACCENT};
                 border-radius: 4px;
-                color: #333;
+                color: {tct("#333")};
                 padding: 2px 4px;
             }}
             QPlainTextEdit:focus {{ border: 1px solid {T.ACCENT_HOVER}; }}
@@ -542,14 +542,14 @@ class TaskRow(QWidget):
             QPushButton:pressed { padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }
         """)
         if _is_starred:
-            self.btn_star.setIcon(_svg_icon(self._star_svg, '#D4A800', self._star_sz))
+            self.btn_star.setIcon(_svg_icon(self._star_svg, tc('#D4A800'), self._star_sz))
             self.btn_star.setIconSize(QSize(self._star_sz, self._star_sz))
         else:
             self.btn_star.setText(MI.STAR_BORDER)
             self.btn_star.setFont(mi_font(_star_pt))
-            self.btn_star.setStyleSheet("""
-                QPushButton { color: #AAAAAA; border: none; padding: 0; }
-                QPushButton:pressed { padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }
+            self.btn_star.setStyleSheet(f"""
+                QPushButton {{ color: {tct("#AAAAAA")}; border: none; padding: 0; }}
+                QPushButton:pressed {{ padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }}
             """)
         self.btn_star.clicked.connect(self._toggle_priority)
         layout.addWidget(self.btn_star, 0, Qt.AlignVCenter)
@@ -562,25 +562,25 @@ class TaskRow(QWidget):
             dday = calc_dday(deadline)
             if dday.startswith('D+'):
                 overdue = True
-                dday_color = '#666'
+                dday_color = tc('#666')
             elif dday == 'D-day' or '시간' in dday:
                 dday_color = T.DANGER
                 urgent = True
             elif dday == '날짜오류':
-                dday_color = '#aaa'
+                dday_color = tc('#aaa')
             else:
                 days_left = int(dday[2:])
                 if days_left <= 5:
                     dday_color = T.DANGER
                     urgent = True
                 else:
-                    dday_color = '#333'
+                    dday_color = tc('#333')
             if overdue:
                 suffix = f'기한 지남({dday})'
             else:
                 suffix = f'({dday})'
         else:
-            dday_color = '#333'
+            dday_color = tc('#333')
             suffix = ''
 
         if overdue:
@@ -590,7 +590,7 @@ class TaskRow(QWidget):
             self.btn_star.setEnabled(False)
 
         self._strikethrough = bool(task.get('strikethrough', 0))
-        name_color = '#666' if overdue else '#111'
+        name_color = tc('#666') if overdue else tc('#111')
 
         self.name_edit = _AutoHeightEdit(task['name'])
         self.name_edit.setFocusPolicy(Qt.NoFocus)
@@ -614,7 +614,7 @@ class TaskRow(QWidget):
                 padding: 0px;
             }}
             QPlainTextEdit:focus {{
-                background: rgba(255,255,255,0.6);
+                background: {tc("rgba(255,255,255,0.6)")};
                 border-bottom: 1px solid {T.ACCENT};
             }}
         """)
@@ -675,13 +675,13 @@ class TaskRow(QWidget):
         self.btn_attach.setFixedSize(round(19 * scale), round(19 * scale))
         self.btn_attach.setFont(pr_font(round(11 * scale)))
         self.btn_attach.setStyleSheet(
-            'QPushButton { border: none; color: #555555; background: transparent; padding: 0; }'
+            f'QPushButton {{ border: none; color: {tct("#555555")}; background: transparent; padding: 0; }}'
             f'QPushButton:pressed {{ color: {T.ACCENT}; }}'
         )
         _att_icon = os.path.join(_base_path(), 'assets', 'clip.png')
         self._attach_icon_ok = os.path.exists(_att_icon)
         if self._attach_icon_ok:
-            self.btn_attach.setIcon(QIcon(_att_icon))
+            self.btn_attach.setIcon(QIcon(themed_pixmap(_att_icon)))
             self.btn_attach.setIconSize(QSize(round(15 * scale), round(15 * scale)))
         else:
             self.btn_attach.setText('📎')
@@ -712,7 +712,7 @@ class TaskRow(QWidget):
             lbl_recur = QLabel(MAT.REPEAT)
             _recur_font = mat_font(int(13 * scale))
             lbl_recur.setFont(_recur_font)
-            lbl_recur.setStyleSheet('color: #333; background: transparent;')
+            lbl_recur.setStyleSheet(f'color: {tct("#333")}; background: transparent;')
             _fm = QFontMetrics(_recur_font)
             lbl_recur.setFixedWidth(_fm.horizontalAdvance(MAT.REPEAT) + 4)
             icon_dday_layout = QHBoxLayout()
@@ -764,11 +764,11 @@ class TaskRow(QWidget):
 
     def _apply_row_style(self):
         if getattr(self, '_drag_hover', False):
-            style = 'QWidget#TaskRow { background: rgba(212,184,0,0.16); border-radius: 4px; }'
+            style = f'QWidget#TaskRow {{ background: {tc("rgba(212,184,0,0.16)")}; border-radius: 4px; }}'
         elif self._selected:
-            style = 'QWidget#TaskRow { background: rgba(212,184,0,0.25); border-radius: 4px; }'
+            style = f'QWidget#TaskRow {{ background: {tc("rgba(212,184,0,0.25)")}; border-radius: 4px; }}'
         elif self._hovered:
-            style = 'QWidget#TaskRow { background: rgba(0,0,0,18); }'
+            style = f'QWidget#TaskRow {{ background: {tc("rgba(0,0,0,18)")}; }}'
         else:
             style = 'QWidget#TaskRow { background: transparent; }'
         self.setStyleSheet(style)
@@ -855,11 +855,11 @@ class TaskRow(QWidget):
                 padding: 4px 0;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
-                color: #333;
+                color: {tct("#333")};
                 min-width: 120px;
             }}
             QMenu::item {{ padding: 6px 16px 6px 12px; }}
-            QMenu::item:selected {{ background: rgba(212,184,0,0.3); }}
+            QMenu::item:selected {{ background: {tc("rgba(212,184,0,0.3)")}; }}
         """)
         sub_recur = QMenu('반복 설정', self)
         sub_recur.setFont(mi_font(10))
@@ -1056,7 +1056,7 @@ class TaskRow(QWidget):
                 self.btn_attach.setFixedSize(round(19 * self._scale), round(19 * self._scale))
             accent = f'QPushButton {{ border: none; color: {T.ACCENT}; background: transparent; padding: 0; }}' \
                      f'QPushButton:pressed {{ color: {T.ACCENT}; }}' if self._attach_expanded else \
-                     'QPushButton { border: none; color: #555555; background: transparent; padding: 0; }' \
+                     f'QPushButton {{ border: none; color: {tct("#555555")}; background: transparent; padding: 0; }}' \
                      f'QPushButton:pressed {{ color: {T.ACCENT}; }}'
             self.btn_attach.setStyleSheet(accent)
             self.btn_attach.show()
@@ -1107,7 +1107,7 @@ class TaskRow(QWidget):
             return
         header = QLabel(f'붙임파일 {len(self._attachments)}개')
         header.setFont(pr_font(round(10 * self._scale)))
-        header.setStyleSheet('color: #666; background: transparent;')
+        header.setStyleSheet(f'color: {tct("#666")}; background: transparent;')
         header.setFixedHeight(round(16 * self._scale))
         self._attach_layout.addWidget(header)
         for p in self._attachments:
@@ -1118,7 +1118,7 @@ class TaskRow(QWidget):
         s = self._scale
         row = QWidget()
         row.setFixedHeight(round(26 * s))
-        row.setStyleSheet('QWidget { background: rgba(255,255,255,0.4); border-radius: 4px; }')
+        row.setStyleSheet(f'QWidget {{ background: {tc("rgba(255,255,255,0.4)")}; border-radius: 4px; }}')
         h = QHBoxLayout(row)
         h.setContentsMargins(4, 1, 2, 1)
         h.setSpacing(2)
@@ -1136,7 +1136,7 @@ class TaskRow(QWidget):
         x.setFixedSize(round(18 * s), round(18 * s))
         x.setCursor(Qt.PointingHandCursor)
         x.setStyleSheet(
-            'QPushButton { border: none; background: transparent; color: #999; font-size: 11px; }'
+            f'QPushButton {{ border: none; background: transparent; color: {tct("#999")}; font-size: 11px; }}'
             f'QPushButton:hover {{ color: {T.DANGER}; }}'
         )
         x.clicked.connect(lambda: self._remove_attachment(path))
@@ -1249,7 +1249,7 @@ class TaskRow(QWidget):
         if not hasattr(self, '_date_picker_popup'):
             self._date_picker_popup = QWidget()
             self._date_picker_popup.setWindowFlags(Qt.Popup)
-            self._date_picker_popup.setStyleSheet(f'background: white; border: 1px solid {T.ACCENT}; border-radius: 6px;')
+            self._date_picker_popup.setStyleSheet(f'background: {tc("white")}; border: 1px solid {T.ACCENT}; border-radius: 6px;')
             
             layout = QVBoxLayout(self._date_picker_popup)
             layout.setContentsMargins(8, 8, 8, 8)
@@ -1257,20 +1257,20 @@ class TaskRow(QWidget):
             
             self._cal_popup = CustomCalendarWidget()
             self._cal_popup.setStyleSheet(f"""
-                QCalendarWidget {{ background-color: white; }}
+                QCalendarWidget {{ background-color: {tc("white")}; }}
                 QCalendarWidget QAbstractItemView {{
-                    background-color: white; color: black;
+                    background-color: {tc("white")}; color: black;
                     font-family: 'Malgun Gothic'; font-size: 10pt;
-                    selection-background-color: {T.ACCENT}; selection-color: white;
+                    selection-background-color: {T.ACCENT}; selection-color: {tc("white")};
                 }}
-                QCalendarWidget QWidget {{ background-color: white; }}
+                QCalendarWidget QWidget {{ background-color: {tc("white")}; }}
                 QCalendarWidget QToolButton {{
-                    background-color: white; color: black;
+                    background-color: {tc("white")}; color: black;
                     font-family: 'Malgun Gothic'; font-size: 10pt;
                     padding: 2px 4px; min-width: 40px;
                 }}
-                QCalendarWidget QWidget#qt_calendar_navigationbar {{ background-color: white; }}
-                QCalendarWidget QSpinBox {{ background-color: white; color: black; }}
+                QCalendarWidget QWidget#qt_calendar_navigationbar {{ background-color: {tc("white")}; }}
+                QCalendarWidget QSpinBox {{ background-color: {tc("white")}; color: black; }}
             """)
             fmt_sat = QTextCharFormat()
             fmt_sat.setForeground(QColor(T.SATURDAY))
@@ -1286,7 +1286,7 @@ class TaskRow(QWidget):
             
             self._time_checkbox = QCheckBox('시간 설정')
             self._time_checkbox.setFont(pr_font(10))
-            self._time_checkbox.setStyleSheet('color: #333; background: transparent;')
+            self._time_checkbox.setStyleSheet(f'color: {tct("#333")}; background: transparent;')
             self._time_checkbox.stateChanged.connect(self._on_time_checkbox_changed)
             time_row.addWidget(self._time_checkbox)
             
@@ -1297,17 +1297,17 @@ class TaskRow(QWidget):
             self._picker_time_edit.setEnabled(False)
             self._picker_time_edit.setStyleSheet(f"""
                 QTimeEdit {{
-                    background: rgba(255,255,255,0.5);
+                    background: {tc("rgba(255,255,255,0.5)")};
                     border: 1px solid {T.ACCENT};
                     border-radius: 4px;
                     padding: 2px 6px;
-                    color: #333;
+                    color: {tct("#333")};
                     qproperty-alignment: AlignCenter;
                 }}
                 QTimeEdit:disabled {{
-                    background: rgba(255,255,255,0.2);
-                    border: 1px solid #ddd;
-                    color: #bbb;
+                    background: {tc("rgba(255,255,255,0.2)")};
+                    border: 1px solid {tc("#ddd")};
+                    color: {tct("#bbb")};
                 }}
                 QTimeEdit::up-button {{ width: 0px; }}
                 QTimeEdit::down-button {{ width: 0px; }}
@@ -1321,13 +1321,13 @@ class TaskRow(QWidget):
             self._confirm_btn.setStyleSheet(f"""
                 QPushButton {{
                     background: {T.ACCENT};
-                    color: white;
+                    color: {tct("white")};
                     border: none;
                     border-radius: 4px;
                     font-weight: bold;
                 }}
-                QPushButton:hover {{ background: #c0a800; }}
-                QPushButton:pressed {{ background: #b09800; }}
+                QPushButton:hover {{ background: {tc("#c0a800")}; }}
+                QPushButton:pressed {{ background: {tc("#b09800")}; }}
             """)
             self._confirm_btn.clicked.connect(self._on_confirm_date_time)
             time_row.addWidget(self._confirm_btn)
@@ -1405,7 +1405,7 @@ class TaskRow(QWidget):
         self.task['priority'] = new
         if new:
             self.btn_star.setText('')
-            self.btn_star.setIcon(_svg_icon(self._star_svg, '#D4A800', self._star_sz))
+            self.btn_star.setIcon(_svg_icon(self._star_svg, tc('#D4A800'), self._star_sz))
             self.btn_star.setIconSize(QSize(self._star_sz, self._star_sz))
             self.btn_star.setStyleSheet("""
                 QPushButton { border: none; padding: 0; }
@@ -1415,9 +1415,9 @@ class TaskRow(QWidget):
             self.btn_star.setIcon(QIcon())
             self.btn_star.setText(MI.STAR_BORDER)
             self.btn_star.setFont(mi_font(int(15 * self._scale)))
-            self.btn_star.setStyleSheet("""
-                QPushButton { color: #AAAAAA; border: none; padding: 0; }
-                QPushButton:pressed { padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }
+            self.btn_star.setStyleSheet(f"""
+                QPushButton {{ color: {tct("#AAAAAA")}; border: none; padding: 0; }}
+                QPushButton:pressed {{ padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }}
             """)
         set_task_priority(self.task['id'], new)
         self.on_update()
