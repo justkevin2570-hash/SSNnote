@@ -358,7 +358,8 @@ if __name__ == '__main__':
 
     def _check_urgent_tasks():
         global _urgent_toast
-        from window import calc_dday, UrgentToast
+        from ui.dates import calc_dday
+        from ui.chrome import UrgentToast
         urgent = []
         seen = set()
         for win_data in get_all_windows():
@@ -387,7 +388,7 @@ if __name__ == '__main__':
         if not _timed_alarm_enabled[0]:
             return
         from datetime import datetime
-        from window import UrgentToast
+        from ui.chrome import UrgentToast
         urgent = []
         now = datetime.now()
 
