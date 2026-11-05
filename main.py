@@ -49,14 +49,12 @@ import updater
 
 _WELCOME_FLAG = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'welcome_shown.txt')
 
-_HOTKEY_CAPTURE = 1
-_HOTKEY_RESTORE = 2
-_HOTKEY_AI_CAPTURE = 3
+_HOTKEY_CAPTURE = 1   # Ctrl+Shift+X: AI 공문 캡처 (공문 작성 창이 앞에 있으면 그 창에 캡처)
+_HOTKEY_RESTORE = 2   # Ctrl+Shift+E: 앱 창 불러오기
 _MOD_CONTROL    = 0x0002
 _MOD_SHIFT      = 0x0004
 _VK_X           = 0x58
-_VK_S           = 0x53
-_VK_A           = 0x41
+_VK_E           = 0x45
 _WM_HOTKEY      = 0x0312
 
 
@@ -213,34 +211,19 @@ if __name__ == '__main__':
             if isinstance(top, MemoWindow):
                 _last_active_window = top
 
-    def _trigger_capture():
-        # 열린 공문 작성 창 찾기
-        doc_editor = None
-        for w in QApplication.topLevelWidgets():
-            if type(w).__name__ == 'DocumentEditorWindow' and w.isVisible():
-                doc_editor = w
-                break
-
-        if doc_editor is None:
-            # 공문 작성 창이 없으면 열기
-            if not _open_windows:
-                return
-            target = _last_active_window if _last_active_window in _open_windows else _open_windows[0]
-            target._open_document_editor()
-            doc_editor = getattr(target, '_doc_editor', None)
-            if doc_editor is None:
-                return
-            # 창이 뜨고 나서 캡처 시작
-            QTimer.singleShot(300, doc_editor._start_capture)
-        else:
-            doc_editor._start_capture()
-
     def _trigger_ai_capture():
         # AI 공문 캡처: 캡처 → AI 분석 → 업무 등록/회신 공문
         if not _open_windows:
             return
         target = _last_active_window if _last_active_window in _open_windows else _open_windows[0]
         target._start_ai_capture()
+
+    def _on_capture_hotkey():
+        active = QApplication.activeWindow()
+        if active is not None and type(active).__name__ == 'DocumentEditorWindow' and active.isVisible():
+            active._start_capture()      # 공문 작성 중: 캡처해서 제목/관련번호 칸에
+        else:
+            _trigger_ai_capture()        # 그 밖: AI 공문 캡처 → 업무 등록·회신 공문
 
     def _show_or_restore():
         if _open_windows:
@@ -253,9 +236,8 @@ if __name__ == '__main__':
 
     app.focusChanged.connect(_on_focus_changed)
     _hotkey_filter = _GlobalHotkeyFilter({
-        _HOTKEY_CAPTURE: (_MOD_CONTROL | _MOD_SHIFT, _VK_X, _trigger_capture),
-        _HOTKEY_RESTORE: (_MOD_CONTROL | _MOD_SHIFT, _VK_S, _show_or_restore),
-        _HOTKEY_AI_CAPTURE: (_MOD_CONTROL | _MOD_SHIFT, _VK_A, _trigger_ai_capture),
+        _HOTKEY_CAPTURE: (_MOD_CONTROL | _MOD_SHIFT, _VK_X, _on_capture_hotkey),
+        _HOTKEY_RESTORE: (_MOD_CONTROL | _MOD_SHIFT, _VK_E, _show_or_restore),
     })
     app.installNativeEventFilter(_hotkey_filter)
     app.aboutToQuit.connect(_hotkey_filter.unregister)

@@ -1093,9 +1093,9 @@ class MemoWindow(QMainWindow):
 
         return [
             Command('✏️ 새 업무 입력', new_task, '', 'task add 추가 할일'),
-            Command('📸 AI 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+A', 'capture ocr 캡쳐 스크린샷'),
+            Command('📸 AI 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷'),
             Command('📋 오늘 한눈에 보기', self._open_dashboard, '', 'dashboard today 대시보드 마감'),
-            Command('✍️ 공문 작성', self._open_document_editor, 'Ctrl+Shift+X', 'document 기안 초안 회신'),
+            Command('✍️ 공문 작성', self._open_document_editor, '', 'document 기안 초안 회신'),
             Command('₩ 예산 관리', self._open_budget_window, '', 'budget money 돈 집행'),
             Command('📅 월간 달력', self._show_monthly_calendar, '', 'calendar 일정 캘린더'),
             Command('🔍 통합 검색', self._open_global_search, '', 'search find 찾기'),
@@ -1313,7 +1313,7 @@ class MemoWindow(QMainWindow):
         act_palette.triggered.connect(self._open_command_palette)
         act_dash = QAction('📋 오늘 한눈에 보기', self)
         act_dash.triggered.connect(self._open_dashboard)
-        act_ai_cap = QAction('📸 AI 공문 캡처  (Ctrl+Shift+A)', self)
+        act_ai_cap = QAction('📸 AI 공문 캡처  (Ctrl+Shift+X)', self)
         act_ai_cap.triggered.connect(self._start_ai_capture)
         from db import get_setting as _gs
         from ui.theme import MODE as _mode

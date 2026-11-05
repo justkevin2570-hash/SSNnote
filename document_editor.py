@@ -790,7 +790,7 @@ class DocumentEditorWindow(QMainWindow):
         _li = "margin:0; padding:0;"
         lbl = QLabel(
             f"<p style='{_b} margin-bottom:4px;'>📋&nbsp; 공문 제목 / 관련번호 캡처</p>"
-            f"<p style='{_s} {_li}'>• Ctrl + Shift + X 를 누르면 캡처화면이 뜨면서 AI 공문 도우미가 실행됩니다.</p>"
+            f"<p style='{_s} {_li}'>• 이 창이 앞에 있을 때 Ctrl + Shift + X 를 누르면 캡처화면이 뜹니다.</p>"
             f"<p style='{_s} {_li}'>• 캡쳐하면 텍스트를 판별해서 공문제목 또는 관련번호에 적힙니다.</p>"
             f"<p style='{_s} {_li}'>• 두 칸 중 하나만 차있으면 반대쪽 빈 칸으로 자동 배분합니다.</p>"
             f"<br>"
