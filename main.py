@@ -360,7 +360,21 @@ if __name__ == '__main__':
         with open(_WELCOME_FLAG, 'w', encoding='utf-8') as f:
             f.write('shown')
 
+    _first_run = not os.path.exists(_WELCOME_FLAG)
     QTimer.singleShot(300, _show_welcome_if_first_run)
+
+    # ── 오늘 한눈에 보기: 하루 한 번, 앱을 켤 때 (첫 실행 날은 환영 인사만) ──
+    def _show_dashboard_on_start():
+        try:
+            from ui.dashboard_dialog import should_show_on_start
+            if _first_run or not _open_windows or not should_show_on_start():
+                return
+            target = _open_windows[0]
+            target._task_list_window()._open_dashboard()
+        except Exception as e:
+            print(f'[dashboard] 시작 시 표시 실패: {e}')
+
+    QTimer.singleShot(1500, _show_dashboard_on_start)
 
     # ── 마감 임박 알람 ────────────────────────────────────────────
     _urgent_toast = None  # GC 방지용 참조

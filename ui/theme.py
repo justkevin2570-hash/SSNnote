@@ -13,9 +13,11 @@ class T:
     # ── 메모(노란 스티커) 계열 ─────────────────────────────────────
     ACCENT               = '#d4b800'  # 입력칸 테두리, 포커스, 스크롤바, 주요 버튼
     ACCENT_HOVER         = '#b89e00'
+    ACCENT_SOFT          = '#f1e7b3'  # 같은 노랑 계열의 옅은 단계 (집행률 막대 바탕)
     DIVIDER              = '#D4AF37'  # 제목/날짜/하단 구분선
     BORDER_SOFT          = '#c8b87c'  # 옅은 입력 테두리
     INPUT_BG             = '#fffacd'  # 메모 위 입력칸 배경
+    SURFACE              = '#ffffff'  # 카드·입력칸 바탕
     TEXT_ON_NOTE         = '#5a4000'  # 노란 바탕 위 기본 글자
     INK                  = '#1a1410'  # 제목 등 가장 진한 글자
     TEXT_WARM            = '#5a4a3a'

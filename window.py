@@ -78,7 +78,9 @@ class MemoWindow(QMainWindow):
         self._pin_shortcut.activated.connect(self.toggle_always_on_top)
         self._shade_shortcut = QShortcut(QKeySequence('Ctrl+Shift+R'), self)
         self._shade_shortcut.activated.connect(self.toggle_shade)
-        self._shortcuts = [self._pin_shortcut, self._shade_shortcut]
+        self._palette_shortcut = QShortcut(QKeySequence('Ctrl+K'), self)
+        self._palette_shortcut.activated.connect(self._open_command_palette)
+        self._shortcuts = [self._pin_shortcut, self._shade_shortcut, self._palette_shortcut]
         # 저장된 단축키 상태 적용
         if get_shortcut_enabled is not None and not get_shortcut_enabled():
             for sc in self._shortcuts:
@@ -1076,6 +1078,84 @@ class MemoWindow(QMainWindow):
 
         self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
 
+    # ── 명령 팔레트 (Ctrl+K) / 오늘 한눈에 보기 ─────────────────────
+    def _palette_commands(self):
+        from ui.command_palette import Command
+        from school_profile import privacy_enabled
+        target = self._task_list_window()
+        on_top = bool(self.windowFlags() & Qt.WindowStaysOnTopHint)
+
+        def new_task():
+            target.show()
+            target.raise_()
+            target.activateWindow()
+            target.input_name.setFocus()
+
+        return [
+            Command('✏️ 새 업무 입력', new_task, '', 'task add 추가 할일'),
+            Command('📸 AI 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+A', 'capture ocr 캡쳐 스크린샷'),
+            Command('📋 오늘 한눈에 보기', self._open_dashboard, '', 'dashboard today 대시보드 마감'),
+            Command('✍️ 공문 작성', self._open_document_editor, 'Ctrl+Shift+X', 'document 기안 초안 회신'),
+            Command('₩ 예산 관리', self._open_budget_window, '', 'budget money 돈 집행'),
+            Command('📅 월간 달력', self._show_monthly_calendar, '', 'calendar 일정 캘린더'),
+            Command('🔍 통합 검색', self._open_global_search, '', 'search find 찾기'),
+            Command('📜 지난 기록', self._show_history, '', 'history 완료 삭제'),
+            Command('🆕 새 메모장', lambda: self.on_new(offset_from=self, memo_mode=True,
+                                                    on_toggle_hotkey=self._on_toggle_hotkey,
+                                                    on_shortcut_change=self._on_shortcut_change,
+                                                    get_shortcut_enabled=self._get_shortcut_enabled),
+                    '', 'new memo 메모'),
+            Command('📌 항상 위에 ' + ('고정 끄기' if on_top else '고정'), self.toggle_always_on_top,
+                    'Ctrl+Shift+F', 'pin top 핀'),
+            Command('↕️ 메모장 접기/펼치기', self.toggle_shade, 'Ctrl+Shift+R', 'shade fold collapse'),
+            Command('🏫 학교 정보 설정', self._open_profile_dialog, '', 'profile school 프로필 담당자'),
+            Command('🛡️ 개인정보 보호 모드 ' + ('끄기' if privacy_enabled() else '켜기'),
+                    self._toggle_privacy_mode, '', 'privacy 보안 마스킹'),
+            Command('⬇️ 업데이트 확인', lambda: updater.check_for_update_manual(self), '', 'update 버전'),
+            Command('💡 사용 설명서', self.show_help, '', 'help 도움말'),
+        ]
+
+    def _open_command_palette(self):
+        from ui.command_palette import CommandPalette
+        from db import search_tasks_all
+        old = getattr(self, '_palette', None)
+        try:
+            if old is not None and old.isVisible():
+                old.close()
+                return
+        except RuntimeError:
+            pass  # 이미 닫혀 정리된 팔레트
+        self._palette = CommandPalette(self._palette_commands(), tasks=search_tasks_all(''),
+                                       on_task=self._jump_to_task)
+        self._palette.popup(self)
+
+    def _jump_to_task(self, task):
+        """업무가 있는 메모 창을 앞으로 가져와 그 업무를 잠깐 강조한다."""
+        for win in self._open_windows:
+            if win.window_id == task.get('window_id'):
+                win.show()
+                win.raise_()
+                win.activateWindow()
+                win._highlight_task(task.get('id'))
+                return
+
+    def _open_dashboard(self):
+        from ui.dashboard_dialog import DashboardDialog
+        old = getattr(self, '_dashboard', None)
+        try:
+            if old is not None:
+                old.close()
+        except RuntimeError:
+            pass
+        dlg = DashboardDialog()
+        dlg.setAttribute(Qt.WA_DeleteOnClose)
+        dlg.jump_requested.connect(self._jump_to_task)
+        dlg.open_budget.connect(self._open_budget_window)
+        self._dashboard = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
     # ── AI 공문 캡처 (캡처 → AI 분석 → 업무 등록 / 회신 공문) ─────────
     def _start_ai_capture(self):
         for win in self._open_windows:
@@ -1212,6 +1292,10 @@ class MemoWindow(QMainWindow):
         autostart_on = autostart_is_enabled()
         act_auto = QAction(('✅ ' if autostart_on else '☐ ') + '시작 시 자동실행', self)
         act_auto.triggered.connect(lambda: autostart_set(not autostart_on))
+        act_palette = QAction('⌨️ 명령 팔레트  (Ctrl+K)', self)
+        act_palette.triggered.connect(self._open_command_palette)
+        act_dash = QAction('📋 오늘 한눈에 보기', self)
+        act_dash.triggered.connect(self._open_dashboard)
         act_ai_cap = QAction('📸 AI 공문 캡처  (Ctrl+Shift+A)', self)
         act_ai_cap.triggered.connect(self._start_ai_capture)
         act_profile = QAction('🏫 학교 정보 설정', self)
@@ -1317,6 +1401,8 @@ class MemoWindow(QMainWindow):
             act_gap.triggered.connect(lambda _, v=val: self._set_row_gap(v, menu))
             gap_menu.addAction(act_gap)
 
+        menu.addAction(act_palette)
+        menu.addAction(act_dash)
         menu.addAction(act_new)
         menu.addAction(act_search)
         menu.addAction(act_ai_cap)

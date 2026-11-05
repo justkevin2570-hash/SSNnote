@@ -245,6 +245,16 @@ def get_all_tasks():
         return [dict(r) for r in rows]
 
 
+def get_open_tasks():
+    """완료(취소선) 표시가 없는 모든 업무 + 창 색상 — 오늘 대시보드용."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.*, w.color FROM tasks t JOIN windows w ON t.window_id = w.id
+               WHERE t.strikethrough = 0"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_tasks_by_date(date_str: str):
     with _connect() as conn:
         rows = conn.execute(
