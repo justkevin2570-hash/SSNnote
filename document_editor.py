@@ -29,7 +29,9 @@ from ai_client import (AiStreamThread,
                         load_nvidia_key, save_nvidia_key,
                         load_nvidia_model, save_nvidia_model, NVIDIA_DEFAULT_MODELS,
                         load_opencode_key, save_opencode_key,
-                        load_opencode_model, save_opencode_model, OPENCODE_DEFAULT_MODELS)
+                        load_opencode_model, save_opencode_model,
+                        OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
+                        fetch_opencode_models, save_opencode_vision_models, test_opencode)
 from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
 from rag import search_similar, make_search_prompt, embedding_to_bytes, encode
 from ui.theme import TL as T, keep_light  # 예산·공문 창은 아직 라이트 전용
@@ -987,27 +989,55 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage(f'NVIDIA · {model} 설정 완료.')
 
     def _setup_opencode_ai(self):
+        """OpenCode: 요금제 → API 키 → 모델(서버의 최신 목록) → 연결 시험 → 저장."""
+        from PyQt5.QtWidgets import QMessageBox
+        plan_keys = list(OPENCODE_PLANS)
+        labels = [OPENCODE_PLANS[k]['label'] for k in plan_keys]
+        label, ok = QInputDialog.getItem(self, 'OpenCode 설정', '사용 중인 OpenCode 요금제를 고르세요:',
+                                         labels, plan_keys.index(load_opencode_plan()), False)
+        if not ok:
+            return
+        plan = plan_keys[labels.index(label)]
+
         dlg = ApiKeyDialog('OpenCode 설정', 'OpenCode API 키를 입력하세요:', load_opencode_key(), self)
         if dlg.exec_() != dlg.Accepted:
             return
         key = dlg.key()
         if key:
             save_opencode_key(key, persist=dlg.should_save())
+        key = load_opencode_key()
+        if not key:
+            self.statusBar().showMessage('OpenCode API 키가 비어 있습니다.')
+            return
 
         self.statusBar().showMessage('OpenCode 모델 목록 조회 중...')
         QApplication.processEvents()
-
-        dlg = _ModelSelectDialog('OpenCode 모델 선택', OPENCODE_DEFAULT_MODELS, load_opencode_model(), self)
+        models = fetch_opencode_models(plan)
+        mark = lambda m: f"{m['id']}   🖼 이미지" if m['image'] else m['id']  # noqa: E731
+        shown = [mark(m) for m in models]
+        current = next((mark(m) for m in models if m['id'] == load_opencode_model()), '')
+        dlg = _ModelSelectDialog('OpenCode 모델 선택 — 🖼 표시는 캡처 이미지도 읽을 수 있음', shown, current, self)
         if dlg.exec_() != dlg.Accepted:
             return
-        model = dlg.selected_model()
-        if not model:
+        picked = dlg.selected_model().split()[0] if dlg.selected_model() else ''
+        if not picked:
             return
 
-        save_opencode_model(model)
+        self.statusBar().showMessage(f'OpenCode · {picked} 연결 확인 중...')
+        QApplication.processEvents()
+        ok, msg = test_opencode(plan, key, picked)
+        if not ok:
+            self.statusBar().showMessage('OpenCode 연결 실패')
+            QMessageBox.warning(self, 'OpenCode 연결 실패', msg)
+            return
+
+        save_opencode_plan(plan)
+        save_opencode_model(picked)
+        if any(m['image'] is not None for m in models):      # 서버 목록을 받았을 때만 이미지 지원 정보 저장
+            save_opencode_vision_models([m['id'] for m in models if m['image']])
         save_ai_mode('opencode')
         self._apply_ai_mode()
-        self.statusBar().showMessage(f'OpenCode · {model} 설정 완료.')
+        self.statusBar().showMessage(f'OpenCode · {picked} 연결 완료.')
 
     def _setup_internal_ai(self):
         # Ollama 연결 및 모델 목록 가져오기

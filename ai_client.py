@@ -25,6 +25,8 @@ NVIDIA_KEY_FILE    = os.path.join(APPDATA_DIR, 'nvidia_key.txt')
 NVIDIA_MODEL_FILE  = os.path.join(APPDATA_DIR, 'nvidia_model.txt')
 OPENCODE_KEY_FILE   = os.path.join(APPDATA_DIR, 'opencode_key.txt')
 OPENCODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'opencode_model.txt')
+OPENCODE_PLAN_FILE  = os.path.join(APPDATA_DIR, 'opencode_plan.txt')
+OPENCODE_VISION_FILE = os.path.join(APPDATA_DIR, 'opencode_vision_models.json')
 OLLAMA_HOST        = 'http://localhost:11434'
 
 # ── 자격증명 암호화 헬퍼 (Windows DPAPI, 미지원 시 평문 폴백) ──
@@ -80,19 +82,28 @@ NVIDIA_DEFAULT_MODELS = [
     "mistralai/mixtral-8x7b-instruct-v0.1",
 ]
 
+# OpenCode — 요금제별 접속 주소 (https://opencode.ai/docs/go/ , /docs/zen/)
+#   요청에는 x-opencode-session 헤더가 꼭 있어야 한다 (없으면 400 MissingSessionID).
+OPENCODE_PLANS = {
+    'go':  {'label': 'OpenCode Go (월 구독)',
+            'base_url': 'https://opencode.ai/inference/go/openai/v1',
+            'models_url': 'https://opencode.ai/inference/go/v1/models'},
+    'zen': {'label': 'OpenCode Zen (충전식)',
+            'base_url': 'https://opencode.ai/inference/openai/v1',
+            'models_url': 'https://opencode.ai/inference/v1/models'},
+}
+OPENCODE_DEFAULT_MODEL = 'deepseek-v4.1-flash'
+# 서버에서 모델 목록을 못 받을 때 쓰는 예비 목록 (Go, chat-completions 지원, 2026-11 기준)
 OPENCODE_DEFAULT_MODELS = [
-    "glm-5.1",
-    "glm-5",
-    "kimi-k2.5",
-    "kimi-k2.6",
+    "deepseek-v4.1-flash",
+    "kimi-k3",
+    "kimi-k3.1-pro",
+    "glm-5.3-flash",
+    "glm-5.3",
     "deepseek-v4-pro",
-    "deepseek-v4-flash",
-    "mimo-v2-pro",
-    "mimo-v2-omni",
-    "mimo-v2.5-pro",
-    "mimo-v2.5",
-    "qwen3.6-plus",
-    "qwen3.5-plus",
+    "mimo-v2.6-pro",
+    "mimo-v2.6-flash",
+    "minimax-m3.1-flash",
 ]
 
 # 외부 AI(대형 모델): 형식 제약 최소화, 모델 자율성 최대
@@ -506,13 +517,116 @@ def load_opencode_model() -> str:
             v = f.read().strip()
             if v:
                 return v
-    return 'deepseek-v4-flash'
+    return OPENCODE_DEFAULT_MODEL
 
 
 def save_opencode_model(model: str):
     os.makedirs(APPDATA_DIR, exist_ok=True)
     with open(OPENCODE_MODEL_FILE, 'w', encoding='utf-8') as f:
         f.write(model.strip())
+
+
+def load_opencode_plan() -> str:
+    try:
+        with open(OPENCODE_PLAN_FILE, 'r', encoding='utf-8') as f:
+            v = f.read().strip()
+        return v if v in OPENCODE_PLANS else 'go'
+    except OSError:
+        return 'go'
+
+
+def save_opencode_plan(plan: str):
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(OPENCODE_PLAN_FILE, 'w', encoding='utf-8') as f:
+        f.write(plan if plan in OPENCODE_PLANS else 'go')
+
+
+def save_opencode_vision_models(model_ids):
+    """이미지를 읽을 수 있는 모델 목록 (마지막으로 서버에서 받은 것)."""
+    import json
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    with open(OPENCODE_VISION_FILE, 'w', encoding='utf-8') as f:
+        json.dump(sorted(model_ids), f)
+
+
+def opencode_model_supports_image(model: str):
+    """True / False / None(모름 — 목록을 받은 적 없음)."""
+    import json
+    try:
+        with open(OPENCODE_VISION_FILE, 'r', encoding='utf-8') as f:
+            return model in json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+_OPENCODE_SESSION = None
+
+
+def opencode_headers() -> dict:
+    """OpenCode가 요구하는 헤더: 앱 이름(User-Agent)과 대화 세션 ID (앱 실행마다 하나)."""
+    global _OPENCODE_SESSION
+    if _OPENCODE_SESSION is None:
+        import uuid
+        _OPENCODE_SESSION = 'ssnnote-' + uuid.uuid4().hex
+    try:
+        from updater import _read_app_version
+        ver = _read_app_version().lstrip('v')
+    except Exception:
+        ver = '0'
+    return {'x-opencode-session': _OPENCODE_SESSION, 'User-Agent': f'ssnnote/{ver}'}
+
+
+def fetch_opencode_models(plan: str) -> list:
+    """요금제에서 쓸 수 있는 대화 모델 [{'id', 'name', 'image'}].
+
+    서서니 노트는 chat-completions 방식으로 요청하므로 그 방식을 기본 지원하는 모델만 고른다.
+    실패하면 예비 목록 (image=None: 모름).
+    """
+    import requests
+    try:
+        r = requests.get(OPENCODE_PLANS[plan]['models_url'], headers=opencode_headers(), timeout=15)
+        r.raise_for_status()
+        out = []
+        for m in r.json().get('data', []):
+            if m.get('type', 'chat') != 'chat' or 'chat-completions' not in (m.get('api') or {}):
+                continue
+            price = (((m.get('cost') or {}).get('text') or {}).get('input') or {}).get('price')
+            if price == 0:      # 무료 모델은 OpenCode 앱 안에서만 쓸 수 있어 다른 앱에서는 항상 거절됨
+                continue
+            inputs = (m.get('modalities') or {}).get('input', [])
+            out.append({'id': m['id'], 'name': m.get('name', m['id']),
+                        'image': any(str(x).startswith('image/') for x in inputs)})
+        if out:
+            return out
+    except Exception:
+        pass
+    return [{'id': mid, 'name': mid, 'image': None} for mid in OPENCODE_DEFAULT_MODELS]
+
+
+def test_opencode(plan: str, key: str, model: str):
+    """아주 짧은 요청으로 연결을 확인한다. (ok, 한국어 메시지)."""
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=key, base_url=OPENCODE_PLANS[plan]['base_url'],
+                        default_headers=opencode_headers(), max_retries=0, timeout=30)
+        client.chat.completions.create(model=model, max_tokens=16,
+                                       messages=[{"role": "user", "content": "OK라고만 답하세요."}])
+        return True, '연결 성공'
+    except Exception as e:
+        code = getattr(e, 'status_code', None)
+        if code == 401:
+            return False, ('API 키가 맞지 않습니다.\n키를 다시 확인하고, 요금제(Go/Zen)를 바르게 골랐는지도 확인해 주세요.')
+        if code in (402, 403):
+            return False, '이 요금제에서 쓸 수 없거나 잔액·사용 한도가 부족합니다.\nOpenCode 콘솔에서 요금제와 잔액을 확인해 주세요.'
+        if code == 429 and 'FreeUsageLimit' in str(e):
+            return False, '무료 모델은 OpenCode 앱 안에서만 쓸 수 있습니다. 유료 모델을 골라 주세요.'
+        if code == 429:
+            return False, '사용 한도(5시간/주/월)에 걸렸습니다. 잠시 후 다시 시도하거나 다른 모델을 고르세요.'
+        if code == 404:
+            return False, f'모델 "{model}"을(를) 찾을 수 없습니다. 다른 모델을 골라 주세요.'
+        if code is None and 'connect' in type(e).__name__.lower():
+            return False, '인터넷 연결을 확인해 주세요.'
+        return False, f'연결 실패: {e}'
 
 
 def load_external_model_name() -> str:
@@ -827,7 +941,7 @@ class NvidiaAdapter(OpenAIAdapter):
 # ── OpenCodeAdapter (OpenAI 호환 API) ────────────────────────────
 
 class OpenCodeAdapter(OpenAIAdapter):
-    _base_url = 'https://opencode.ai/zen/go/v1'
+    """OpenCode Go/Zen (OpenAI 호환 chat-completions). 요금제에 맞는 주소와 필수 헤더를 붙인다."""
 
     @classmethod
     def get_api_key(cls) -> str:
@@ -836,6 +950,29 @@ class OpenCodeAdapter(OpenAIAdapter):
     @classmethod
     def _model(cls) -> str:
         return load_opencode_model()
+
+    @classmethod
+    def _make_client(cls):
+        from openai import OpenAI
+        return OpenAI(api_key=cls.get_api_key(), base_url=OPENCODE_PLANS[load_opencode_plan()]['base_url'],
+                      default_headers=opencode_headers())
+
+    @classmethod
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+        if image_b64 and opencode_model_supports_image(cls._model()) is False:
+            raise RuntimeError(
+                f'선택한 OpenCode 모델({cls._model()})은 이미지를 읽지 못합니다.\n'
+                '메뉴 → 설정 → AI 연결(API 키) → OpenCode에서 🖼 표시가 있는 모델을 고르거나, '
+                '개인정보 보호 모드를 켜서 글자로 분석하세요.')
+        return super().complete(system, prompt, image_b64=image_b64, max_tokens=max_tokens)
+
+    @classmethod
+    def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
+        try:
+            text = cls.complete(OCR_SYSTEM_PROMPT, prompt, image_b64=image_b64, max_tokens=256)
+            return _parse_json_response(text)
+        except Exception as e:
+            return {"title": "", "doc_number": "", "error": str(e)}
 
 
 # ── OllamaAdapter ────────────────────────────────────────────────

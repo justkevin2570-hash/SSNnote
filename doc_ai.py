@@ -288,10 +288,10 @@ class DocAnalysisWorker(QThread):
             from school_profile import privacy_enabled, mask_for_ai
             adapter = get_adapter()
             if adapter is None:
-                self.failed.emit('AI가 꺼져 있습니다. 공문 작성 창의 AI 설정에서 사용할 AI를 고르세요.')
+                self.failed.emit('AI가 꺼져 있습니다. 메뉴 → 설정 → AI 연결(API 키)에서 사용할 AI를 고르세요.')
                 return
             if getattr(adapter, 'requires_api_key', True) and not adapter.get_api_key():
-                self.failed.emit('AI API 키가 설정되지 않았습니다. 공문 작성 창의 AI 설정에서 키를 입력하세요.')
+                self.failed.emit('AI API 키가 설정되지 않았습니다. 메뉴 → 설정 → AI 연결(API 키)에서 키를 입력하세요.')
                 return
 
             info = {'mode': 'image', 'masked': {}, 'ocr_text': self._ocr_text}
