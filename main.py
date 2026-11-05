@@ -51,10 +51,12 @@ _WELCOME_FLAG = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'welcome
 
 _HOTKEY_CAPTURE = 1
 _HOTKEY_RESTORE = 2
+_HOTKEY_AI_CAPTURE = 3
 _MOD_CONTROL    = 0x0002
 _MOD_SHIFT      = 0x0004
 _VK_X           = 0x58
 _VK_S           = 0x53
+_VK_A           = 0x41
 _WM_HOTKEY      = 0x0312
 
 
@@ -231,6 +233,13 @@ if __name__ == '__main__':
         else:
             doc_editor._start_capture()
 
+    def _trigger_ai_capture():
+        # AI 공문 캡처: 캡처 → AI 분석 → 업무 등록/회신 공문
+        if not _open_windows:
+            return
+        target = _last_active_window if _last_active_window in _open_windows else _open_windows[0]
+        target._start_ai_capture()
+
     def _show_or_restore():
         if _open_windows:
             for win in _open_windows:
@@ -244,6 +253,7 @@ if __name__ == '__main__':
     _hotkey_filter = _GlobalHotkeyFilter({
         _HOTKEY_CAPTURE: (_MOD_CONTROL | _MOD_SHIFT, _VK_X, _trigger_capture),
         _HOTKEY_RESTORE: (_MOD_CONTROL | _MOD_SHIFT, _VK_S, _show_or_restore),
+        _HOTKEY_AI_CAPTURE: (_MOD_CONTROL | _MOD_SHIFT, _VK_A, _trigger_ai_capture),
     })
     app.installNativeEventFilter(_hotkey_filter)
     app.aboutToQuit.connect(_hotkey_filter.unregister)

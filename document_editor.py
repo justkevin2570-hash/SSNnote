@@ -344,6 +344,15 @@ def _correct_document_format(body: str) -> str:
     return body
 
 
+def _profile_block() -> str:
+    try:
+        from school_profile import prompt_block
+        block = prompt_block()
+        return block + "\n" if block else ''
+    except Exception:
+        return ''
+
+
 class PlainPasteDocEdit(QTextEdit):
     def insertFromMimeData(self, source):
         if not source.hasText():
@@ -609,10 +618,32 @@ class DocumentEditorWindow(QMainWindow):
         prompt = (
             f"제목: {title}\n{ref_line}\n"
             f"{rag_context}\n"
+            f"{_profile_block()}"
             '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
         )
         self.editor.clear()
         self._start_ai(prompt, system=system, structured=True)
+
+    # ── 회신 공문 (AI 공문 캡처 → 회신 공문 작성) ──
+    def start_reply(self, analysis: dict, instruction: str = ''):
+        """캡처·분석한 공문에 대한 회신 공문: 제목·관련 칸을 채우고 AI 초안을 만든다."""
+        import doc_ai
+        title = doc_ai.reply_title(analysis)
+        ref = doc_ai.related_line(analysis)
+        self.title_input.setText(title)
+        self.ref_input.setText(ref)
+        if load_ai_mode() == 'none':
+            self.editor.setPlainText(_get_template(title, 'submit', ref, self.spin_attach.value()))
+            self._apply_editor_line_height()
+            self.statusBar().showMessage('회신 공문 뼈대 삽입 완료 — AI를 켜면 본문까지 작성합니다.')
+            return
+        if self.ai_thread and self.ai_thread.isRunning():
+            self.statusBar().showMessage('AI가 작업 중입니다. 끝난 뒤 다시 시도하세요.')
+            return
+        prompt = doc_ai.build_reply_prompt(analysis, _profile_block(), instruction)
+        self.editor.clear()
+        self._start_ai(prompt, system=doc_ai.REPLY_SYSTEM, structured=True)
+        self.statusBar().showMessage('AI가 회신 공문을 작성 중...')
 
     # ── AI 입력창 Enter 키 → 전송 ──
     def eventFilter(self, obj, event):
@@ -680,7 +711,12 @@ class DocumentEditorWindow(QMainWindow):
             self.editor.setPlainText(corrected)
             self.editor.blockSignals(False)
             self._apply_editor_line_height()
-        self.statusBar().showMessage("완료")
+        masked = getattr(self.ai_thread, 'masked_counts', None) or {}
+        if masked:
+            from privacy import describe
+            self.statusBar().showMessage(f"완료 — 🛡 개인정보 {describe(masked)}을 가리고 보냈습니다.")
+        else:
+            self.statusBar().showMessage("완료")
         self._set_controls_enabled(True)
         self.ai_input.clear()
 

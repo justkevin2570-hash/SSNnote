@@ -150,6 +150,11 @@ def init_db():
         if 'attachments' not in cols:
             conn.execute("ALTER TABLE tasks ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'")
 
+        # app_settings 테이블 (학교 프로필, 개인정보 보호 모드 등 앱 설정 — key/value)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')"
+        )
+
         # 기존 window_state 마이그레이션
         tables = [r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
@@ -562,3 +567,20 @@ def clear_budget_data():
     with _connect() as conn:
         conn.execute('DELETE FROM budget_items')
         conn.execute('DELETE FROM budget_categories')
+
+
+# ── 앱 설정 (key/value) ─────────────────────────────────────────
+
+def get_setting(key: str, default: str = '') -> str:
+    with _connect() as conn:
+        row = conn.execute('SELECT value FROM app_settings WHERE key=?', (key,)).fetchone()
+        return row['value'] if row else default
+
+
+def set_setting(key: str, value: str):
+    with _connect() as conn:
+        conn.execute(
+            'INSERT INTO app_settings (key, value) VALUES (?, ?) '
+            'ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+            (key, value)
+        )

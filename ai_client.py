@@ -648,6 +648,22 @@ class GeminiAdapter:
             return {"title": "", "doc_number": "", "error": str(e)}
 
 
+    @classmethod
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+        """한 번에 응답 전체를 받는다 (이미지 선택). 실패 시 예외."""
+        from google.genai import types
+        contents = [prompt]
+        if image_b64:
+            contents.append(types.Part.from_bytes(data=base64.b64decode(image_b64), mime_type="image/png"))
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            max_output_tokens=max_tokens,
+        )
+        response = cls._client().models.generate_content(
+            model=load_gemini_model(), contents=contents, config=config)
+        return (response.text or '').strip()
+
 # ── ClaudeAdapter ─────────────────────────────────────────────────
 
 class ClaudeAdapter:
@@ -698,6 +714,23 @@ class ClaudeAdapter:
         except Exception as e:
             return {"title": "", "doc_number": "", "error": str(e)}
 
+
+    @classmethod
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+        import anthropic
+        client = anthropic.Anthropic(api_key=cls.get_api_key())
+        content = []
+        if image_b64:
+            content.append({"type": "image", "source": {
+                "type": "base64", "media_type": "image/png", "data": image_b64}})
+        content.append({"type": "text", "text": prompt})
+        response = client.messages.create(
+            model=load_claude_model(),
+            max_tokens=max_tokens,
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": content}],
+        )
+        return ''.join(b.text for b in response.content if getattr(b, 'type', '') == 'text').strip()
 
 # ── OpenAIAdapter ─────────────────────────────────────────────────
 
@@ -761,6 +794,21 @@ class OpenAIAdapter:
         except Exception as e:
             return {"title": "", "doc_number": "", "error": str(e)}
 
+
+    @classmethod
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+        client = cls._make_client()
+        if image_b64:
+            user = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+                    {"type": "text", "text": prompt}]
+        else:
+            user = prompt
+        response = client.chat.completions.create(
+            model=cls._model(),
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            max_tokens=max_tokens,
+        )
+        return (response.choices[0].message.content or '').strip()
 
 # ── NvidiaAdapter (OpenAI 호환 API) ──────────────────────────────
 
@@ -860,6 +908,26 @@ class OllamaAdapter:
             return {'title': '', 'doc_number': '', 'error': str(e)}
 
 
+    @classmethod
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+        import requests
+        payload = {
+            'model': cls._model(),
+            'system': system,
+            'prompt': prompt,
+            'stream': False,
+            'think': False,
+            'options': {'num_predict': max_tokens},
+        }
+        if image_b64:
+            payload['images'] = [image_b64]
+        try:
+            resp = requests.post(f'{OLLAMA_HOST}/api/generate', json=payload, timeout=120)
+        except requests.exceptions.ConnectionError:
+            raise RuntimeError('Ollama 서버에 연결할 수 없습니다. Ollama가 실행 중인지 확인하세요.')
+        resp.raise_for_status()
+        return resp.json().get('response', '').strip()
+
 # ── 어댑터 선택 ──────────────────────────────────────────────────
 
 def _get_adapter():
@@ -879,6 +947,18 @@ def _get_adapter():
         return OllamaAdapter
     return GeminiAdapter
 
+
+
+def get_adapter():
+    """현재 AI 모드의 어댑터. AI 꺼짐('none')이면 None."""
+    if load_ai_mode() == 'none':
+        return None
+    return _get_adapter()
+
+
+def is_local_adapter(adapter) -> bool:
+    """PC 안에서만 도는 AI(Ollama)인지 — 개인정보 가리기 대상에서 제외."""
+    return adapter is OllamaAdapter
 
 # ── 공개 인터페이스 ──────────────────────────────────────────────
 
@@ -910,6 +990,16 @@ class AiStreamThread(QThread):
         if getattr(adapter, 'requires_api_key', True) and not adapter.get_api_key():
             self.error_signal.emit("API 키가 설정되지 않았습니다. 설정 버튼을 눌러 키를 입력하세요.")
             return
+
+        # 개인정보 보호 모드: 외부 AI로 나가는 글에서 개인정보를 가린다
+        self.masked_counts = {}
+        if not is_local_adapter(adapter):
+            try:
+                from school_profile import privacy_enabled, mask_for_ai
+                if privacy_enabled():
+                    self.prompt, self.masked_counts = mask_for_ai(self.prompt)
+            except Exception:
+                pass  # 설정을 못 읽어도 AI 기능은 계속 동작
 
         if not self.structured:
             # 일반 스트리밍 모드 (자유 채팅 등)

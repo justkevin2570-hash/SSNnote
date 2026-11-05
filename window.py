@@ -1076,6 +1076,65 @@ class MemoWindow(QMainWindow):
 
         self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
 
+    # ── AI 공문 캡처 (캡처 → AI 분석 → 업무 등록 / 회신 공문) ─────────
+    def _start_ai_capture(self):
+        for win in self._open_windows:
+            win.hide()
+        QApplication.processEvents()
+        QTimer.singleShot(250, self._show_ai_capture_overlay)
+
+    def _show_ai_capture_overlay(self):
+        screenshot = grab_fullscreen()
+        self._overlay = ScreenCaptureOverlay(screenshot)
+        self._overlay.region_captured.connect(self._on_ai_capture_complete)
+        self._overlay.cancelled.connect(self._restore_windows)
+        self._overlay.show()
+        self._overlay.activateWindow()
+        self._overlay.setFocus()
+
+    def _on_ai_capture_complete(self, pixmap):
+        self._overlay.region_captured.disconnect()  # 중복 호출 방지
+        self._restore_windows()
+        from ui.capture_dialog import CaptureResultDialog
+        dlg = CaptureResultDialog(pixmap, on_register=self._register_captured_task,
+                                  on_reply=self._reply_from_capture, parent=None)
+        self._capture_dlg = dlg  # GC 방지
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _task_list_window(self):
+        """업무를 넣을 창: 자신이 업무 목록 모드면 자신, 아니면 열린 업무 목록 창."""
+        if not self._memo_mode:
+            return self
+        for win in self._open_windows:
+            if not getattr(win, '_memo_mode', True):
+                return win
+        return self
+
+    def _register_captured_task(self, name, deadline, notes, related_no):
+        target = self._task_list_window()
+        add_task(target.window_id, name, deadline, notes=notes, related_no=related_no)
+        target._refresh_tasks()
+        target.show()
+        target.raise_()
+
+    def _reply_from_capture(self, analysis):
+        self._open_document_editor()
+        editor = getattr(self, '_doc_editor', None)
+        if editor is not None:
+            editor.start_reply(analysis)
+            editor.raise_()
+            editor.activateWindow()
+
+    def _open_profile_dialog(self):
+        from ui.profile_dialog import ProfileDialog
+        ProfileDialog(self).exec_()
+
+    def _toggle_privacy_mode(self):
+        from school_profile import privacy_enabled, set_privacy_enabled
+        set_privacy_enabled(not privacy_enabled())
+
     @staticmethod
     def _make_check_icon(checked, size=20):
         from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen, QIcon
@@ -1153,6 +1212,13 @@ class MemoWindow(QMainWindow):
         autostart_on = autostart_is_enabled()
         act_auto = QAction(('✅ ' if autostart_on else '☐ ') + '시작 시 자동실행', self)
         act_auto.triggered.connect(lambda: autostart_set(not autostart_on))
+        act_ai_cap = QAction('📸 AI 공문 캡처  (Ctrl+Shift+A)', self)
+        act_ai_cap.triggered.connect(self._start_ai_capture)
+        act_profile = QAction('🏫 학교 정보 설정', self)
+        act_profile.triggered.connect(self._open_profile_dialog)
+        from school_profile import privacy_enabled
+        act_privacy = QAction(('✅ ' if privacy_enabled() else '☐ ') + '🛡️ 개인정보 보호 모드', self)
+        act_privacy.triggered.connect(self._toggle_privacy_mode)
         act_help   = QAction('💡 사용 설명서', self)
         act_update = QAction('⬇️ 업데이트 확인', self)
         act_delete = QAction('🗑️ 메모장 삭제', self)
@@ -1253,12 +1319,17 @@ class MemoWindow(QMainWindow):
 
         menu.addAction(act_new)
         menu.addAction(act_search)
+        menu.addAction(act_ai_cap)
         menu.addMenu(color_menu)
         menu.addMenu(size_menu)
         menu.addMenu(gap_menu)
         menu.addMenu(alarm_menu)
         menu.addAction(act_auto)
         menu.addAction(act_sc)
+        menu.addSeparator()
+        menu.addAction(act_profile)
+        menu.addAction(act_privacy)
+        menu.addSeparator()
         menu.addAction(act_help)
         menu.addAction(act_update)
         _all_ids = [w['id'] for w in get_all_windows()]

@@ -34,3 +34,6 @@ supabase_secret.py
 
 # 로컬 공문 샘플 문서 (개인 자료 — GitHub에 올리지 않음)
 data/
+
+# Tests
+.pytest_cache/
