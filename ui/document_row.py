@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt
 from db import (update_document)
 from .common import _base_path
 from .widgets import SmartDocLineEdit
+from .theme import T
 
 class DocumentRow(QWidget):
     """공문번호 한 항목 행: [공문제목 입력] [공문번호(읽기전용)] [삭제메뉴]"""
@@ -21,27 +22,27 @@ class DocumentRow(QWidget):
         lay.setContentsMargins(8, 2, 8, 2)
         lay.setSpacing(0)
 
-        field_style = """
-            QLineEdit {
+        field_style = f"""
+            QLineEdit {{
                 background: rgba(255,255,255,0.5);
-                border: 1px solid #d4b800;
+                border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: #333;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
-            }
+            }}
         """
-        readonly_style = """
-            QLineEdit {
+        readonly_style = f"""
+            QLineEdit {{
                 background: rgba(255,255,255,0.25);
                 border: 1px solid #c0a800;
                 border-radius: 4px;
                 padding: 2px 6px;
-                color: #5a4000;
+                color: {T.TEXT_ON_NOTE};
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
-            }
+            }}
         """
 
         editing_style = """

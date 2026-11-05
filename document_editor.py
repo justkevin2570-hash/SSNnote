@@ -32,124 +32,125 @@ from ai_client import (AiStreamThread,
                         load_opencode_model, save_opencode_model, OPENCODE_DEFAULT_MODELS)
 from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
 from rag import search_similar, make_search_prompt, embedding_to_bytes, encode
+from ui.theme import T
 
 
 # ── 전체 QSS 테마 ─────────────────────────────────────────────────
-STYLE = """
-    QMainWindow {
+STYLE = f"""
+    QMainWindow {{
         background-color: #F9FAFB;
-    }
-    QWidget {
+    }}
+    QWidget {{
         font-family: 'Pretendard GOV', 'Malgun Gothic';
         font-size: 12pt;
         color: #111827;
-    }
-    QLineEdit {
+    }}
+    QLineEdit {{
         background-color: #FFFFFF;
         border: 1px solid #D1D5DB;
         border-radius: 8px;
         padding: 6px 12px;
         color: #111827;
-    }
-    QLineEdit:focus {
-        border: 2px solid #6366F1;
+    }}
+    QLineEdit:focus {{
+        border: 2px solid {T.INDIGO_500};
         background-color: #FAFAFA;
-    }
-    QTextEdit#editor {
+    }}
+    QTextEdit#editor {{
         background-color: #FFFFFF;
-        border: 5px solid #6366F1;
+        border: 5px solid {T.INDIGO_500};
         border-radius: 10px;
         padding: 28px 32px;
         color: #374151;
-    }
-    QFrame#AIInputFrame {
+    }}
+    QFrame#AIInputFrame {{
         background-color: #FFFFFF;
-        border: 1.5px solid #E5E7EB;
+        border: 1.5px solid {T.GRAY_200};
         border-radius: 14px;
-    }
-    QFrame#AIInputFrame QTextEdit {
+    }}
+    QFrame#AIInputFrame QTextEdit {{
         background: transparent;
         border: none;
         border-radius: 0;
-    }
-    QPushButton {
+    }}
+    QPushButton {{
         background-color: #FFFFFF;
         border: 1px solid #D1D5DB;
         border-radius: 8px;
         padding: 6px 16px;
         font-weight: 600;
         color: #374151;
-    }
-    QPushButton:hover {
+    }}
+    QPushButton:hover {{
         background-color: #F3F4F6;
         border-color: #9CA3AF;
-    }
-    QPushButton:pressed {
-        background-color: #E5E7EB;
-    }
-    QPushButton:disabled {
+    }}
+    QPushButton:pressed {{
+        background-color: {T.GRAY_200};
+    }}
+    QPushButton:disabled {{
         color: #9CA3AF;
-        border-color: #E5E7EB;
+        border-color: {T.GRAY_200};
         background-color: #F9FAFB;
-    }
-    QPushButton#AIPrimaryButton {
-        background-color: #6366F1;
+    }}
+    QPushButton#AIPrimaryButton {{
+        background-color: {T.INDIGO_500};
         color: white;
         border: none;
         border-radius: 10px;
-    }
-    QPushButton#AIPrimaryButton:hover {
-        background-color: #4F46E5;
-    }
-    QPushButton#AIPrimaryButton:disabled {
-        background-color: #A5B4FC;
-    }
-    QPushButton#DraftButton {
+    }}
+    QPushButton#AIPrimaryButton:hover {{
+        background-color: {T.INDIGO_600};
+    }}
+    QPushButton#AIPrimaryButton:disabled {{
+        background-color: {T.INDIGO_300};
+    }}
+    QPushButton#DraftButton {{
         background-color: #EEF2FF;
         border: 1px solid #C7D2FE;
-        color: #4338CA;
+        color: {T.INDIGO_700};
         font-weight: 700;
-    }
-    QPushButton#DraftButton:hover {
+    }}
+    QPushButton#DraftButton:hover {{
         background-color: #E0E7FF;
-    }
-    QPushButton#DraftButton:disabled {
+    }}
+    QPushButton#DraftButton:disabled {{
         background-color: #F5F3FF;
         border-color: #E0E7FF;
-        color: #A5B4FC;
-    }
-    QPushButton#HelpButton {
+        color: {T.INDIGO_300};
+    }}
+    QPushButton#HelpButton {{
         background-color: #FEF3C7;
         border: 1px solid #FDE68A;
         color: #92400E;
         font-weight: 700;
-    }
-    QPushButton#HelpButton:hover {
+    }}
+    QPushButton#HelpButton:hover {{
         background-color: #FDE68A;
-    }
-    QPushButton#SaveButton {
-        background-color: #6366F1;
+    }}
+    QPushButton#SaveButton {{
+        background-color: {T.INDIGO_500};
         color: white;
         border: none;
         font-weight: 700;
-    }
-    QPushButton#SaveButton:hover {
-        background-color: #4F46E5;
-    }
-    QPushButton#SaveButton:disabled {
-        background-color: #A5B4FC;
-    }
-    QStatusBar {
+    }}
+    QPushButton#SaveButton:hover {{
+        background-color: {T.INDIGO_600};
+    }}
+    QPushButton#SaveButton:disabled {{
+        background-color: {T.INDIGO_300};
+    }}
+    QStatusBar {{
         background-color: #F3F4F6;
         color: #6B7280;
         font-size: 10pt;
-        border-top: 1px solid #E5E7EB;
-    }
-    QLabel {
+        border-top: 1px solid {T.GRAY_200};
+    }}
+    QLabel {{
         color: #6B7280;
         font-size: 11pt;
         background: transparent;
-    }
+    }}
 """
 
 # ── 문서 유형 ─────────────────────────────────────────────────────

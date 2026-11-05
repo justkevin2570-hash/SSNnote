@@ -20,11 +20,6 @@ ALIGN_ZONE       = 30  # 정렬 스냅 인력 시작 거리(px)
 SNAP_RESIST      = 18  # 정렬 스냅 탈출 거리(px)
 BREAKAWAY_DIST   = 25  # 인접 스냅 탈출 거리(px) - 유클리드 거리 기준
 
-PALETTE = [
-    '#FDD663', '#FEFFA7', '#CCFF90', '#A8F0E8',
-    '#AECBFA', '#D7AEFB', '#FDCFE8', '#E6C9A8', '#AAAAAA', '#DDDDDD', '#FFFFFF',
-]
-
 # ── Fluent System Icons 폰트 로드 ────────────────────────────────
 _FI_FONT_ID        = -1
 _FI_FILLED_FONT_ID = -1

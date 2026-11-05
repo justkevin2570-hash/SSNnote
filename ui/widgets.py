@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QDate, QTime, QTimer, QPoint, QSize, pyqtSignal
 from PyQt5.QtGui import QFontMetrics, QColor, QPainter, QTextCharFormat, QTextCursor, QKeySequence
 from .common import pr_font
+from .theme import T
 
 class AddDateButton(QLabel):
     """deadline이 없는 태스크에서 날짜 자리에 표시되는 클릭 가능한 레이블."""
@@ -19,7 +20,7 @@ class AddDateButton(QLabel):
     )
     _STYLE_HOVER = (
         'color: #888; background: rgba(212,184,0,0.1);'
-        'border: 1px dashed #d4b800; border-radius: 3px;'
+        f'border: 1px dashed {T.ACCENT}; border-radius: 3px;'
         'padding: 1px 5px;'
     )
 
@@ -84,8 +85,8 @@ class DdayLabel(QLabel):
         f.setPointSizeF(f.pointSizeF() - 0.3)
         self.setFont(f)
         self._original_style = self.styleSheet()
-        if '#e74c3c' in self._original_style:
-            self.setStyleSheet(self._original_style.replace('#e74c3c', '#e96060'))
+        if T.DANGER in self._original_style:
+            self.setStyleSheet(self._original_style.replace(T.DANGER, '#e96060'))
         super().enterEvent(event)
 
     def leaveEvent(self, event):
@@ -179,7 +180,7 @@ class _FixedDotBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedHeight(10)
-        self._color = '#d4b800'
+        self._color = T.ACCENT
 
     def set_color(self, hex_color):
         self._color = hex_color
@@ -198,7 +199,7 @@ class CustomCalendarWidget(QCalendarWidget):
         super().paintCell(painter, rect, date)
         if date == QDate.currentDate():
             painter.save()
-            painter.setPen(QColor('#d4b800'))
+            painter.setPen(QColor(T.ACCENT))
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(rect.adjusted(1, 1, -2, -2))
             painter.restore()
@@ -209,23 +210,23 @@ class TimePickerPopup(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
-        self.setStyleSheet("""
-            QFrame {
+        self.setStyleSheet(f"""
+            QFrame {{
                 background: #fffbe6;
-                border: 1px solid #d4b800;
+                border: 1px solid {T.ACCENT};
                 border-radius: 6px;
-            }
-            QListWidget {
+            }}
+            QListWidget {{
                 background: transparent;
                 border: none;
                 font-family: 'Malgun Gothic';
                 font-size: 11pt;
                 color: #333;
                 outline: 0;
-            }
-            QListWidget::item { padding: 3px 10px; border-radius: 3px; }
-            QListWidget::item:selected { background: #d4b800; color: white; }
-            QListWidget::item:hover { background: #fff3a0; }
+            }}
+            QListWidget::item {{ padding: 3px 10px; border-radius: 3px; }}
+            QListWidget::item:selected {{ background: {T.ACCENT}; color: white; }}
+            QListWidget::item:hover {{ background: #fff3a0; }}
         """)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
@@ -280,15 +281,15 @@ class ClickToCopyLabel(QLabel):
 
     def _show_copied_popup(self, global_pos):
         popup = QLabel('복사됨!', self, Qt.ToolTip | Qt.FramelessWindowHint)
-        popup.setStyleSheet("""
-            QLabel {
-                background: #5a4000;
+        popup.setStyleSheet(f"""
+            QLabel {{
+                background: {T.TEXT_ON_NOTE};
                 color: white;
                 border-radius: 4px;
                 padding: 3px 8px;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
-            }
+            }}
         """)
         popup.adjustSize()
         popup.move(global_pos + QPoint(4, -popup.height() - 8))
@@ -327,15 +328,15 @@ class SmartDocLineEdit(QLineEdit):
 
     def _show_popup(self, global_pos):
         popup = QLabel('복사됨!', self, Qt.ToolTip | Qt.FramelessWindowHint)
-        popup.setStyleSheet("""
-            QLabel {
-                background: #5a4000;
+        popup.setStyleSheet(f"""
+            QLabel {{
+                background: {T.TEXT_ON_NOTE};
                 color: white;
                 border-radius: 4px;
                 padding: 3px 8px;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
-            }
+            }}
         """)
         popup.adjustSize()
         popup.move(global_pos + QPoint(4, -popup.height() - 8))
@@ -354,15 +355,15 @@ class ClickToCopyLineEdit(QLineEdit):
 
     def _show_copied_popup(self, global_pos):
         popup = QLabel('복사됨!', self, Qt.ToolTip | Qt.FramelessWindowHint)
-        popup.setStyleSheet("""
-            QLabel {
-                background: #5a4000;
+        popup.setStyleSheet(f"""
+            QLabel {{
+                background: {T.TEXT_ON_NOTE};
                 color: white;
                 border-radius: 4px;
                 padding: 3px 8px;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
-            }
+            }}
         """)
         popup.adjustSize()
         popup.move(global_pos + QPoint(4, -popup.height() - 8))

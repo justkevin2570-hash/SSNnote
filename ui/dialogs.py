@@ -7,6 +7,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont, QColor
 from db import (search_tasks_all)
 from .dates import calc_dday
+from .theme import T
 
 class CustomRecurrenceDialog(QDialog):
     """월/주/요일 사용자 설정 다이얼로그"""
@@ -94,7 +95,7 @@ class GlobalSearchDialog(QDialog):
         self._input.setPlaceholderText('검색어 입력…')
         self._input.setFont(QFont('Malgun Gothic', 11))
         self._input.setStyleSheet(
-            "QLineEdit { border: 1px solid #d4b800; border-radius: 4px; padding: 4px 8px; }"
+            f"QLineEdit {{ border: 1px solid {T.ACCENT}; border-radius: 4px; padding: 4px 8px; }}"
         )
         layout.addWidget(self._input)
 

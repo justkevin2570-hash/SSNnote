@@ -11,6 +11,7 @@ from PyQt5.QtGui import QFont, QFontMetrics, QCursor, QMouseEvent
 from db import (add_task, delete_task, add_task_history, delete_task_history,
                 get_all_tasks, get_all_task_history)
 from .common import mi_icon, pr_font
+from .theme import T
 
 class MonthlyCalendarDialog(QDialog):
     def __init__(self, parent=None):
@@ -44,38 +45,38 @@ class MonthlyCalendarDialog(QDialog):
         nav.setSpacing(8)
 
         btn_prev = QPushButton()
-        btn_prev.setIcon(mi_icon('\ue040', 16, '#5a4000'))
+        btn_prev.setIcon(mi_icon('\ue040', 16, T.TEXT_ON_NOTE))
         btn_prev.setFixedSize(36, 36)
-        btn_prev.setStyleSheet("""
-            QPushButton {
-                background: #e8ddd5;
+        btn_prev.setStyleSheet(f"""
+            QPushButton {{
+                background: {T.SURFACE_WARM};
                 border: none;
                 border-radius: 6px;
                 padding: 0;
-            }
-            QPushButton:hover { background: #ddd0c5; }
-            QPushButton:pressed { background: #d0c0b5; }
+            }}
+            QPushButton:hover {{ background: {T.SURFACE_WARM_HOVER}; }}
+            QPushButton:pressed {{ background: {T.SURFACE_WARM_PRESSED}; }}
         """)
         btn_prev.clicked.connect(self._prev_month)
         nav.addWidget(btn_prev)
 
         self._title_label = QLabel()
         self._title_label.setAlignment(Qt.AlignCenter)
-        self._title_label.setStyleSheet("font-size: 18pt; font-weight: bold; color: #1a1410; padding: 0 16px;")
+        self._title_label.setStyleSheet(f"font-size: 18pt; font-weight: bold; color: {T.INK}; padding: 0 16px;")
         nav.addWidget(self._title_label, 1)
 
         btn_next = QPushButton()
-        btn_next.setIcon(mi_icon('\ue041', 16, '#5a4000'))
+        btn_next.setIcon(mi_icon('\ue041', 16, T.TEXT_ON_NOTE))
         btn_next.setFixedSize(36, 36)
-        btn_next.setStyleSheet("""
-            QPushButton {
-                background: #e8ddd5;
+        btn_next.setStyleSheet(f"""
+            QPushButton {{
+                background: {T.SURFACE_WARM};
                 border: none;
                 border-radius: 6px;
                 padding: 0;
-            }
-            QPushButton:hover { background: #ddd0c5; }
-            QPushButton:pressed { background: #d0c0b5; }
+            }}
+            QPushButton:hover {{ background: {T.SURFACE_WARM_HOVER}; }}
+            QPushButton:pressed {{ background: {T.SURFACE_WARM_PRESSED}; }}
         """)
         btn_next.clicked.connect(self._next_month)
         nav.addWidget(btn_next)
@@ -84,18 +85,18 @@ class MonthlyCalendarDialog(QDialog):
 
         btn_today = QPushButton('오늘')
         btn_today.setFixedHeight(36)
-        btn_today.setStyleSheet("""
-            QPushButton {
-                background: #1a1410;
+        btn_today.setStyleSheet(f"""
+            QPushButton {{
+                background: {T.INK};
                 border: none;
                 border-radius: 6px;
                 padding: 0 18px;
                 color: white;
                 font-size: 10pt;
                 font-weight: bold;
-            }
-            QPushButton:hover { background: #3a3430; }
-            QPushButton:pressed { background: #0a0400; }
+            }}
+            QPushButton:hover {{ background: #3a3430; }}
+            QPushButton:pressed {{ background: #0a0400; }}
         """)
         btn_today.clicked.connect(self._go_today)
         nav.addWidget(btn_today)
@@ -104,12 +105,12 @@ class MonthlyCalendarDialog(QDialog):
         root.addSpacing(12)
 
         calendar_card = QFrame()
-        calendar_card.setStyleSheet("""
-            QFrame {
+        calendar_card.setStyleSheet(f"""
+            QFrame {{
                 background: #fff8f5;
                 border-radius: 16px;
-                border: 1px solid #f0e8e0;
-            }
+                border: 1px solid {T.BORDER_WARM};
+            }}
         """)
         card_layout = QVBoxLayout(calendar_card)
         card_layout.setContentsMargins(0, 0, 0, 0)
@@ -132,7 +133,7 @@ class MonthlyCalendarDialog(QDialog):
 
         sep = QFrame()
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background: #f0e8e0;")
+        sep.setStyleSheet(f"background: {T.BORDER_WARM};")
         card_layout.addWidget(sep)
 
         self._grid_container = QWidget()
@@ -169,17 +170,17 @@ class MonthlyCalendarDialog(QDialog):
         bot.addStretch()
         btn_close = QPushButton('닫기')
         btn_close.setFixedHeight(36)
-        btn_close.setStyleSheet("""
-            QPushButton {
-                background: #e8ddd5;
+        btn_close.setStyleSheet(f"""
+            QPushButton {{
+                background: {T.SURFACE_WARM};
                 border: none;
                 border-radius: 6px;
                 padding: 0 24px;
-                color: #5a4000;
+                color: {T.TEXT_ON_NOTE};
                 font-size: 10pt;
-            }
-            QPushButton:hover { background: #ddd0c5; }
-            QPushButton:pressed { background: #d0c0b5; }
+            }}
+            QPushButton:hover {{ background: {T.SURFACE_WARM_HOVER}; }}
+            QPushButton:pressed {{ background: {T.SURFACE_WARM_PRESSED}; }}
         """)
         btn_close.clicked.connect(self.accept)
         bot.addWidget(btn_close)
@@ -260,13 +261,13 @@ class MonthlyCalendarDialog(QDialog):
         date_header.setSpacing(0)
         date_header.setContentsMargins(4, 2, 4, 2)
 
-        dc = '#cc0000' if col == 0 else '#0055cc' if col == 6 else '#5a4000'
+        dc = T.SUNDAY if col == 0 else T.SATURDAY if col == 6 else T.TEXT_ON_NOTE
 
         if is_today:
             lbl_d = QLabel(str(day))
             lbl_d.setAlignment(Qt.AlignCenter)
             lbl_d.setFixedSize(26, 26)
-            lbl_d.setStyleSheet("font-weight: bold; font-size: 12pt; color: white; background: #e85d3a; border-radius: 13px;")
+            lbl_d.setStyleSheet(f"font-weight: bold; font-size: 12pt; color: white; background: {T.HIGHLIGHT}; border-radius: 13px;")
             date_header.addWidget(lbl_d)
         else:
             lbl_d = QLabel(str(day))
@@ -381,17 +382,17 @@ class MonthlyCalendarDialog(QDialog):
         title_font = QFont('Malgun Gothic', 14, QFont.Bold)
         title = QLabel(task['name'])
         title.setFont(title_font)
-        title.setStyleSheet("color: #1a1410; background: transparent;")
+        title.setStyleSheet(f"color: {T.INK}; background: transparent;")
         title.setWordWrap(True)
         layout.addWidget(title)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("background: #e8ddd5; border: none;")
+        sep.setStyleSheet(f"background: {T.SURFACE_WARM}; border: none;")
         sep.setFixedHeight(1)
         layout.addWidget(sep)
 
-        info_style = "color: #5a4000; font-size: 11pt; background: transparent;"
+        info_style = f"color: {T.TEXT_ON_NOTE}; font-size: 11pt; background: transparent;"
         label_style = "color: #999; font-size: 10pt; background: transparent;"
 
         for label_text, value in [('상태', st), ('출처', src), ('마감일', dl)]:
@@ -427,16 +428,16 @@ class MonthlyCalendarDialog(QDialog):
         btn_row.addStretch()
         btn_close = QPushButton('닫기')
         btn_close.setFixedHeight(32)
-        btn_close.setStyleSheet("""
-            QPushButton {
-                background: #e8ddd5;
+        btn_close.setStyleSheet(f"""
+            QPushButton {{
+                background: {T.SURFACE_WARM};
                 border: none;
                 border-radius: 6px;
                 padding: 0 24px;
-                color: #5a4000;
+                color: {T.TEXT_ON_NOTE};
                 font-size: 10pt;
-            }
-            QPushButton:hover { background: #ddd0c5; }
+            }}
+            QPushButton:hover {{ background: {T.SURFACE_WARM_HOVER}; }}
         """)
         btn_close.clicked.connect(dlg.accept)
         btn_row.addWidget(btn_close)
@@ -523,8 +524,8 @@ class TaskButton(QPushButton):
         self._strikethrough = strikethrough
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setCursor(Qt.PointingHandCursor)
-        base = "QPushButton { text-align: left; padding: 3px 6px; background: rgba(255,255,255,0.5); border: 1px solid #e8ddd5; border-radius: 3px; font-size: 15px; font-family: Malgun Gothic; color: #3a3028; }"
-        hover = "QPushButton:hover { background: rgba(212,184,0,0.15); border-color: #d4b800; }"
+        base = f"QPushButton {{ text-align: left; padding: 3px 6px; background: rgba(255,255,255,0.5); border: 1px solid {T.SURFACE_WARM}; border-radius: 3px; font-size: 15px; font-family: Malgun Gothic; color: #3a3028; }}"
+        hover = f"QPushButton:hover {{ background: rgba(212,184,0,0.15); border-color: {T.ACCENT}; }}"
         self.setStyleSheet(base + hover)
 
     def resizeEvent(self, event):
@@ -545,7 +546,7 @@ class TaskIndicatorRow(QWidget):
 
         bar = QFrame()
         bar.setFixedSize(3, 16)
-        color = '#e85d3a' if task.get('priority') else '#a98fd4'
+        color = T.HIGHLIGHT if task.get('priority') else '#a98fd4'
         bar.setStyleSheet(f"QFrame {{ background: {color}; border-radius: 1px; }}")
         layout.addWidget(bar)
 
@@ -583,8 +584,8 @@ class DayCellWidget(QFrame):
         self.day_label.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
         self.day_label.setFont(QFont('Malgun Gothic', 12, QFont.Bold))
         if is_today:
-            self.day_label.setStyleSheet("QLabel { color: #fff; background: #e85d3a; border-radius: 12px; min-width: 24px; min-height: 24px; }")
-            self.setStyleSheet("DayCellWidget { background: #fff3ee; border: 1px solid #f0e8e0; }")
+            self.day_label.setStyleSheet(f"QLabel {{ color: #fff; background: {T.HIGHLIGHT}; border-radius: 12px; min-width: 24px; min-height: 24px; }}")
+            self.setStyleSheet(f"DayCellWidget {{ background: {T.HIGHLIGHT_BG}; border: 1px solid {T.BORDER_WARM}; }}")
         elif is_other_month:
             if col == 0:
                 self.day_label.setStyleSheet("QLabel { color: #e8a09a; }")
@@ -592,16 +593,16 @@ class DayCellWidget(QFrame):
                 self.day_label.setStyleSheet("QLabel { color: #9ab8e8; }")
             else:
                 self.day_label.setStyleSheet("QLabel { color: #c0b8b0; }")
-            self.setStyleSheet("DayCellWidget { background: #fafafa; border: 1px solid #f0e8e0; }")
+            self.setStyleSheet(f"DayCellWidget {{ background: #fafafa; border: 1px solid {T.BORDER_WARM}; }}")
         elif col == 0:
-            self.day_label.setStyleSheet("QLabel { color: #e85d3a; }")
-            self.setStyleSheet("DayCellWidget { background: white; border: 1px solid #f0e8e0; }")
+            self.day_label.setStyleSheet(f"QLabel {{ color: {T.HIGHLIGHT}; }}")
+            self.setStyleSheet(f"DayCellWidget {{ background: white; border: 1px solid {T.BORDER_WARM}; }}")
         elif col == 6:
-            self.day_label.setStyleSheet("QLabel { color: #3a8ee8; }")
-            self.setStyleSheet("DayCellWidget { background: white; border: 1px solid #f0e8e0; }")
+            self.day_label.setStyleSheet(f"QLabel {{ color: {T.SATURDAY_SOFT}; }}")
+            self.setStyleSheet(f"DayCellWidget {{ background: white; border: 1px solid {T.BORDER_WARM}; }}")
         else:
             self.day_label.setStyleSheet("QLabel { color: #3a3028; }")
-            self.setStyleSheet("DayCellWidget { background: white; border: 1px solid #f0e8e0; }")
+            self.setStyleSheet(f"DayCellWidget {{ background: white; border: 1px solid {T.BORDER_WARM}; }}")
         layout.addWidget(self.day_label)
 
         self.task_layout = QVBoxLayout()
@@ -634,7 +635,7 @@ class DayCellWidget(QFrame):
         lbl.setFont(QFont('Malgun Gothic', 9, QFont.Bold))
         lbl.setStyleSheet(
             "QLabel { color: #888; background: rgba(212,184,0,0.12); "
-            "border: 1px dashed #d4b800; border-radius: 3px; padding: 1px 4px; }"
+            f"border: 1px dashed {T.ACCENT}; border-radius: 3px; padding: 1px 4px; }}"
         )
         lbl.mousePressEvent = lambda e: self.overflow_clicked.emit(self.date_str)
         self._overflow_label = lbl
@@ -662,7 +663,7 @@ class DetailTaskRow(QWidget):
         super().__init__(parent)
         self.setObjectName('DetailTaskRow')
         self.setStyleSheet(
-            "QWidget#DetailTaskRow { background: white; border: 1px solid #f0e8e0; border-radius: 6px; }"
+            f"QWidget#DetailTaskRow {{ background: white; border: 1px solid {T.BORDER_WARM}; border-radius: 6px; }}"
         )
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 8, 4)
@@ -670,7 +671,7 @@ class DetailTaskRow(QWidget):
 
         bar = QFrame()
         bar.setFixedSize(4, 18)
-        color = '#e85d3a' if task.get('priority') else '#a98fd4'
+        color = T.HIGHLIGHT if task.get('priority') else '#a98fd4'
         bar.setStyleSheet(f"QFrame {{ background: {color}; border-radius: 2px; }}")
         layout.addWidget(bar)
 
@@ -682,14 +683,14 @@ class DetailTaskRow(QWidget):
         name = task['name']
         name_lbl = QLabel(name if len(name) <= 30 else name[:30] + '…')
         name_lbl.setFont(name_font)
-        name_lbl.setStyleSheet("color: #1a1410; background: transparent;")
+        name_lbl.setStyleSheet(f"color: {T.INK}; background: transparent;")
         text_col.addWidget(name_lbl)
         notes = task.get('notes', '').strip()
         if notes:
             notes_lbl = QLabel(notes if len(notes) <= 40 else notes[:40] + '…')
             notes_lbl.setFont(QFont('Malgun Gothic', 9))
             notes_lbl.setStyleSheet(
-                "color: #7a6a5a; background: #faf6f0; border-radius: 3px; padding: 2px 4px;"
+                f"color: {T.TEXT_WARM_MUTED}; background: {T.BG_WARM}; border-radius: 3px; padding: 2px 4px;"
             )
             text_col.addWidget(notes_lbl)
         layout.addLayout(text_col, 1)
@@ -698,8 +699,8 @@ class DetailTaskRow(QWidget):
         btn_edit.setFixedSize(48, 28)
         btn_edit.setFont(QFont('Malgun Gothic', 9))
         btn_edit.setStyleSheet(
-            "QPushButton { border: 1px solid #d4b800; border-radius: 4px; "
-            "background: transparent; color: #5a4a3a; } "
+            f"QPushButton {{ border: 1px solid {T.ACCENT}; border-radius: 4px; "
+            f"background: transparent; color: {T.TEXT_WARM}; }} "
             "QPushButton:hover { background: rgba(212,184,0,0.2); }"
         )
         btn_edit.clicked.connect(self.edit_requested)
@@ -709,8 +710,8 @@ class DetailTaskRow(QWidget):
         btn_del.setFixedSize(48, 28)
         btn_del.setFont(QFont('Malgun Gothic', 9))
         btn_del.setStyleSheet(
-            "QPushButton { border: 1px solid #e85d3a; border-radius: 4px; "
-            "background: transparent; color: #e85d3a; } "
+            f"QPushButton {{ border: 1px solid {T.HIGHLIGHT}; border-radius: 4px; "
+            f"background: transparent; color: {T.HIGHLIGHT}; }} "
             "QPushButton:hover { background: rgba(232,93,58,0.1); }"
         )
         btn_del.clicked.connect(self.delete_requested)
@@ -731,7 +732,7 @@ class DayDetailPanel(QWidget):
     def _build_ui(self):
         self.setObjectName('DayDetailPanel')
         self.setStyleSheet(
-            "QWidget#DayDetailPanel { background: #faf6f0; }"
+            f"QWidget#DayDetailPanel {{ background: {T.BG_WARM}; }}"
         )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
@@ -740,14 +741,14 @@ class DayDetailPanel(QWidget):
         header = QHBoxLayout()
         self._date_label = QLabel()
         self._date_label.setFont(QFont('Malgun Gothic', 13, QFont.Bold))
-        self._date_label.setStyleSheet("color: #1a1410; background: transparent;")
+        self._date_label.setStyleSheet(f"color: {T.INK}; background: transparent;")
         header.addWidget(self._date_label, 1)
         btn_add = QPushButton('＋ 일정 추가')
         btn_add.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         btn_add.setStyleSheet(
-            "QPushButton { background: #d4b800; color: white; border: none; "
+            f"QPushButton {{ background: {T.ACCENT}; color: white; border: none; "
             "border-radius: 6px; padding: 5px 12px; } "
-            "QPushButton:hover { background: #b89e00; }"
+            f"QPushButton:hover {{ background: {T.ACCENT_HOVER}; }}"
         )
         btn_add.clicked.connect(self._on_add_task)
         header.addWidget(btn_add)
@@ -763,7 +764,7 @@ class DayDetailPanel(QWidget):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("border: none; border-top: 1px solid #e8ddd5; background: transparent;")
+        sep.setStyleSheet(f"border: none; border-top: 1px solid {T.SURFACE_WARM}; background: transparent;")
         sep.setFixedHeight(1)
         layout.addWidget(sep)
 
@@ -853,7 +854,7 @@ class TaskEditDialog(QDialog):
         self._name_edit.setPlaceholderText('할 일 이름')
         self._name_edit.setFont(QFont('Malgun Gothic', 11))
         self._name_edit.setStyleSheet(
-            "QLineEdit { border: 1px solid #d4b800; border-radius: 6px; padding: 6px 10px; background: #fffef5; }"
+            f"QLineEdit {{ border: 1px solid {T.ACCENT}; border-radius: 6px; padding: 6px 10px; background: #fffef5; }}"
         )
         if self._task:
             self._name_edit.setText(self._task['name'])
@@ -862,7 +863,7 @@ class TaskEditDialog(QDialog):
         date_row = QHBoxLayout()
         date_lbl = QLabel('마감일:')
         date_lbl.setFont(QFont('Malgun Gothic', 10))
-        date_lbl.setStyleSheet("color: #5a4a3a;")
+        date_lbl.setStyleSheet(f"color: {T.TEXT_WARM};")
         date_row.addWidget(date_lbl)
         self._date_edit = QDateEdit()
         self._date_edit.setCalendarPopup(True)
@@ -900,16 +901,16 @@ class TaskEditDialog(QDialog):
         btn_cancel = QPushButton('취소')
         btn_cancel.setFont(QFont('Malgun Gothic', 10))
         btn_cancel.setStyleSheet(
-            "QPushButton { border: 1px solid #ccc; border-radius: 6px; padding: 6px 16px; background: transparent; color: #5a4a3a; }"
+            f"QPushButton {{ border: 1px solid #ccc; border-radius: 6px; padding: 6px 16px; background: transparent; color: {T.TEXT_WARM}; }}"
         )
         btn_cancel.clicked.connect(self.reject)
         btn_ok = QPushButton('저장')
         btn_ok.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
         btn_ok.setDefault(True)
         btn_ok.setStyleSheet(
-            "QPushButton { background: #d4b800; color: white; border: none; "
+            f"QPushButton {{ background: {T.ACCENT}; color: white; border: none; "
             "border-radius: 6px; padding: 6px 20px; } "
-            "QPushButton:hover { background: #b89e00; }"
+            f"QPushButton:hover {{ background: {T.ACCENT_HOVER}; }}"
         )
         btn_ok.clicked.connect(self._on_save)
         btn_row.addStretch()
@@ -964,7 +965,7 @@ class DayDetailDialog(QDialog):
         self._date_str = date_str
         self._set_title(date_str)
         self.setMinimumSize(320, 400)
-        self.setStyleSheet("QDialog { background: #faf6f0; }")
+        self.setStyleSheet(f"QDialog {{ background: {T.BG_WARM}; }}")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1048,20 +1049,20 @@ class NativeCalendarDialog(QDialog):
         header.addStretch(1)
         btn_prev = QPushButton('◀')
         btn_prev.setFixedSize(40, 40)
-        btn_prev.setStyleSheet("QPushButton { background: #f5efe8; border: none; border-radius: 50%; font-size: 16px; color: #5a4a3a; } QPushButton:hover { background: #e8ddd5; }")
+        btn_prev.setStyleSheet(f"QPushButton {{ background: {T.BG_WARM_ALT}; border: none; border-radius: 50%; font-size: 16px; color: {T.TEXT_WARM}; }} QPushButton:hover {{ background: {T.SURFACE_WARM}; }}")
         btn_prev.clicked.connect(self._prev_month)
         header.addWidget(btn_prev)
 
         self._month_title = QLabel()
         self._month_title.setAlignment(Qt.AlignCenter)
         self._month_title.setFont(QFont('Malgun Gothic', 18, QFont.Bold))
-        self._month_title.setStyleSheet("color: #1a1410;")
+        self._month_title.setStyleSheet(f"color: {T.INK};")
         self._month_title.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         header.addWidget(self._month_title)
 
         btn_next = QPushButton('▶')
         btn_next.setFixedSize(40, 40)
-        btn_next.setStyleSheet("QPushButton { background: #f5efe8; border: none; border-radius: 50%; font-size: 14px; color: #5a4a3a; } QPushButton:hover { background: #e8ddd5; }")
+        btn_next.setStyleSheet(f"QPushButton {{ background: {T.BG_WARM_ALT}; border: none; border-radius: 50%; font-size: 14px; color: {T.TEXT_WARM}; }} QPushButton:hover {{ background: {T.SURFACE_WARM}; }}")
         btn_next.clicked.connect(self._next_month)
         header.addWidget(btn_next)
         header.addStretch(1)
@@ -1070,7 +1071,7 @@ class NativeCalendarDialog(QDialog):
         _today_font = pr_font(16)
         _today_font.setBold(True)
         btn_today.setFont(_today_font)
-        btn_today.setStyleSheet("QPushButton { background: #f5efe8; border: none; border-radius: 8px; padding: 6px 14px; color: #5a4a3a; } QPushButton:hover { background: #e8ddd5; }")
+        btn_today.setStyleSheet(f"QPushButton {{ background: {T.BG_WARM_ALT}; border: none; border-radius: 8px; padding: 6px 14px; color: {T.TEXT_WARM}; }} QPushButton:hover {{ background: {T.SURFACE_WARM}; }}")
         btn_today.clicked.connect(self._go_today)
         header.addWidget(btn_today)
         main_layout.addLayout(header)
@@ -1081,8 +1082,8 @@ class NativeCalendarDialog(QDialog):
             lbl = QLabel(name)
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setFont(QFont('Malgun Gothic', 11, QFont.Bold))
-            if i == 0: lbl.setStyleSheet("color: #e85d3a;")
-            elif i == 6: lbl.setStyleSheet("color: #3a8ee8;")
+            if i == 0: lbl.setStyleSheet(f"color: {T.HIGHLIGHT};")
+            elif i == 6: lbl.setStyleSheet(f"color: {T.SATURDAY_SOFT};")
             else: lbl.setStyleSheet("color: #888;")
             day_header.addWidget(lbl)
 

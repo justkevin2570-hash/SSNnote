@@ -20,7 +20,7 @@ from db import (update_window, delete_window, get_tasks, add_task, delete_task, 
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
 import updater
-from ui.common import _base_path, _load_pretendard, PALETTE, pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT
+from ui.common import _base_path, _load_pretendard, pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT
 from ui.dates import _next_recurrence_deadline, calc_dday
 from ui.widgets import _SelectableLabel, AddDateButton, CustomCalendarWidget, DdayLabel, PlainPasteMemoEdit
 from ui.dialogs import CustomRecurrenceDialog, GlobalSearchDialog
@@ -28,6 +28,7 @@ from ui.chrome import EdgeHandle, MergeButton, TitleBar
 from ui.task_row import _NoteButton, TaskRow
 from ui.document_row import DocumentRow
 from ui.calendar_view import MonthlyCalendarDialog, NativeCalendarDialog
+from ui.theme import T, PALETTE
 
 class MemoWindow(QMainWindow):
     def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None,
@@ -104,12 +105,12 @@ class MemoWindow(QMainWindow):
     def _build_ui(self):
         central = QWidget()
         central.setObjectName('central')
-        central.setStyleSheet("""
-            QWidget#central {
-                background: #fffacd;
+        central.setStyleSheet(f"""
+            QWidget#central {{
+                background: {T.INPUT_BG};
                 border-radius: 0;
                 border: 1px solid rgba(0,0,0,0.4);
-            }
+            }}
         """)
         self.setCentralWidget(central)
 
@@ -123,7 +124,7 @@ class MemoWindow(QMainWindow):
         self._title_sep = QFrame()
         self._title_sep.setFrameShape(QFrame.HLine)
         self._title_sep.setFixedHeight(1)
-        self._title_sep.setStyleSheet('background: #D4AF37; border: none;')
+        self._title_sep.setStyleSheet(f'background: {T.DIVIDER}; border: none;')
         self._title_sep.hide()
         root.addWidget(self._title_sep)
 
@@ -145,39 +146,39 @@ class MemoWindow(QMainWindow):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(4)
 
-        field_style_line = """
-            QLineEdit {
+        field_style_line = f"""
+            QLineEdit {{
                 background: rgba(255,255,255,0.5);
-                border: 1px solid #d4b800;
+                border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: #333;
-            }
+            }}
         """
         _date_base = """
             QDateEdit::drop-down { width: 0px; border: none; background: transparent; }
             QDateEdit::up-button { width: 0px; }
             QDateEdit::down-button { width: 0px; }
         """
-        self._field_style_date_empty = """
-            QDateEdit {
+        self._field_style_date_empty = f"""
+            QDateEdit {{
                 background: rgba(255,255,255,0.5);
-                border: 1px solid #d4b800;
+                border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: #aaa;
                 qproperty-alignment: AlignLeft;
-            }
+            }}
         """ + _date_base
-        self._field_style_date_filled = """
-            QDateEdit {
+        self._field_style_date_filled = f"""
+            QDateEdit {{
                 background: rgba(255,255,255,0.5);
-                border: 1px solid #d4b800;
+                border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: #333;
                 qproperty-alignment: AlignCenter;
-            }
+            }}
         """ + _date_base
         field_style_date = self._field_style_date_empty
 
@@ -223,22 +224,22 @@ class MemoWindow(QMainWindow):
         self.input_time.setFixedWidth(68)
         self.input_time.setFont(QFont('Malgun Gothic', 11))
         self.input_time.setEnabled(False)
-        self.input_time.setStyleSheet("""
-            QTimeEdit {
+        self.input_time.setStyleSheet(f"""
+            QTimeEdit {{
                 background: rgba(255,255,255,0.5);
-                border: 1px solid #d4b800;
+                border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: #333;
                 qproperty-alignment: AlignCenter;
-            }
-            QTimeEdit:disabled {
+            }}
+            QTimeEdit:disabled {{
                 background: rgba(255,255,255,0.2);
                 border: 1px solid #ddd;
                 color: #bbb;
-            }
-            QTimeEdit::up-button { width: 0px; }
-            QTimeEdit::down-button { width: 0px; }
+            }}
+            QTimeEdit::up-button {{ width: 0px; }}
+            QTimeEdit::down-button {{ width: 0px; }}
         """)
         self.input_time.timeChanged.connect(lambda: setattr(self, '_time_touched', True))
         self.input_time.installEventFilter(self)
@@ -252,56 +253,56 @@ class MemoWindow(QMainWindow):
         _top_panel.installEventFilter(self)
         self._cal_popup = CustomCalendarWidget()
         self._cal_popup.setWindowFlags(Qt.Popup)
-        self._cal_popup.setStyleSheet("""
-            QCalendarWidget {
+        self._cal_popup.setStyleSheet(f"""
+            QCalendarWidget {{
                 background-color: white;
-            }
-            QCalendarWidget QAbstractItemView {
+            }}
+            QCalendarWidget QAbstractItemView {{
                 background-color: white;
                 color: black;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
-                selection-background-color: #d4b800;
+                selection-background-color: {T.ACCENT};
                 selection-color: white;
-            }
-            QCalendarWidget QWidget {
+            }}
+            QCalendarWidget QWidget {{
                 background-color: white;
-            }
-            QCalendarWidget QToolButton {
+            }}
+            QCalendarWidget QToolButton {{
                 background-color: white;
                 color: black;
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
                 padding: 2px 4px;
                 min-width: 40px;
-            }
-            QCalendarWidget QWidget#qt_calendar_navigationbar {
+            }}
+            QCalendarWidget QWidget#qt_calendar_navigationbar {{
                 background-color: white;
-            }
-            QCalendarWidget QSpinBox {
+            }}
+            QCalendarWidget QSpinBox {{
                 background-color: white;
                 color: black;
-            }
+            }}
         """)
         fmt_sat = QTextCharFormat()
-        fmt_sat.setForeground(QColor('#0055cc'))
+        fmt_sat.setForeground(QColor(T.SATURDAY))
         self._cal_popup.setWeekdayTextFormat(Qt.Saturday, fmt_sat)
         fmt_sun = QTextCharFormat()
-        fmt_sun.setForeground(QColor('#cc0000'))
+        fmt_sun.setForeground(QColor(T.SUNDAY))
         self._cal_popup.setWeekdayTextFormat(Qt.Sunday, fmt_sun)
         self._cal_popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self._cal_popup.clicked.connect(self._on_cal_date_selected)
         btn_history = QPushButton('지난 기록')
         btn_history.setFont(QFont('Malgun Gothic', 10))
-        btn_history.setStyleSheet("""
-            QPushButton {
+        btn_history.setStyleSheet(f"""
+            QPushButton {{
                 background: rgba(255,255,255,0.5);
-                border: 1px solid #d4b800;
+                border: 1px solid {T.ACCENT};
                 border-radius: 4px;
                 padding: 2px 6px;
-                color: #5a4000;
-            }
-            QPushButton:hover { background: rgba(212,184,0,0.25); }
+                color: {T.TEXT_ON_NOTE};
+            }}
+            QPushButton:hover {{ background: rgba(212,184,0,0.25); }}
         """)
         btn_history.clicked.connect(self._show_history)
         row1.addWidget(btn_history)
@@ -314,7 +315,7 @@ class MemoWindow(QMainWindow):
         self.input_recurrence.setFixedWidth(90)
         self.input_recurrence.setFont(QFont('Malgun Gothic', 11))
         self._recurrence_style_base = (
-            "QComboBox {{ border: 1px solid #d4b800; border-radius: 4px; padding: 0 6px; "
+            f"QComboBox {{{{ border: 1px solid {T.ACCENT}; border-radius: 4px; padding: 0 6px; "
             "background: #fffde7; color: {color}; }}"
             "QComboBox:focus {{ border: 2px solid #4a90d9; background: rgba(255,255,255,0.85); }}"
             "QComboBox::drop-down {{ border: none; width: 0px; }}"
@@ -338,7 +339,7 @@ class MemoWindow(QMainWindow):
         self._sep_date = QFrame()
         self._sep_date.setFrameShape(QFrame.HLine)
         self._sep_date.setFixedHeight(1)
-        self._sep_date.setStyleSheet('background: #D4AF37; border: none;')
+        self._sep_date.setStyleSheet(f'background: {T.DIVIDER}; border: none;')
         content_layout.addWidget(self._sep_date)
 
         # 업무 목록
@@ -353,11 +354,11 @@ class MemoWindow(QMainWindow):
         self.task_scroll.setWidgetResizable(True)
         self.task_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.task_scroll.setWidget(self.task_list_widget)
-        self.task_scroll.setStyleSheet("""
-            QScrollArea { border: none; background: transparent; }
-            QScrollBar:vertical { width: 6px; background: transparent; }
-            QScrollBar::handle:vertical { background: #d4b800; border-radius: 3px; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+        self.task_scroll.setStyleSheet(f"""
+            QScrollArea {{ border: none; background: transparent; }}
+            QScrollBar:vertical {{ width: 6px; background: transparent; }}
+            QScrollBar::handle:vertical {{ background: {T.ACCENT}; border-radius: 3px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
         """)
         content_layout.addWidget(self.task_scroll)
 
@@ -388,28 +389,28 @@ class MemoWindow(QMainWindow):
         bottom_layout.setContentsMargins(8, 6, 8, 6)
         bottom_layout.setSpacing(6)
 
-        _btn_style = """
-            QPushButton {
+        _btn_style = f"""
+            QPushButton {{
                 background: rgba(255,255,255,0.5);
-                border: 1px solid #d4b800;
+                border: 1px solid {T.ACCENT};
                 border-radius: 6px;
                 padding: 4px 8px;
-                color: #5a4000;
-            }
-            QPushButton:hover { background: rgba(212,184,0,0.25); }
+                color: {T.TEXT_ON_NOTE};
+            }}
+            QPushButton:hover {{ background: rgba(212,184,0,0.25); }}
         """
 
         btn_at_a_glance = QPushButton('달력')
         btn_at_a_glance.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
-        btn_at_a_glance.setStyleSheet("""
-            QPushButton {
-                background: #5a4000;
-                border: 1px solid #d4b800;
+        btn_at_a_glance.setStyleSheet(f"""
+            QPushButton {{
+                background: {T.TEXT_ON_NOTE};
+                border: 1px solid {T.ACCENT};
                 border-radius: 6px;
                 padding: 4px 8px;
                 color: #ffffff;
-            }
-            QPushButton:hover { background: #6b5410; }
+            }}
+            QPushButton:hover {{ background: #6b5410; }}
         """)
         btn_at_a_glance.clicked.connect(self._show_monthly_calendar)
         bottom_layout.addWidget(btn_at_a_glance)
@@ -439,7 +440,7 @@ class MemoWindow(QMainWindow):
         self._sep_bottom = QFrame()
         self._sep_bottom.setFrameShape(QFrame.HLine)
         self._sep_bottom.setFixedHeight(1)
-        self._sep_bottom.setStyleSheet('background: #D4AF37; border: none;')
+        self._sep_bottom.setStyleSheet(f'background: {T.DIVIDER}; border: none;')
         _splitter_layout.addWidget(self._sep_bottom)
         _splitter_layout.addWidget(_bottom_panel, stretch=0)
 
@@ -1128,19 +1129,19 @@ class MemoWindow(QMainWindow):
         return wa
 
     def _make_menu_style(self):
-        return """
-            QMenu {
-                background: #fffacd;
-                border: 1px solid #d4b800;
+        return f"""
+            QMenu {{
+                background: {T.INPUT_BG};
+                border: 1px solid {T.ACCENT};
                 border-radius: 6px;
                 padding: 4px 0;
                 font-family: 'Malgun Gothic';
                 font-size: 11pt;
                 color: #333;
                 min-width: 176px;
-            }
-            QMenu::item { padding: 7px 16px 7px 4px; }
-            QMenu::item:selected { background: rgba(212,184,0,0.3); }
+            }}
+            QMenu::item {{ padding: 7px 16px 7px 4px; }}
+            QMenu::item:selected {{ background: rgba(212,184,0,0.3); }}
         """
 
     def show_menu(self, btn):
@@ -1316,7 +1317,7 @@ class MemoWindow(QMainWindow):
                 border: 1px solid transparent;
                 border-radius: 6px;
                 padding: 4px 8px;
-                color: #5a4000;
+                color: {T.TEXT_ON_NOTE};
                 font-family: 'Malgun Gothic';
                 font-size: 10pt;
                 font-weight: bold;
@@ -1324,7 +1325,7 @@ class MemoWindow(QMainWindow):
             QPushButton#btn_mode:hover {{ background: rgba(0,0,0,0.12); border-color: rgba(0,0,0,0.12); }}
             QPushButton#btn_mode:pressed {{ background: rgba(0,0,0,0.20); border-color: rgba(0,0,0,0.20); }}
         """)
-        sep_color = self._SEP_COLOR_MAP.get(hex_color.upper(), '#D4AF37')
+        sep_color = self._SEP_COLOR_MAP.get(hex_color.upper(), T.DIVIDER)
         sep_style = f'background: {sep_color}; border: none;'
         self._title_sep.setStyleSheet(sep_style)
         self._sep_date.setStyleSheet(sep_style)
@@ -1557,28 +1558,28 @@ class MemoWindow(QMainWindow):
                 header_text_expanded  = f'▼  {year}년 {int(month)}월  ({len(grp)}건)'
 
                 btn_toggle = QPushButton(header_text_collapsed)
-                btn_toggle.setStyleSheet("""
-                    QPushButton {
+                btn_toggle.setStyleSheet(f"""
+                    QPushButton {{
                         background: rgba(200,190,150,0.25);
-                        border: 1px solid #c8b87c;
+                        border: 1px solid {T.BORDER_SOFT};
                         border-radius: 4px;
                         color: #5a4a00;
                         font-size: 10pt;
                         font-weight: bold;
                         text-align: left;
                         padding: 5px 10px;
-                    }
-                    QPushButton:hover { background: rgba(200,190,150,0.5); }
+                    }}
+                    QPushButton:hover {{ background: rgba(200,190,150,0.5); }}
                 """)
 
                 month_container = QWidget()
                 month_container.setObjectName('monthContainer')
-                month_container.setStyleSheet("""
-                    QWidget#monthContainer {
+                month_container.setStyleSheet(f"""
+                    QWidget#monthContainer {{
                         background: transparent;
-                        border: 1px solid #c8b87c;
+                        border: 1px solid {T.BORDER_SOFT};
                         border-radius: 4px;
-                    }
+                    }}
                 """)
                 mc_vbox = QVBoxLayout(month_container)
                 mc_vbox.setContentsMargins(12, 4, 8, 4)
@@ -1612,28 +1613,28 @@ class MemoWindow(QMainWindow):
                 cur_txt_col = f'▶  {cur_year}년 {int(cur_month)}월  ({len(current_records)}건)'
 
                 btn_cur = QPushButton(cur_txt_exp)
-                btn_cur.setStyleSheet("""
-                    QPushButton {
+                btn_cur.setStyleSheet(f"""
+                    QPushButton {{
                         background: rgba(200,190,150,0.25);
-                        border: 1px solid #c8b87c;
+                        border: 1px solid {T.BORDER_SOFT};
                         border-radius: 4px;
                         color: #5a4a00;
                         font-size: 10pt;
                         font-weight: bold;
                         text-align: left;
                         padding: 5px 10px;
-                    }
-                    QPushButton:hover { background: rgba(200,190,150,0.5); }
+                    }}
+                    QPushButton:hover {{ background: rgba(200,190,150,0.5); }}
                 """)
 
                 cur_container = QWidget()
                 cur_container.setObjectName('monthContainer')
-                cur_container.setStyleSheet("""
-                    QWidget#monthContainer {
+                cur_container.setStyleSheet(f"""
+                    QWidget#monthContainer {{
                         background: transparent;
-                        border: 1px solid #c8b87c;
+                        border: 1px solid {T.BORDER_SOFT};
                         border-radius: 4px;
-                    }
+                    }}
                 """)
                 cur_vbox = QVBoxLayout(cur_container)
                 cur_vbox.setContentsMargins(12, 4, 8, 4)

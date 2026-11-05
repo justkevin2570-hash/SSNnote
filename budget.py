@@ -24,6 +24,7 @@ from db import (get_budget_categories, add_budget_category, rename_budget_catego
                 delete_budget_category, get_budget_items, add_budget_item,
                 update_budget_item, delete_budget_item, set_budget_item_spent,
                 toggle_budget_item_completed, clear_budget_data)
+from ui.theme import T
 
 
 # ── 번들 Pretendard 등록 ──────────────────────────────────────────
@@ -53,125 +54,125 @@ def _load_pretendard():
 
 
 # ── 전체 QSS 테마 ─────────────────────────────────────────────────
-STYLE = """
-    QMainWindow { background-color: #f1f5f9; }
-    QWidget {
+STYLE = f"""
+    QMainWindow {{ background-color: {T.SLATE_100}; }}
+    QWidget {{
         font-family: 'Pretendard', 'Malgun Gothic';
         font-size: 10.5pt;
-        color: #0f172a;
-    }
-    QScrollArea { border: none; background: transparent; }
-    QFrame#Card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; }
-    QFrame#Section { background: white; border: 1px solid #cbd5e1; border-radius: 10px; }
-    QFrame#SectionHeader {
-        background: #1e1b4b;
+        color: {T.SLATE_900};
+    }}
+    QScrollArea {{ border: none; background: transparent; }}
+    QFrame#Card {{ background: white; border: 1px solid {T.SLATE_200}; border-radius: 10px; }}
+    QFrame#Section {{ background: white; border: 1px solid {T.SLATE_300}; border-radius: 10px; }}
+    QFrame#SectionHeader {{
+        background: {T.INDIGO_950};
         border: none;
         border-top-left-radius: 9px;
         border-top-right-radius: 9px;
-    }
-    QFrame#Toolbar { background: white; border: 1px solid #e2e8f0; border-radius: 10px; }
-    QLabel#CardTitle { color: #64748b; font-size: 9.5pt; font-weight: 700; }
-    QLabel#CardSub { color: #94a3b8; font-size: 8.5pt; }
-    QLabel#CardValueIndigo { color: #4338ca; font-size: 19pt; font-weight: 800; }
-    QLabel#CardValueAmber { color: #d97706; font-size: 19pt; font-weight: 800; }
-    QLabel#CardValueEmerald { color: #059669; font-size: 19pt; font-weight: 800; }
-    QLabel#PercentBig { color: #1d4ed8; font-size: 13pt; font-weight: 800; }
-    QLabel#SectionTitle { color: white; font-size: 13pt; font-weight: 700; }
-    QLabel#Chip {
-        background: #312e81;
-        border: 1px solid #4338ca;
+    }}
+    QFrame#Toolbar {{ background: white; border: 1px solid {T.SLATE_200}; border-radius: 10px; }}
+    QLabel#CardTitle {{ color: {T.SLATE_500}; font-size: 9.5pt; font-weight: 700; }}
+    QLabel#CardSub {{ color: {T.SLATE_400}; font-size: 8.5pt; }}
+    QLabel#CardValueIndigo {{ color: {T.INDIGO_700}; font-size: 19pt; font-weight: 800; }}
+    QLabel#CardValueAmber {{ color: #d97706; font-size: 19pt; font-weight: 800; }}
+    QLabel#CardValueEmerald {{ color: #059669; font-size: 19pt; font-weight: 800; }}
+    QLabel#PercentBig {{ color: #1d4ed8; font-size: 13pt; font-weight: 800; }}
+    QLabel#SectionTitle {{ color: white; font-size: 13pt; font-weight: 700; }}
+    QLabel#Chip {{
+        background: {T.INDIGO_900};
+        border: 1px solid {T.INDIGO_700};
         border-radius: 8px;
         padding: 4px 10px;
         font-size: 9.5pt;
         color: #ffffff;
-    }
-    QLabel#EmptyBox {
+    }}
+    QLabel#EmptyBox {{
         background: white;
-        border: 1px solid #e2e8f0;
+        border: 1px solid {T.SLATE_200};
         border-radius: 10px;
-        color: #94a3b8;
+        color: {T.SLATE_400};
         padding: 30px;
-    }
-    QPushButton#TabActive {
-        background: #312e81; color: white; border: none; border-radius: 8px;
+    }}
+    QPushButton#TabActive {{
+        background: {T.INDIGO_900}; color: white; border: none; border-radius: 8px;
         padding: 6px 16px; font-weight: 700;
-    }
-    QPushButton#TabBtn {
-        background: #e2e8f0; color: #334155; border: none; border-radius: 8px;
+    }}
+    QPushButton#TabBtn {{
+        background: {T.SLATE_200}; color: {T.SLATE_700}; border: none; border-radius: 8px;
         padding: 6px 16px; font-weight: 600;
-    }
-    QPushButton#TabBtn:hover { background: #cbd5e1; }
-    QPushButton#Primary {
-        background: #4f46e5; color: white; border: none; border-radius: 8px;
+    }}
+    QPushButton#TabBtn:hover {{ background: {T.SLATE_300}; }}
+    QPushButton#Primary {{
+        background: {T.INDIGO_600}; color: white; border: none; border-radius: 8px;
         padding: 7px 14px; font-weight: 700;
-    }
-    QPushButton#Primary:hover { background: #4338ca; }
-    QPushButton#Primary:disabled { background: #c7d2fe; }
-    QPushButton#Danger {
+    }}
+    QPushButton#Primary:hover {{ background: {T.INDIGO_700}; }}
+    QPushButton#Primary:disabled {{ background: #c7d2fe; }}
+    QPushButton#Danger {{
         background: #be123c; color: white; border: none; border-radius: 8px;
         padding: 7px 12px; font-weight: 700;
-    }
-    QPushButton#Danger:hover { background: #9f1239; }
-    QPushButton#Dark {
-        background: #312e81; color: white; border: 1px solid #4338ca;
+    }}
+    QPushButton#Danger:hover {{ background: #9f1239; }}
+    QPushButton#Dark {{
+        background: {T.INDIGO_900}; color: white; border: 1px solid {T.INDIGO_700};
         border-radius: 8px; padding: 7px 12px; font-weight: 700;
-    }
-    QPushButton#Dark:hover { background: #3730a3; }
-    QPushButton#Ghost {
-        background: white; color: #334155; border: 1px solid #cbd5e1;
+    }}
+    QPushButton#Dark:hover {{ background: #3730a3; }}
+    QPushButton#Ghost {{
+        background: white; color: {T.SLATE_700}; border: 1px solid {T.SLATE_300};
         border-radius: 8px; padding: 6px 12px; font-weight: 600;
-    }
-    QPushButton#Ghost:hover { background: #f1f5f9; }
-    QPushButton#IconBtn { background: transparent; border: none; border-radius: 6px; }
-    QPushButton#IconBtn:hover { background: #e2e8f0; }
-    QPushButton#CompleteBtn {
-        background: #e2e8f0; color: #334155; border: none; border-radius: 6px;
+    }}
+    QPushButton#Ghost:hover {{ background: {T.SLATE_100}; }}
+    QPushButton#IconBtn {{ background: transparent; border: none; border-radius: 6px; }}
+    QPushButton#IconBtn:hover {{ background: {T.SLATE_200}; }}
+    QPushButton#CompleteBtn {{
+        background: {T.SLATE_200}; color: {T.SLATE_700}; border: none; border-radius: 6px;
         padding: 4px 10px; font-weight: 700; font-size: 9.5pt;
-    }
-    QPushButton#CompleteBtn:hover { background: #cbd5e1; }
-    QPushButton#DoneBtn {
+    }}
+    QPushButton#CompleteBtn:hover {{ background: {T.SLATE_300}; }}
+    QPushButton#DoneBtn {{
         background: #059669; color: white; border: none; border-radius: 6px;
         padding: 4px 10px; font-weight: 700; font-size: 9.5pt;
-    }
-    QPushButton#DoneBtn:hover { background: #047857; }
-    QTableWidget { background: white; border: none; gridline-color: transparent; }
-    QTableWidget::item {
-        border-right: 1px solid #e2e8f0;
-        border-bottom: 1px solid #e2e8f0;
+    }}
+    QPushButton#DoneBtn:hover {{ background: #047857; }}
+    QTableWidget {{ background: white; border: none; gridline-color: transparent; }}
+    QTableWidget::item {{
+        border-right: 1px solid {T.SLATE_200};
+        border-bottom: 1px solid {T.SLATE_200};
         padding: 4px 8px;
-    }
-    QHeaderView::section {
-        background: #e2e8f0; color: #334155; padding: 7px 8px; border: none;
-        border-right: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1;
+    }}
+    QHeaderView::section {{
+        background: {T.SLATE_200}; color: {T.SLATE_700}; padding: 7px 8px; border: none;
+        border-right: 1px solid {T.SLATE_300}; border-bottom: 1px solid {T.SLATE_300};
         font-weight: 700;
-    }
-    QLineEdit {
-        background: white; border: 1px solid #cbd5e1; border-radius: 6px;
+    }}
+    QLineEdit {{
+        background: white; border: 1px solid {T.SLATE_300}; border-radius: 6px;
         padding: 5px 8px;
-    }
-    QLineEdit:focus { border: 2px solid #6366f1; }
-    QLineEdit:disabled { background: #e2e8f0; color: #64748b; border-color: transparent; }
-    QLineEdit#SpentInput {
+    }}
+    QLineEdit:focus {{ border: 2px solid {T.INDIGO_500}; }}
+    QLineEdit:disabled {{ background: {T.SLATE_200}; color: {T.SLATE_500}; border-color: transparent; }}
+    QLineEdit#SpentInput {{
         background: #fffbeb; border: 2px solid #fcd34d; color: #78350f;
         font-weight: 700;
-    }
-    QLineEdit#SpentInput:focus { border: 2px solid #6366f1; background: white; }
-    QLineEdit#SpentInput:disabled {
-        background: #e2e8f0; border-color: transparent; color: #64748b;
-    }
-    QComboBox {
-        background: white; border: 1px solid #cbd5e1; border-radius: 6px;
+    }}
+    QLineEdit#SpentInput:focus {{ border: 2px solid {T.INDIGO_500}; background: white; }}
+    QLineEdit#SpentInput:disabled {{
+        background: {T.SLATE_200}; border-color: transparent; color: {T.SLATE_500};
+    }}
+    QComboBox {{
+        background: white; border: 1px solid {T.SLATE_300}; border-radius: 6px;
         padding: 5px 8px;
-    }
-    QCheckBox { font-size: 12.5pt; spacing: 8px; }
-    QCheckBox:disabled { color: #94a3b8; }
-    QProgressBar { background: #e2e8f0; border: none; border-radius: 4px; }
-    QProgressBar::chunk { background: #2563eb; border-radius: 4px; }
-    QProgressBar#SummaryBar::chunk { background: #f59e0b; border-radius: 4px; }
-    QScrollBar:vertical { width: 10px; background: transparent; }
-    QScrollBar::handle:vertical { background: #cbd5e1; border-radius: 5px; min-height: 24px; }
-    QScrollBar::handle:vertical:hover { background: #94a3b8; }
-    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+    }}
+    QCheckBox {{ font-size: 12.5pt; spacing: 8px; }}
+    QCheckBox:disabled {{ color: {T.SLATE_400}; }}
+    QProgressBar {{ background: {T.SLATE_200}; border: none; border-radius: 4px; }}
+    QProgressBar::chunk {{ background: #2563eb; border-radius: 4px; }}
+    QProgressBar#SummaryBar::chunk {{ background: #f59e0b; border-radius: 4px; }}
+    QScrollBar:vertical {{ width: 10px; background: transparent; }}
+    QScrollBar::handle:vertical {{ background: {T.SLATE_300}; border-radius: 5px; min-height: 24px; }}
+    QScrollBar::handle:vertical:hover {{ background: {T.SLATE_400}; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 """
 
 _STATE_FILE = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'budget_state.json')
@@ -185,15 +186,15 @@ _HEADER_H = 38
 _COL_W = (160, 258, 130, 160, 130, 150, 118, 86)
 _COL_MIN = (120, 136, 124, 149, 112, 142, 90, 66)
 
-_BG_ZEBRA = QColor('#f8fafc')
+_BG_ZEBRA = QColor(T.SLATE_50)
 _BG_WHITE = QColor('#ffffff')
-_BG_DONE = QColor('#f1f5f9')
+_BG_DONE = QColor(T.SLATE_100)
 _BG_NEG = QColor('#ffe4e6')
 
 _COLOR_NEG = QColor('#be123c')
-_COLOR_DONE_TEXT = QColor('#64748b')
-_COLOR_TEXT = QColor('#0f172a')
-_COLOR_COST = QColor('#475569')
+_COLOR_DONE_TEXT = QColor(T.SLATE_500)
+_COLOR_TEXT = QColor(T.SLATE_900)
+_COLOR_COST = QColor(T.SLATE_600)
 
 
 def _fmt(n):
@@ -230,7 +231,7 @@ def _make_strike_font(font):
     return f
 
 
-def _icon_btn(icon_name, tooltip, color='#64748b', size=16):
+def _icon_btn(icon_name, tooltip, color=T.SLATE_500, size=16):
     btn = QPushButton()
     btn.setObjectName('IconBtn')
     btn.setIcon(qta.icon(icon_name, color=color))
@@ -554,13 +555,13 @@ class BudgetWindow(QMainWindow):
         header = QHBoxLayout()
         header.setSpacing(10)
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(qta.icon('fa5s.calculator', color='#4f46e5').pixmap(26, 26))
+        icon_lbl.setPixmap(qta.icon('fa5s.calculator', color=T.INDIGO_600).pixmap(26, 26))
         title_box = QVBoxLayout()
         title_box.setSpacing(0)
         lbl_title = QLabel('예산 관리')
-        lbl_title.setStyleSheet('font-size: 17pt; font-weight: 800; color: #1e1b4b;')
+        lbl_title.setStyleSheet(f'font-size: 17pt; font-weight: 800; color: {T.INDIGO_950};')
         lbl_sub = QLabel('추경 세부항목 변경 대응 · 실시간 예산 잔액 및 집행률 · 항목 완료 기능')
-        lbl_sub.setStyleSheet('font-size: 9pt; color: #64748b;')
+        lbl_sub.setStyleSheet(f'font-size: 9pt; color: {T.SLATE_500};')
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_sub)
         header.addWidget(icon_lbl)
@@ -762,7 +763,7 @@ class BudgetWindow(QMainWindow):
         hl.setSpacing(8)
 
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(qta.icon('fa5s.folder', color='#a5b4fc').pixmap(16, 16))
+        icon_lbl.setPixmap(qta.icon('fa5s.folder', color=T.INDIGO_300).pixmap(16, 16))
         lbl_name = QLabel(cat['name'])
         lbl_name.setObjectName('SectionTitle')
         hl.addWidget(icon_lbl)
@@ -812,7 +813,7 @@ class BudgetWindow(QMainWindow):
             msg = QTableWidgetItem('해당 세부항목에 등록된 예산 내역이 없습니다.')
             msg.setFlags(Qt.ItemIsEnabled)
             msg.setTextAlignment(Qt.AlignCenter)
-            msg.setForeground(QColor('#94a3b8'))
+            msg.setForeground(QColor(T.SLATE_400))
             table.setItem(0, 0, msg)
             table.setSpan(0, 0, 1, 8)
             table.setRowHeight(0, 60)
@@ -867,7 +868,7 @@ class BudgetWindow(QMainWindow):
             spent_edit.setFont(_make_strike_font(spent_edit.font()))
         sl.addWidget(spent_edit, stretch=1)
         won_lbl = QLabel('원')
-        won_lbl.setStyleSheet('color: #64748b; background: transparent;')
+        won_lbl.setStyleSheet(f'color: {T.SLATE_500}; background: transparent;')
         sl.addWidget(won_lbl)
         for w in (spent_wrap, spent_edit, won_lbl):
             w.setToolTip('집행액을 입력한 뒤 Enter 또는 다른 곳 클릭 시 저장됩니다.')
@@ -897,9 +898,9 @@ class BudgetWindow(QMainWindow):
         pct_lbl.setFixedWidth(54)
         pct_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         if is_done:
-            bar.setStyleSheet('QProgressBar { background: #e2e8f0; border-radius: 4px; }'
-                              'QProgressBar::chunk { background: #94a3b8; border-radius: 4px; }')
-            pct_lbl.setStyleSheet('color: #64748b; background: transparent;')
+            bar.setStyleSheet(f'QProgressBar {{ background: {T.SLATE_200}; border-radius: 4px; }}'
+                              f'QProgressBar::chunk {{ background: {T.SLATE_400}; border-radius: 4px; }}')
+            pct_lbl.setStyleSheet(f'color: {T.SLATE_500}; background: transparent;')
             pct_lbl.setFont(_make_strike_font(pct_lbl.font()))
         else:
             pct_lbl.setStyleSheet('color: #1d4ed8; font-weight: 800; background: transparent;')
@@ -1221,7 +1222,7 @@ class _ImportPreviewDialog(QDialog):
         v.setSpacing(10)
 
         lbl_file = QLabel(source_text)
-        lbl_file.setStyleSheet('font-size: 10pt; font-weight: 700; color: #1e1b4b;')
+        lbl_file.setStyleSheet(f'font-size: 10pt; font-weight: 700; color: {T.INDIGO_950};')
         v.addWidget(lbl_file)
 
         lbl_sum = QLabel(
@@ -1229,7 +1230,7 @@ class _ImportPreviewDialog(QDialog):
             f"예산합계 <b>{_fmt(total_budget)}원</b> · 집행합계 <b>{_fmt(total_spent)}원</b> · "
             f"잔액 <b>{_fmt(total_budget - total_spent)}원</b>")
         lbl_sum.setTextFormat(Qt.RichText)
-        lbl_sum.setStyleSheet('color: #475569; font-size: 9.5pt;')
+        lbl_sum.setStyleSheet(f'color: {T.SLATE_600}; font-size: 9.5pt;')
         v.addWidget(lbl_sum)
 
         table = QTableWidget()
@@ -1253,10 +1254,10 @@ class _ImportPreviewDialog(QDialog):
         table.setColumnWidth(3, 110)
         table.setColumnWidth(4, 110)
         table.setStyleSheet(
-            'QTableWidget { background: white; border: 1px solid #e2e8f0; border-radius: 8px; }'
-            'QTableWidget::item { border-bottom: 1px solid #f1f5f9; padding: 3px 6px; }'
-            'QHeaderView::section { background: #e2e8f0; color: #334155; padding: 5px;'
-            ' border: none; border-right: 1px solid #cbd5e1; font-weight: 700; }')
+            f'QTableWidget {{ background: white; border: 1px solid {T.SLATE_200}; border-radius: 8px; }}'
+            f'QTableWidget::item {{ border-bottom: 1px solid {T.SLATE_100}; padding: 3px 6px; }}'
+            f'QHeaderView::section {{ background: {T.SLATE_200}; color: {T.SLATE_700}; padding: 5px;'
+            f' border: none; border-right: 1px solid {T.SLATE_300}; font-weight: 700; }}')
 
         rows = []
         for cat in categories:
@@ -1400,7 +1401,7 @@ class _ItemDialog(QDialog):
     @staticmethod
     def _label(text):
         lbl = QLabel(text)
-        lbl.setStyleSheet('font-size: 9.5pt; font-weight: 700; color: #475569;')
+        lbl.setStyleSheet(f'font-size: 9.5pt; font-weight: 700; color: {T.SLATE_600};')
         return lbl
 
     def _save(self):
@@ -1434,7 +1435,7 @@ class _CategoryManagerDialog(QDialog):
         v.setSpacing(10)
 
         lbl = QLabel('추경 발생 시 세부항목을 새로 추가하거나 명칭 변경, 삭제가 가능합니다.')
-        lbl.setStyleSheet('color: #64748b; font-size: 9pt;')
+        lbl.setStyleSheet(f'color: {T.SLATE_500}; font-size: 9pt;')
         v.addWidget(lbl)
 
         add_row = QHBoxLayout()
@@ -1452,7 +1453,7 @@ class _CategoryManagerDialog(QDialog):
         self.list_scroll = QScrollArea()
         self.list_scroll.setWidgetResizable(True)
         self.list_scroll.setStyleSheet(
-            'QScrollArea { border: 1px solid #e2e8f0; border-radius: 8px; background: white; }')
+            f'QScrollArea {{ border: 1px solid {T.SLATE_200}; border-radius: 8px; background: white; }}')
         self.list_container = QWidget()
         self.list_layout = QVBoxLayout(self.list_container)
         self.list_layout.setContentsMargins(6, 6, 6, 6)
@@ -1463,7 +1464,7 @@ class _CategoryManagerDialog(QDialog):
         btns = QHBoxLayout()
         self.btn_import = QPushButton('엑셀 가져오기')
         self.btn_import.setObjectName('Ghost')
-        self.btn_import.setIcon(qta.icon('fa5s.file-import', color='#334155'))
+        self.btn_import.setIcon(qta.icon('fa5s.file-import', color=T.SLATE_700))
         self.btn_import.setIconSize(QSize(14, 14))
         self.btn_import.setToolTip('사업관리카드(예산) 엑셀 파일(.xls/.xlsx)을 가져와 '
                                    '세부항목을 자동 생성합니다.')
@@ -1498,7 +1499,7 @@ class _CategoryManagerDialog(QDialog):
                            '아래 [엑셀 가져오기]로 사업관리카드 파일을 불러오거나,\n'
                            '위에서 직접 추가하세요.')
             empty.setAlignment(Qt.AlignCenter)
-            empty.setStyleSheet('color: #94a3b8; padding: 20px;')
+            empty.setStyleSheet(f'color: {T.SLATE_400}; padding: 20px;')
             self.list_layout.addWidget(empty)
         for cat in cats:
             row = QWidget()

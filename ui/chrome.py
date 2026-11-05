@@ -11,6 +11,7 @@ from PyQt5.QtGui import QFont, QColor, QPainter, QIcon, QPixmap, QCursor
 import qtawesome as qta
 from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR
 from .dates import calc_dday
+from .theme import T
 
 class EdgeHandle(QWidget):
     EDGE  = 6   # 가장자리 감지 두께(px)
@@ -267,7 +268,7 @@ class MergeButton(QWidget):
         else:
             nx, sx = 2, 27
         p.setPen(Qt.NoPen)
-        p.setBrush(QColor('#e74c3c'))
+        p.setBrush(QColor(T.DANGER))
         p.drawRoundedRect(nx, by, bw, bh, 4, 4)
         p.setBrush(QColor('#3498db'))
         p.drawRoundedRect(sx, by, bw, bh, 4, 4)
@@ -346,7 +347,7 @@ class TitleBar(QWidget):
 
         self.label = QLabel('서서니 노트')
         self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
-        self.label.setStyleSheet('color: #5a4000; background: transparent;')
+        self.label.setStyleSheet(f'color: {T.TEXT_ON_NOTE}; background: transparent;')
 
         btn_menu  = QPushButton('…')
         btn_menu.setToolTip('메뉴')
@@ -404,7 +405,7 @@ class TitleBar(QWidget):
         self.status_label = QLabel('', self)
         self.status_label.setAlignment(Qt.AlignCenter)
         self.status_label.setFont(QFont('Malgun Gothic', 9))
-        self.status_label.setStyleSheet('color: #5a4000; background: transparent;')
+        self.status_label.setStyleSheet(f'color: {T.TEXT_ON_NOTE}; background: transparent;')
         self.status_label.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.status_label.setGeometry(0, 0, self.width(), TITLE_BAR_HEIGHT)
 
