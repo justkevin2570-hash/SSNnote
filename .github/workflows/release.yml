@@ -1,0 +1,141 @@
+# 릴리스 빌드: GitHub의 Windows 서버에서 설치 파일을 만들어 Releases에 올리고 Gist를 갱신한다.
+# 실행: GitHub → Actions → "릴리스 빌드" → Run workflow → 버전 입력 (version.json·SSNnote.iss와 같아야 함)
+#
+# Gist 갱신(기존 사용자 자동 업데이트 알림)은 저장소 비밀값 GIST_TOKEN이 있을 때만 한다.
+#   GIST_TOKEN: gist 권한이 있는 GitHub 토큰 (Settings → Secrets and variables → Actions)
+#   없으면 이 단계는 건너뛰고, 로그에 Gist에 붙여 넣을 version.json 내용을 출력한다.
+name: 릴리스 빌드
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '버전 (예: v2.67)'
+        required: true
+      update_gist:
+        description: 'Gist 갱신 (기존 사용자에게 업데이트 알림)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  GIST_ID: 57ec4979c5373758f658ee957fd80386
+  PYTHONUTF8: '1'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 버전 확인 (version.json · SSNnote.iss · 입력값)
+        run: |
+          $want = '${{ inputs.version }}'
+          $v = (Get-Content version.json -Raw -Encoding utf8 | ConvertFrom-Json).version
+          if ($v -ne $want) { throw "version.json 버전($v)이 입력($want)과 다릅니다" }
+          $iss = (Select-String -Path SSNnote.iss -Pattern '^AppVersion=(.+)$').Matches[0].Groups[1].Value
+          if ("v$iss" -ne $want) { throw "SSNnote.iss AppVersion($iss)이 입력($want)과 다릅니다" }
+          gh release view $want *> $null
+          if ($LASTEXITCODE -eq 0) { throw "릴리스 $want 가 이미 있습니다" }
+          exit 0   # 'release view'가 없음(1)으로 끝나도 이 단계는 성공
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: 패키지 설치
+        run: |
+          python -m pip install --upgrade pip
+          # 빌드에서 제외하는 무거운 패키지(SSNnote.spec excludes)는 설치하지 않음
+          Get-Content requirements.txt | Where-Object { $_ -notmatch '^(sentence-transformers|scikit-learn)' } | Set-Content req-ci.txt
+          pip install -r req-ci.txt pyinstaller pytest
+
+      - name: 테스트
+        run: python -m pytest tests -q
+
+      - name: PyInstaller (SSNnote.exe + SSNnote_MCP.exe)
+        run: |
+          pyinstaller SSNnote.spec --noconfirm
+          if (-not (Test-Path dist\SSNnote\SSNnote.exe)) { throw 'SSNnote.exe 없음' }
+          if (-not (Test-Path dist\SSNnote\SSNnote_MCP.exe)) { throw 'SSNnote_MCP.exe 없음' }
+
+      - name: Claude 연결 프로그램 동작 확인
+        run: |
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'mcpcheck'
+          New-Item -ItemType Directory -Force $env:APPDATA | Out-Null
+          $py = Join-Path $env:RUNNER_TEMP 'mcp_check.py'
+          @'
+          import asyncio
+          from mcp import ClientSession
+          from mcp.client.stdio import stdio_client, StdioServerParameters
+
+          async def main():
+              params = StdioServerParameters(command=r'dist\SSNnote\SSNnote_MCP.exe', args=[])
+              async with stdio_client(params) as (r, w):
+                  async with ClientSession(r, w) as s:
+                      await s.initialize()
+                      names = [t.name for t in (await s.list_tools()).tools]
+                      print('tools:', names)
+                      assert 'add_task' in names and 'today_overview' in names
+
+          asyncio.run(main())
+          '@ | Set-Content -Path $py -Encoding utf8
+          python $py
+
+      - name: Inno Setup (SSNnote_Setup.exe)
+        run: |
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" SSNnote.iss
+          if ($LASTEXITCODE -ne 0) { throw 'ISCC 실패' }
+
+      - name: SHA256
+        id: sha
+        run: |
+          $h = (Get-FileHash dist\SSNnote_Setup.exe -Algorithm SHA256).Hash
+          "sha256=$h" >> $env:GITHUB_OUTPUT
+          Write-Host "SHA256: $h"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SSNnote_Setup-${{ inputs.version }}
+          path: dist/SSNnote_Setup.exe
+
+      - name: GitHub Release 생성
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = (Get-Content version.json -Raw -Encoding utf8 | ConvertFrom-Json).changelog
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP\notes.md", $notes, [Text.UTF8Encoding]::new($false))
+          gh release create '${{ inputs.version }}' dist/SSNnote_Setup.exe --title '${{ inputs.version }}' --notes-file "$env:RUNNER_TEMP\notes.md" --target $env:GITHUB_SHA
+
+      - name: Gist 갱신 (기존 사용자 업데이트 알림)
+        if: ${{ inputs.update_gist }}
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+        run: |
+          $py = Join-Path $env:RUNNER_TEMP 'gist_update.py'
+          @'
+          import json, os, requests
+          v = json.load(open('version.json', encoding='utf-8'))
+          v['sha256'] = os.environ['SHA256']
+          content = json.dumps(v, ensure_ascii=False, indent=2) + '\n'
+          token = os.environ.get('GIST_TOKEN', '')
+          if not token:
+              print('::warning::GIST_TOKEN 비밀값이 없어 Gist는 갱신하지 않았습니다. 아래 내용을 Gist의 version.json에 붙여 넣으세요.')
+              print(content)
+              raise SystemExit(0)
+          r = requests.patch('https://api.github.com/gists/' + os.environ['GIST_ID'],
+                             headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json'},
+                             json={'files': {'version.json': {'content': content}}}, timeout=30)
+          r.raise_for_status()
+          print('Gist 갱신 완료:', v['version'], v['sha256'])
+          '@ | Set-Content -Path $py -Encoding utf8
+          python $py
