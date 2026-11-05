@@ -378,6 +378,27 @@ if __name__ == '__main__':
 
     QTimer.singleShot(1500, _show_dashboard_on_start)
 
+    # ── 외부 변경 감지: Claude(MCP 서버)가 업무를 추가·수정하면 열린 창을 다시 그림 ──
+    from db import get_setting as _get_setting
+    _last_external = [_get_setting('external_change', '')]
+
+    def _check_external_change():
+        try:
+            v = _get_setting('external_change', '')
+        except Exception:
+            return
+        if v != _last_external[0]:
+            _last_external[0] = v
+            for win in list(_open_windows):
+                try:
+                    win._refresh_tasks()
+                except Exception as e:
+                    print(f'[external] 새로고침 실패: {e}')
+
+    _external_timer = QTimer()
+    _external_timer.timeout.connect(_check_external_change)
+    _external_timer.start(3000)
+
     # ── 마감 임박 알람 ────────────────────────────────────────────
     _urgent_toast = None  # GC 방지용 참조
     _shown_timed_alerts = set()  # (task_id, hours) 중복 방지

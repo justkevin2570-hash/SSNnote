@@ -245,6 +245,13 @@ def get_all_tasks():
         return [dict(r) for r in rows]
 
 
+def get_task(task_id):
+    """업무 한 건 (없으면 None)."""
+    with _connect() as conn:
+        row = conn.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
+        return dict(row) if row else None
+
+
 def get_open_tasks():
     """완료(취소선) 표시가 없는 모든 업무 + 창 색상 — 오늘 대시보드용."""
     with _connect() as conn:
