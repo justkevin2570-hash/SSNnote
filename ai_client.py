@@ -1,7 +1,10 @@
 """
 ai_client.py — AI 제공자 추상화 레이어
 
-지원 제공자: Gemini, Claude, OpenAI(ChatGPT), NVIDIA NIM, Ollama(로컬)
+지원 제공자: OpenCode(Go·Zen), Claude(Anthropic), ChatGPT(OpenAI) — 세 가지 모두 API 키로 연결.
+  · OpenCode  : 모델마다 OpenAI(chat-completions) 또는 Claude(messages) 방식
+  · Claude    : Anthropic Messages API
+  · ChatGPT   : OpenAI Responses API
 다른 제공자로 교체 시 이 파일의 어댑터만 수정하면 됩니다.
 """
 
@@ -13,22 +16,20 @@ from PyQt5.QtGui import QPixmap
 import auth
 
 APPDATA_DIR        = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
-KEY_FILE           = os.path.join(APPDATA_DIR, 'gemini_key.txt')
 AI_MODE_FILE       = os.path.join(APPDATA_DIR, 'ai_mode.txt')
-OLLAMA_MODEL_FILE  = os.path.join(APPDATA_DIR, 'ollama_model.txt')
-GEMINI_MODEL_FILE  = os.path.join(APPDATA_DIR, 'gemini_model.txt')
 CLAUDE_KEY_FILE    = os.path.join(APPDATA_DIR, 'claude_key.txt')
 CLAUDE_MODEL_FILE  = os.path.join(APPDATA_DIR, 'claude_model.txt')
 OPENAI_KEY_FILE    = os.path.join(APPDATA_DIR, 'openai_key.txt')
 OPENAI_MODEL_FILE  = os.path.join(APPDATA_DIR, 'openai_model.txt')
-NVIDIA_KEY_FILE    = os.path.join(APPDATA_DIR, 'nvidia_key.txt')
-NVIDIA_MODEL_FILE  = os.path.join(APPDATA_DIR, 'nvidia_model.txt')
 OPENCODE_KEY_FILE   = os.path.join(APPDATA_DIR, 'opencode_key.txt')
 OPENCODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'opencode_model.txt')
 OPENCODE_PLAN_FILE  = os.path.join(APPDATA_DIR, 'opencode_plan.txt')
 OPENCODE_VISION_FILE = os.path.join(APPDATA_DIR, 'opencode_vision_models.json')
 OPENCODE_MODELS_FILE = os.path.join(APPDATA_DIR, 'opencode_models.json')   # {id: {image, protocol}}
-OLLAMA_HOST        = 'http://localhost:11434'
+
+# 접속 주소 (None = 각 SDK 기본 주소). 시험에서만 바꾼다.
+CLAUDE_BASE_URL = None
+OPENAI_BASE_URL = None
 
 # ── 자격증명 암호화 헬퍼 (Windows DPAPI, 미지원 시 평문 폴백) ──
 def _read_secret(path: str) -> str:
@@ -53,35 +54,32 @@ def _write_secret(path: str, val: str):
 # 세션 키 (API 키 저장 체크 해제 시 메모리에만 보관)
 _session_keys: dict[str, str] = {}
 
-# AI 모드: 'gemini'|'claude'|'openai'|'nvidia'|'opencode'|'internal'|'none'
-# 'external'은 하위 호환 (= 'gemini')
-_AI_MODES = ('external', 'internal', 'none', 'gemini', 'claude', 'openai', 'nvidia', 'opencode')
+# AI 모드
+_AI_MODES = ('none', 'claude', 'openai', 'opencode')
+PROVIDER_LABELS = {'opencode': 'OpenCode', 'claude': 'Claude', 'openai': 'ChatGPT'}
+# 예전 버전에서 쓰던(지금은 지원하지 않는) 모드 → 안내용 이름
+_LEGACY_MODES = {'external': 'Gemini', 'gemini': 'Gemini', 'nvidia': 'NVIDIA', 'internal': 'Ollama(내부 AI)'}
 
-# 기본 모델 목록 (API 키 없이도 표시)
-GEMINI_DEFAULT_MODELS = [
-    "gemini-3-flash-preview",
-    "gemini-2.0-flash",
-    "gemini-2.5-pro-preview-05-06",
-]
-
+# Claude — 서버에서 목록을 못 받을 때 쓰는 예비 목록 (2026-11)
+CLAUDE_DEFAULT_MODEL = 'claude-haiku-5-5'
 CLAUDE_DEFAULT_MODELS = [
-    "claude-sonnet-4-6",
-    "claude-opus-4-7",
-    "claude-haiku-4-5-20251001",
+    "claude-haiku-5-5",
+    "claude-sonnet-5-5",
+    "claude-opus-5-5",
 ]
 
+# ChatGPT — 서버에서 목록을 못 받을 때 쓰는 예비 목록 (2026-11)
+OPENAI_DEFAULT_MODEL = 'gpt-5.4-mini'
 OPENAI_DEFAULT_MODELS = [
-    "gpt-4.1",
-    "gpt-4o",
-    "gpt-4o-mini",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gpt-5.5",
+    "gpt-6-luna",
+    "gpt-6-sol",
 ]
-
-NVIDIA_DEFAULT_MODELS = [
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
-    "meta/llama-3.1-405b-instruct",
-    "meta/llama-3.3-70b-instruct",
-    "mistralai/mixtral-8x7b-instruct-v0.1",
-]
+# 대화(글쓰기)용이 아닌 OpenAI 모델 이름에 들어가는 말
+_OPENAI_SKIP = ('audio', 'realtime', 'tts', 'transcribe', 'image', 'search', 'codex', 'embedding',
+                'moderation', 'dall-e', 'whisper', 'instruct', 'computer-use')
 
 # OpenCode — 요금제별 접속 주소 (https://opencode.ai/docs/go/ , /docs/zen/)
 #   요청에는 x-opencode-session 헤더가 꼭 있어야 한다 (없으면 400 MissingSessionID).
@@ -95,12 +93,12 @@ OPENCODE_PLANS = {
             'anthropic_base_url': 'https://opencode.ai/inference/anthropic',
             'models_url': 'https://opencode.ai/inference/v1/models'},
 }
-# 학습 미사용·보관 0일이고 지역 설정 없이 쓸 수 있으며 이미지도 읽는 모델 (OpenCode Go 문서, 2026-11)
-OPENCODE_DEFAULT_MODEL = 'kimi-k3'
-# 서버에서 모델 목록을 못 받을 때 쓰는 예비 목록 (Go, chat-completions 지원, 2026-11 기준)
+# 저렴하고(100만 토큰당 $0.10/$0.50) 학습에 쓰이지 않으며 이미지도 읽는 모델 (OpenCode Go 문서, 2026-11)
+OPENCODE_DEFAULT_MODEL = 'claude-haiku-5-5'
+# 서버에서 모델 목록을 못 받을 때 쓰는 예비 목록 (Go, 2026-11 기준)
 OPENCODE_DEFAULT_MODELS = [
-    "kimi-k3",
     "claude-haiku-5-5",
+    "kimi-k3",
     "deepseek-v4.1-flash",
     "kimi-k3.1-pro",
     "glm-5.3-flash",
@@ -119,77 +117,6 @@ EXTERNAL_DOC_SYSTEM_PROMPT = (
     "마크다운(**·##) 사용 금지."
 )
 
-# 내부 AI(Ollama 소형 모델): 형식 고정, few-shot으로 틀 강제
-INTERNAL_DOC_SYSTEM_PROMPT = """당신은 한국 학교 행정 공문 작성 전문가입니다.
-제목과 문서유형이 주어지면 뼈대의 빈칸(: 뒤 공란)만 채워 공문 본문을 완성하세요.
-형식(가~마 구조, 붙임 문구) 절대 변경 금지. 설명·인사말·마크다운(**·##) 절대 금지.
-
-=== 유형별 작성 예시 ===
-
-[일반 계획/운영]
-1. 2026. 체육대회를 다음과 같이 운영하고자 합니다.
-
-  가. 일시: 2026. 5. 15.(금) 09:00~17:00
-  나. 장소: 학교 운동장
-  다. 대상: 전교생
-  라. 내용: 육상, 단체줄넘기, 응원전 등
-
-붙임  체육대회 계획 1부.  끝.
-
-[결과 보고]
-1. 2025. 북세통 프로젝트 사전답사 결과를 다음과 같이 보고합니다.
-
-  가. 일시: 2025. 9. 10.(수) 10:00~15:00
-  나. 장소: 전남 순천시 일원
-  다. 인원: 인솔교사 2명, 학생 25명
-  라. 내용: 사전답사 경로 확인 및 안전 점검
-
-붙임  북세통 프로젝트 사전답사 결과 1부.  끝.
-
-[가정통신문 발송]
-1. 2026. 청소년 미디어 이용습관 진단조사 가정통신문 발송을 붙임과 같이 발송하고자 합니다.
-
-붙임  청소년 미디어 이용습관 진단조사 가정통신문 1부.  끝.
-
-[수요조사 결과 제출]
-1. 2026년도 공무원 맞춤형복지 단체보험 희망상품 수요조사 결과를 붙임과 같이 제출하고자 합니다.
-
-붙임  기관별 공무원 단체보험 수요 현황 조사 결과(서식) 1부.  끝.
-
-[채용 공고]
-1. 2026학년도 시간강사(수학) 채용 계획을 다음과 같이 공고하고자 합니다.
-
-  가. 채용예정인원 및 과목:
-      구분 | 채용 과목 | 선발예정 인원 | 채용기간 | 비고
-      학교자율사업 | 수학 | 1명 | 2026.3.17.~2026.5.29. | 주2일근무
-
-  나. 접수기간: 2026.3.10.(화) 11:00 ~ 2026.3.12.(목) 14:00
-  다. 접수장소: 고흥고등학교 창의예술관2층 교무실(전자우편, 우편, 방문접수)
-  라. 공고방법: 인터넷 홈페이지(전라남도교육청)
-  마. 공고일자: 2026.3.10.(목) 11:00
-
-붙임  1. 시간강사(수학) 채용 공고문 1부.
-      2. 서류평가 및 면접평가표 1부.(별첨)
-      3. 서류 및 면접 전형 평가표 1부.(별첨)  끝.
-
-[채용 결정]
-1. 고교학점제(선택과목) 시간강사(윤리)를 다음과 같이 채용하고자 합니다.
-
-  가. 채용 대상자:
-      연번 | 학교명 | 성명 | 생년월일 | 자격증 | 운용요일 | 비고
-      1 | 고흥고 | 홍길동 | 1980-01-01 | 중등2정 | 월,목,금 | -
-
-  나. 강사 채용 기간: 2026.3.1. ~ 2026.12.31.(여름방학 제외)
-  다. 강사 채용 과목: 윤리
-  라. 강사 근무 시간: 주3일, 주당 9시간(월:3시간, 목:3시간, 금:3시간)
-  마. 강사 수당: 1시간 40,000원
-
-붙임  1. 서류(적부) 전형 평가표 1부.(별첨)
-      2. 응시원서 및 자기소개서 1부.(별첨)
-      3. 채용계약서 1부.(별첨)  끝.
-=================
-
-위 예시 형식 그대로 출력하되, 빈칸은 제목과 문서유형에 맞게 채우세요."""
 
 # 하위 호환용 별칭
 DOC_SYSTEM_PROMPT = EXTERNAL_DOC_SYSTEM_PROMPT
@@ -346,31 +273,27 @@ OCR_SYSTEM_PROMPT = (
 )
 
 
-# ── API 키 / AI 모드 관리 ────────────────────────────────────────
-
-def load_api_key() -> str:
-    key = _session_keys.get('gemini', '')
-    if key:
-        return key
-    return _read_secret(KEY_FILE)
 
 
-def save_api_key(key: str, persist: bool = True):
-    _session_keys.pop('gemini', None)
-    if persist:
-        _write_secret(KEY_FILE, key.strip())
-    else:
-        _session_keys['gemini'] = key
-    GeminiAdapter.invalidate_client()
+# ── AI 모드 ──────────────────────────────────────────────────────
+
+def _read_mode_file() -> str:
+    try:
+        with open(AI_MODE_FILE, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return ''
 
 
 def load_ai_mode() -> str:
-    if os.path.exists(AI_MODE_FILE):
-        with open(AI_MODE_FILE, 'r', encoding='utf-8') as f:
-            mode = f.read().strip()
-            if mode in _AI_MODES:
-                return mode
-    return 'none'
+    """'opencode' | 'claude' | 'openai' | 'none'. 예전 모드(Gemini·NVIDIA·Ollama)는 'none'."""
+    mode = _read_mode_file()
+    return mode if mode in _AI_MODES else 'none'
+
+
+def legacy_ai_name() -> str:
+    """예전 버전에서 고른 AI가 이제 지원되지 않으면 그 이름 (안내용), 아니면 ''."""
+    return _LEGACY_MODES.get(_read_mode_file(), '')
 
 
 def save_ai_mode(mode: str):
@@ -381,169 +304,98 @@ def save_ai_mode(mode: str):
         f.write(mode)
 
 
-def load_ollama_model() -> str:
-    if os.path.exists(OLLAMA_MODEL_FILE):
-        with open(OLLAMA_MODEL_FILE, 'r', encoding='utf-8') as f:
+def _load_text(path: str, default: str) -> str:
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
             v = f.read().strip()
-            if v:
-                return v
-    return 'gemma3:2b'
+        return v or default
+    except OSError:
+        return default
 
 
-def save_ollama_model(model: str):
+def _save_text(path: str, value: str):
     os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(OLLAMA_MODEL_FILE, 'w', encoding='utf-8') as f:
-        f.write(model.strip())
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(value.strip())
 
 
-def load_gemini_model() -> str:
-    if os.path.exists(GEMINI_MODEL_FILE):
-        with open(GEMINI_MODEL_FILE, 'r', encoding='utf-8') as f:
-            v = f.read().strip()
-            if v:
-                return v
-    return 'gemini-3-flash-preview'
+def _load_key(name: str, path: str) -> str:
+    return _session_keys.get(name, '') or _read_secret(path)
 
 
-def save_gemini_model(model: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(GEMINI_MODEL_FILE, 'w', encoding='utf-8') as f:
-        f.write(model.strip())
+def _save_key(name: str, path: str, key: str, persist: bool):
+    _session_keys.pop(name, None)
+    if persist:
+        _write_secret(path, key.strip())
+    else:
+        _session_keys[name] = key.strip()
+        try:                      # 저장하지 않기로 했으면 예전에 저장한 키도 지운다
+            os.remove(path)
+        except OSError:
+            pass
 
+
+# ── Claude 키·모델 ───────────────────────────────────────────────
 
 def load_claude_key() -> str:
-    key = _session_keys.get('claude', '')
-    if key:
-        return key
-    return _read_secret(CLAUDE_KEY_FILE)
+    return _load_key('claude', CLAUDE_KEY_FILE)
 
 
 def save_claude_key(key: str, persist: bool = True):
-    _session_keys.pop('claude', None)
-    if persist:
-        _write_secret(CLAUDE_KEY_FILE, key.strip())
-    else:
-        _session_keys['claude'] = key
+    _save_key('claude', CLAUDE_KEY_FILE, key, persist)
 
 
 def load_claude_model() -> str:
-    if os.path.exists(CLAUDE_MODEL_FILE):
-        with open(CLAUDE_MODEL_FILE, 'r', encoding='utf-8') as f:
-            v = f.read().strip()
-            if v:
-                return v
-    return 'claude-sonnet-4-6'
+    return _load_text(CLAUDE_MODEL_FILE, CLAUDE_DEFAULT_MODEL)
 
 
 def save_claude_model(model: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(CLAUDE_MODEL_FILE, 'w', encoding='utf-8') as f:
-        f.write(model.strip())
+    _save_text(CLAUDE_MODEL_FILE, model)
 
+
+# ── ChatGPT 키·모델 ──────────────────────────────────────────────
 
 def load_openai_key() -> str:
-    key = _session_keys.get('openai', '')
-    if key:
-        return key
-    return _read_secret(OPENAI_KEY_FILE)
+    return _load_key('openai', OPENAI_KEY_FILE)
 
 
 def save_openai_key(key: str, persist: bool = True):
-    _session_keys.pop('openai', None)
-    if persist:
-        _write_secret(OPENAI_KEY_FILE, key.strip())
-    else:
-        _session_keys['openai'] = key
+    _save_key('openai', OPENAI_KEY_FILE, key, persist)
 
 
 def load_openai_model() -> str:
-    if os.path.exists(OPENAI_MODEL_FILE):
-        with open(OPENAI_MODEL_FILE, 'r', encoding='utf-8') as f:
-            v = f.read().strip()
-            if v:
-                return v
-    return 'gpt-4.1'
+    return _load_text(OPENAI_MODEL_FILE, OPENAI_DEFAULT_MODEL)
 
 
 def save_openai_model(model: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(OPENAI_MODEL_FILE, 'w', encoding='utf-8') as f:
-        f.write(model.strip())
+    _save_text(OPENAI_MODEL_FILE, model)
 
 
-def load_nvidia_key() -> str:
-    key = _session_keys.get('nvidia', '')
-    if key:
-        return key
-    return _read_secret(NVIDIA_KEY_FILE)
-
-
-def save_nvidia_key(key: str, persist: bool = True):
-    _session_keys.pop('nvidia', None)
-    if persist:
-        _write_secret(NVIDIA_KEY_FILE, key.strip())
-    else:
-        _session_keys['nvidia'] = key
-
-
-def load_nvidia_model() -> str:
-    if os.path.exists(NVIDIA_MODEL_FILE):
-        with open(NVIDIA_MODEL_FILE, 'r', encoding='utf-8') as f:
-            v = f.read().strip()
-            if v:
-                return v
-    return 'nvidia/llama-3.1-nemotron-ultra-253b-v1'
-
-
-def save_nvidia_model(model: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(NVIDIA_MODEL_FILE, 'w', encoding='utf-8') as f:
-        f.write(model.strip())
-
+# ── OpenCode 키·모델·요금제 ──────────────────────────────────────
 
 def load_opencode_key() -> str:
-    key = _session_keys.get('opencode', '')
-    if key:
-        return key
-    return _read_secret(OPENCODE_KEY_FILE)
+    return _load_key('opencode', OPENCODE_KEY_FILE)
 
 
 def save_opencode_key(key: str, persist: bool = True):
-    _session_keys.pop('opencode', None)
-    if persist:
-        _write_secret(OPENCODE_KEY_FILE, key.strip())
-    else:
-        _session_keys['opencode'] = key
+    _save_key('opencode', OPENCODE_KEY_FILE, key, persist)
 
 
 def load_opencode_model() -> str:
-    if os.path.exists(OPENCODE_MODEL_FILE):
-        with open(OPENCODE_MODEL_FILE, 'r', encoding='utf-8') as f:
-            v = f.read().strip()
-            if v:
-                return v
-    return OPENCODE_DEFAULT_MODEL
+    return _load_text(OPENCODE_MODEL_FILE, OPENCODE_DEFAULT_MODEL)
 
 
 def save_opencode_model(model: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(OPENCODE_MODEL_FILE, 'w', encoding='utf-8') as f:
-        f.write(model.strip())
+    _save_text(OPENCODE_MODEL_FILE, model)
 
 
 def load_opencode_plan() -> str:
-    try:
-        with open(OPENCODE_PLAN_FILE, 'r', encoding='utf-8') as f:
-            v = f.read().strip()
-        return v if v in OPENCODE_PLANS else 'go'
-    except OSError:
-        return 'go'
+    v = _load_text(OPENCODE_PLAN_FILE, 'go')
+    return v if v in OPENCODE_PLANS else 'go'
 
 
 def save_opencode_plan(plan: str):
-    os.makedirs(APPDATA_DIR, exist_ok=True)
-    with open(OPENCODE_PLAN_FILE, 'w', encoding='utf-8') as f:
-        f.write(plan if plan in OPENCODE_PLANS else 'go')
+    _save_text(OPENCODE_PLAN_FILE, plan if plan in OPENCODE_PLANS else 'go')
 
 
 def save_opencode_vision_models(model_ids):
@@ -597,18 +449,21 @@ def opencode_model_supports_image(model: str):
 _OPENCODE_SESSION = None
 
 
+def _app_version() -> str:
+    try:
+        from updater import _read_app_version
+        return _read_app_version().lstrip('v') or '0'
+    except Exception:
+        return '0'
+
+
 def opencode_headers() -> dict:
     """OpenCode가 요구하는 헤더: 앱 이름(User-Agent)과 대화 세션 ID (앱 실행마다 하나)."""
     global _OPENCODE_SESSION
     if _OPENCODE_SESSION is None:
         import uuid
         _OPENCODE_SESSION = 'ssnnote-' + uuid.uuid4().hex
-    try:
-        from updater import _read_app_version
-        ver = _read_app_version().lstrip('v')
-    except Exception:
-        ver = '0'
-    return {'x-opencode-session': _OPENCODE_SESSION, 'User-Agent': f'ssnnote/{ver}'}
+    return {'x-opencode-session': _OPENCODE_SESSION, 'User-Agent': f'ssnnote/{_app_version()}'}
 
 
 def fetch_opencode_models(plan: str) -> list:
@@ -641,49 +496,117 @@ def fetch_opencode_models(plan: str) -> list:
             for mid in OPENCODE_DEFAULT_MODELS]
 
 
+# ── 모델 목록 받기 (Claude·ChatGPT) ──────────────────────────────
+
+def fetch_claude_models(key: str) -> list:
+    """키로 쓸 수 있는 Claude 모델 id 목록 (최신순). 실패하면 예비 목록."""
+    try:
+        client = ClaudeAdapter._client(key, max_retries=0, timeout=15)
+        ids = [m.id for m in client.models.list(limit=100) if str(m.id).startswith('claude-')]
+        if ids:
+            return ids
+    except Exception:
+        pass
+    return list(CLAUDE_DEFAULT_MODELS)
+
+
+def _openai_chat_model(mid: str) -> bool:
+    m = mid.lower()
+    if not (m.startswith('gpt-') or m.startswith('chatgpt-') or (m[:1] == 'o' and m[1:2].isdigit())):
+        return False
+    return not any(w in m for w in _OPENAI_SKIP)
+
+
+def fetch_openai_models(key: str) -> list:
+    """키로 쓸 수 있는 ChatGPT 글쓰기 모델 id 목록 (최신순). 실패하면 예비 목록."""
+    try:
+        client = OpenAIAdapter._client(key, max_retries=0, timeout=15)
+        models = [m for m in client.models.list() if _openai_chat_model(str(m.id))]
+        models.sort(key=lambda m: getattr(m, 'created', 0) or 0, reverse=True)
+        ids = [m.id for m in models]
+        if ids:
+            return ids
+    except Exception:
+        pass
+    return list(OPENAI_DEFAULT_MODELS)
+
+
+# ── 연결 확인 ────────────────────────────────────────────────────
+
+def friendly_error(e: Exception, model: str = '', provider: str = '') -> str:
+    """API 오류를 선생님이 알아볼 수 있는 한국어 안내로 바꾼다."""
+    code = getattr(e, 'status_code', None)
+    text = str(e)
+    if code == 401:
+        if provider == 'opencode':
+            return 'API 키가 맞지 않습니다.\n키를 다시 확인하고, 요금제(Go/Zen)를 바르게 골랐는지도 확인해 주세요.'
+        return 'API 키가 맞지 않습니다. 키를 다시 확인해 주세요.'
+    if code in (402, 403):
+        if provider == 'opencode':
+            return '이 요금제에서 쓸 수 없거나 잔액·사용 한도가 부족합니다.\nOpenCode 콘솔에서 요금제와 잔액을 확인해 주세요.'
+        return '이 키로는 이 모델을 쓸 수 없거나 결제(크레딧)가 필요합니다.\n제공사 콘솔에서 결제 정보와 권한을 확인해 주세요.'
+    if code == 429 and 'FreeUsageLimit' in text:
+        return '무료 모델은 OpenCode 앱 안에서만 쓸 수 있습니다. 유료 모델을 골라 주세요.'
+    if code == 429 and ('insufficient_quota' in text or 'credit balance' in text):
+        return '크레딧(잔액)이 부족합니다. 제공사 콘솔에서 결제 정보를 확인해 주세요.'
+    if code == 429:
+        return '사용 한도에 걸렸습니다. 잠시 후 다시 시도하거나 다른 모델을 고르세요.'
+    if code == 404:
+        return f'모델 "{model}"을(를) 찾을 수 없습니다. 다른 모델을 골라 주세요.' if model else '요청한 주소를 찾을 수 없습니다.'
+    if code is not None and code >= 500:
+        return 'AI 서버에 일시적인 문제가 있습니다. 잠시 후 다시 시도해 주세요.'
+    if code is None and ('connect' in type(e).__name__.lower() or 'timeout' in type(e).__name__.lower()):
+        return '인터넷 연결을 확인해 주세요.'
+    return f'연결 실패: {e}'
+
+
+_PING = "OK라고만 답하세요."
+
+
 def test_opencode(plan: str, key: str, model: str):
     """아주 짧은 요청으로 연결을 확인한다. (ok, 한국어 메시지)."""
     try:
         if opencode_model_protocol(model) == 'messages':
             client = OpenCodeAdapter._anthropic_client(key, plan, max_retries=0, timeout=30)
-            client.messages.create(model=model, max_tokens=256,
-                                   messages=[{"role": "user", "content": "OK라고만 답하세요."}])
+            client.messages.create(model=model, max_tokens=256, messages=[{"role": "user", "content": _PING}])
         else:
-            from openai import OpenAI
-            client = OpenAI(api_key=key, base_url=OPENCODE_PLANS[plan]['base_url'],
-                            default_headers=opencode_headers(), max_retries=0, timeout=30)
-            client.chat.completions.create(model=model, max_tokens=16,
-                                           messages=[{"role": "user", "content": "OK라고만 답하세요."}])
+            client = OpenCodeAdapter._client(key, plan, max_retries=0, timeout=30)
+            client.chat.completions.create(model=model, max_tokens=16, messages=[{"role": "user", "content": _PING}])
         return True, '연결 성공'
     except Exception as e:
-        code = getattr(e, 'status_code', None)
-        if code == 401:
-            return False, ('API 키가 맞지 않습니다.\n키를 다시 확인하고, 요금제(Go/Zen)를 바르게 골랐는지도 확인해 주세요.')
-        if code in (402, 403):
-            return False, '이 요금제에서 쓸 수 없거나 잔액·사용 한도가 부족합니다.\nOpenCode 콘솔에서 요금제와 잔액을 확인해 주세요.'
-        if code == 429 and 'FreeUsageLimit' in str(e):
-            return False, '무료 모델은 OpenCode 앱 안에서만 쓸 수 있습니다. 유료 모델을 골라 주세요.'
-        if code == 429:
-            return False, '사용 한도(5시간/주/월)에 걸렸습니다. 잠시 후 다시 시도하거나 다른 모델을 고르세요.'
-        if code == 404:
-            return False, f'모델 "{model}"을(를) 찾을 수 없습니다. 다른 모델을 골라 주세요.'
-        if code is None and 'connect' in type(e).__name__.lower():
-            return False, '인터넷 연결을 확인해 주세요.'
-        return False, f'연결 실패: {e}'
+        return False, friendly_error(e, model, 'opencode')
+
+
+def test_claude(key: str, model: str):
+    try:
+        ClaudeAdapter._client(key, max_retries=0, timeout=30).messages.create(
+            model=model, max_tokens=256, messages=[{"role": "user", "content": _PING}])
+        return True, '연결 성공'
+    except Exception as e:
+        return False, friendly_error(e, model, 'claude')
+
+
+def test_openai(key: str, model: str):
+    try:
+        OpenAIAdapter._client(key, max_retries=0, timeout=30).responses.create(
+            model=model, input=_PING, max_output_tokens=256)
+        return True, '연결 성공'
+    except Exception as e:
+        return False, friendly_error(e, model, 'openai')
 
 
 def load_external_model_name() -> str:
-    """현재 외부 AI 제공자의 모델 표시명 반환."""
+    """현재 AI 제공자의 모델 이름 ('' = AI 꺼짐)."""
+    return {'claude': load_claude_model, 'openai': load_openai_model,
+            'opencode': load_opencode_model}.get(load_ai_mode(), lambda: '')()
+
+
+def ai_status_text() -> str:
+    """'OpenCode · claude-haiku-5-5' 같은 표시용 글. AI 꺼짐이면 ''."""
     mode = load_ai_mode()
-    if mode == 'claude':
-        return load_claude_model()
-    elif mode == 'openai':
-        return load_openai_model()
-    elif mode == 'nvidia':
-        return load_nvidia_model()
-    elif mode == 'opencode':
-        return load_opencode_model()
-    return load_gemini_model()
+    if mode == 'none':
+        return ''
+    return f'{PROVIDER_LABELS[mode]} · {load_external_model_name()}'
 
 
 # ── 내부 유틸 ────────────────────────────────────────────────────
@@ -702,126 +625,92 @@ def _parse_json_response(raw: str) -> dict:
     """단계별 JSON 추출: ①```json블록 ②raw json ③Pydantic fallback ④텍스트 그대로."""
     import json, re
 
-    # Step 1: ```json ... ``` 블록 추출
     m = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(1).strip())
         except json.JSONDecodeError:
             pass
-
-    # Step 2: raw 시도
     try:
         return json.loads(raw.strip())
     except json.JSONDecodeError:
         pass
-
-    # Step 3: Pydantic fallback (body 전체를 raw text로)
     try:
         from schema import OfficialDocument
         doc = OfficialDocument(body=raw.strip())
         return doc.model_dump()
     except Exception:
         pass
-
-    # Step 4: 최후의 수단
     return {"body": raw.strip()}
 
 
-# ── GeminiAdapter ────────────────────────────────────────────────
-
-_gemini_client = None  # 싱글톤 캐시
-
-
-class GeminiAdapter:
-    requires_api_key = True
-
-    @staticmethod
-    def get_api_key() -> str:
-        return load_api_key()
-
-    @staticmethod
-    def _client():
-        global _gemini_client
-        from google import genai
-        if _gemini_client is None:
-            _gemini_client = genai.Client(api_key=load_api_key())
-        return _gemini_client
-
-    @staticmethod
-    def invalidate_client():
-        global _gemini_client
-        _gemini_client = None
-
-    @staticmethod
-    def fetch_models() -> list:
-        return GEMINI_DEFAULT_MODELS
-
-    @classmethod
-    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
-        try:
-            from google import genai
-            from google.genai import types
-            client = cls._client()
-            model = load_gemini_model()
-            config = types.GenerateContentConfig(
-                system_instruction=system,
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
-                max_output_tokens=1500,
-            )
-            full = ""
-            for chunk in client.models.generate_content_stream(
-                model=model,
-                contents=prompt,
-                config=config,
-            ):
-                text = chunk.text or ""
-                full += text
-                if text:
-                    on_chunk(text)
-            on_done(full)
-        except Exception as e:
-            on_error(str(e))
-
-    @classmethod
-    def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
-        try:
-            from google import genai
-            from google.genai import types
-            client = cls._client()
-            model = load_gemini_model()
-            image_part = types.Part.from_bytes(
-                data=base64.b64decode(image_b64),
-                mime_type="image/png",
-            )
-            config = types.GenerateContentConfig(system_instruction=OCR_SYSTEM_PROMPT)
-            response = client.models.generate_content(
-                model=model,
-                contents=[prompt, image_part],
-                config=config,
-            )
-            return _parse_json_response(response.text.strip())
-        except Exception as e:
-            return {"title": "", "doc_number": "", "error": str(e)}
+_REFUSAL = 'AI가 이 요청에는 답하지 않았습니다. 내용을 조금 바꿔 다시 시도하거나 다른 모델을 골라 주세요.'
+_OPENCODE_REFUSAL = _REFUSAL     # 예전 이름
 
 
-    @classmethod
-    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
-        """한 번에 응답 전체를 받는다 (이미지 선택). 실패 시 예외."""
-        from google.genai import types
-        contents = [prompt]
-        if image_b64:
-            contents.append(types.Part.from_bytes(data=base64.b64decode(image_b64), mime_type="image/png"))
-        config = types.GenerateContentConfig(
-            system_instruction=system,
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-            max_output_tokens=max_tokens,
-        )
-        response = cls._client().models.generate_content(
-            model=load_gemini_model(), contents=contents, config=config)
-        return (response.text or '').strip()
+# ── 요청 방식별 공통 코드 ────────────────────────────────────────
 
-# ── ClaudeAdapter ─────────────────────────────────────────────────
+def _messages_content(prompt: str, image_b64: str = None):
+    content = []
+    if image_b64:
+        content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}})
+    content.append({"type": "text", "text": prompt})
+    return content
+
+
+def _messages_stream(client, model, system, prompt, on_chunk, on_done, on_error, max_tokens=4096):
+    """Claude(messages) 방식 스트리밍. 글자(text)만 보내고 생각(thinking) 블록은 뺀다."""
+    full = ""
+    with client.messages.stream(model=model, max_tokens=max_tokens, system=system,
+                                messages=[{"role": "user", "content": prompt}]) as stream:
+        for text in stream.text_stream:
+            full += text
+            on_chunk(text)
+        final = stream.get_final_message()
+    if getattr(final, 'stop_reason', '') == 'refusal':
+        on_error(_REFUSAL)
+        return
+    on_done(full)
+
+
+def _messages_complete(client, model, system, prompt, image_b64=None, max_tokens=4000) -> str:
+    r = client.messages.create(model=model, max_tokens=max_tokens, system=system,
+                               messages=[{"role": "user", "content": _messages_content(prompt, image_b64)}])
+    if getattr(r, 'stop_reason', '') == 'refusal':
+        raise RuntimeError(_REFUSAL)
+    return ''.join(b.text for b in r.content if getattr(b, 'type', '') == 'text').strip()
+
+
+def _chat_stream(client, model, system, prompt, on_chunk, on_done, max_tokens=4096):
+    """OpenAI chat-completions 방식 스트리밍 (OpenCode의 대부분 모델)."""
+    full = ""
+    with client.chat.completions.create(
+            model=model, stream=True,
+            max_tokens=max_tokens,          # 먼저 '생각'하는 모델도 답을 끝까지 쓰도록 (쓴 만큼만 과금)
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}]) as stream:
+        for chunk in stream:
+            if not chunk.choices:      # 일부 호환 서버(OpenCode 등)는 마지막에 내용 없는 조각을 보냄
+                continue
+            text = chunk.choices[0].delta.content or ""
+            full += text
+            if text:
+                on_chunk(text)
+    on_done(full)
+
+
+def _chat_complete(client, model, system, prompt, image_b64=None, max_tokens=4000) -> str:
+    if image_b64:
+        user = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+                {"type": "text", "text": prompt}]
+    else:
+        user = prompt
+    r = client.chat.completions.create(
+        model=model, max_tokens=max_tokens,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}])
+    return (r.choices[0].message.content or '').strip()
+
+
+# ── ClaudeAdapter (Anthropic Messages API) ───────────────────────
 
 class ClaudeAdapter:
     requires_api_key = True
@@ -830,182 +719,115 @@ class ClaudeAdapter:
     def get_api_key() -> str:
         return load_claude_key()
 
+    @staticmethod
+    def _client(key: str = None, **kw):
+        import anthropic
+        if CLAUDE_BASE_URL:
+            kw['base_url'] = CLAUDE_BASE_URL
+        return anthropic.Anthropic(api_key=key if key is not None else load_claude_key(), **kw)
+
+    @staticmethod
+    def _system(system: str):
+        return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
     @classmethod
     def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=cls.get_api_key())
-            full = ""
-            with client.messages.stream(
-                model=load_claude_model(),
-                max_tokens=1500,
-                system=[{"type": "text", "text": system,
-                         "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": prompt}]
-            ) as stream:
-                for text in stream.text_stream:
-                    full += text
-                    on_chunk(text)
-            on_done(full)
+            _messages_stream(cls._client(), load_claude_model(), cls._system(system), prompt,
+                             on_chunk, on_done, on_error)
         except Exception as e:
-            on_error(str(e))
-
-    @classmethod
-    def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
-        try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=cls.get_api_key())
-            response = client.messages.create(
-                model=load_claude_model(),
-                max_tokens=256,
-                system=[{"type": "text", "text": OCR_SYSTEM_PROMPT,
-                         "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": [
-                    {"type": "image", "source": {
-                        "type": "base64", "media_type": "image/png", "data": image_b64
-                    }},
-                    {"type": "text", "text": prompt}
-                ]}]
-            )
-            return _parse_json_response(response.content[0].text.strip())
-        except Exception as e:
-            return {"title": "", "doc_number": "", "error": str(e)}
-
+            on_error(friendly_error(e, load_claude_model(), 'claude'))
 
     @classmethod
     def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
-        import anthropic
-        client = anthropic.Anthropic(api_key=cls.get_api_key())
-        content = []
-        if image_b64:
-            content.append({"type": "image", "source": {
-                "type": "base64", "media_type": "image/png", "data": image_b64}})
-        content.append({"type": "text", "text": prompt})
-        response = client.messages.create(
-            model=load_claude_model(),
-            max_tokens=max_tokens,
-            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": content}],
-        )
-        return ''.join(b.text for b in response.content if getattr(b, 'type', '') == 'text').strip()
+        """한 번에 응답 전체를 받는다 (이미지 선택). 실패 시 예외."""
+        return _messages_complete(cls._client(), load_claude_model(), cls._system(system), prompt,
+                                  image_b64=image_b64, max_tokens=max_tokens)
 
-# ── OpenAIAdapter ─────────────────────────────────────────────────
+
+# ── OpenAIAdapter (ChatGPT, Responses API) ───────────────────────
 
 class OpenAIAdapter:
     requires_api_key = True
-    _base_url = None  # None → 기본 OpenAI endpoint
 
-    @classmethod
-    def get_api_key(cls) -> str:
+    @staticmethod
+    def get_api_key() -> str:
         return load_openai_key()
 
-    @classmethod
-    def _model(cls) -> str:
-        return load_openai_model()
-
-    @classmethod
-    def _make_client(cls):
+    @staticmethod
+    def _client(key: str = None, **kw):
         from openai import OpenAI
-        kwargs = {"api_key": cls.get_api_key()}
-        if cls._base_url:
-            kwargs["base_url"] = cls._base_url
-        return OpenAI(**kwargs)
+        if OPENAI_BASE_URL:
+            kw['base_url'] = OPENAI_BASE_URL
+        return OpenAI(api_key=key if key is not None else load_openai_key(), **kw)
+
+    @staticmethod
+    def _input(prompt: str, image_b64: str = None):
+        if not image_b64:
+            return prompt
+        return [{"role": "user", "content": [
+            {"type": "input_image", "image_url": f"data:image/png;base64,{image_b64}"},
+            {"type": "input_text", "text": prompt}]}]
 
     @classmethod
     def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
+        model = load_openai_model()
         try:
-            client = cls._make_client()
-            full = ""
-            with client.chat.completions.create(
-                model=cls._model(),
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=4096,          # 먼저 '생각'하는 모델도 답을 끝까지 쓰도록 (쓴 만큼만 과금)
-                stream=True
-            ) as stream:
-                for chunk in stream:
-                    if not chunk.choices:      # 일부 호환 서버(OpenCode 등)는 마지막에 내용 없는 조각을 보냄
-                        continue
-                    text = chunk.choices[0].delta.content or ""
-                    full += text
-                    if text:
-                        on_chunk(text)
+            full, refused = "", False
+            stream = cls._client().responses.create(
+                model=model, instructions=system, input=prompt,
+                max_output_tokens=8000,      # 먼저 '생각'하는 모델도 답을 끝까지 쓰도록 (쓴 만큼만 과금)
+                stream=True)
+            for ev in stream:
+                t = getattr(ev, 'type', '')
+                if t == 'response.output_text.delta':
+                    full += ev.delta
+                    on_chunk(ev.delta)
+                elif t == 'response.refusal.delta':
+                    refused = True
+                elif t in ('response.failed', 'error'):
+                    err = getattr(getattr(ev, 'response', None), 'error', None) or ev
+                    on_error(f'AI 오류: {getattr(err, "message", "") or err}')
+                    return
+            if refused and not full:
+                on_error(_REFUSAL)
+                return
             on_done(full)
         except Exception as e:
-            on_error(str(e))
-
-    @classmethod
-    def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
-        try:
-            client = cls._make_client()
-            response = client.chat.completions.create(
-                model=cls._model(),
-                messages=[{"role": "user", "content": [
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
-                    {"type": "text", "text": prompt}
-                ]}],
-                max_tokens=256
-            )
-            return _parse_json_response(response.choices[0].message.content.strip())
-        except Exception as e:
-            return {"title": "", "doc_number": "", "error": str(e)}
-
+            on_error(friendly_error(e, model, 'openai'))
 
     @classmethod
     def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
-        client = cls._make_client()
-        if image_b64:
-            user = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
-                    {"type": "text", "text": prompt}]
-        else:
-            user = prompt
-        response = client.chat.completions.create(
-            model=cls._model(),
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            max_tokens=max_tokens,
-        )
-        return (response.choices[0].message.content or '').strip()
-
-# ── NvidiaAdapter (OpenAI 호환 API) ──────────────────────────────
-
-class NvidiaAdapter(OpenAIAdapter):
-    _base_url = 'https://integrate.api.nvidia.com/v1'
-
-    @classmethod
-    def get_api_key(cls) -> str:
-        return load_nvidia_key()
-
-    @classmethod
-    def _model(cls) -> str:
-        return load_nvidia_model()
+        r = cls._client().responses.create(model=load_openai_model(), instructions=system,
+                                           input=cls._input(prompt, image_b64), max_output_tokens=max_tokens)
+        text = (getattr(r, 'output_text', '') or '').strip()
+        if not text and any(getattr(c, 'type', '') == 'refusal'
+                            for o in (r.output or []) for c in (getattr(o, 'content', None) or [])):
+            raise RuntimeError(_REFUSAL)
+        return text
 
 
-# ── OpenCodeAdapter (OpenAI 호환 API) ────────────────────────────
+# ── OpenCodeAdapter (OpenCode Go/Zen) ────────────────────────────
 
-class OpenCodeAdapter(OpenAIAdapter):
-    """OpenCode Go/Zen. 요금제에 맞는 주소와 필수 헤더를 붙이고, 모델에 따라
+class OpenCodeAdapter:
+    """요금제에 맞는 주소와 필수 헤더를 붙이고, 모델에 따라
     OpenAI(chat-completions) 방식 또는 Claude(messages) 방식(예: claude-haiku-5-5)으로 요청한다."""
+    requires_api_key = True
 
-    @classmethod
-    def get_api_key(cls) -> str:
+    @staticmethod
+    def get_api_key() -> str:
         return load_opencode_key()
 
-    @classmethod
-    def _model(cls) -> str:
+    @staticmethod
+    def _model() -> str:
         return load_opencode_model()
 
-    @classmethod
-    def _make_client(cls):
+    @staticmethod
+    def _client(key: str = None, plan: str = None, **kw):
         from openai import OpenAI
-        return OpenAI(api_key=cls.get_api_key(), base_url=OPENCODE_PLANS[load_opencode_plan()]['base_url'],
-                      default_headers=opencode_headers())
-
-    @classmethod
-    def _uses_messages(cls) -> bool:
-        return opencode_model_protocol(cls._model()) == 'messages'
+        return OpenAI(api_key=key if key is not None else load_opencode_key(),
+                      base_url=OPENCODE_PLANS[plan or load_opencode_plan()]['base_url'],
+                      default_headers=opencode_headers(), **kw)
 
     @staticmethod
     def _anthropic_client(key: str, plan: str, **kw):
@@ -1014,178 +836,46 @@ class OpenCodeAdapter(OpenAIAdapter):
                                    default_headers=opencode_headers(), **kw)
 
     @classmethod
+    def _uses_messages(cls) -> bool:
+        return opencode_model_protocol(cls._model()) == 'messages'
+
+    @classmethod
     def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
-        if not cls._uses_messages():
-            return super().stream_text(prompt, on_chunk, on_done, on_error, system=system)
+        model = cls._model()
         try:
-            full = ""
-            client = cls._anthropic_client(cls.get_api_key(), load_opencode_plan())
-            with client.messages.stream(model=cls._model(), max_tokens=4096, system=system,
-                                        messages=[{"role": "user", "content": prompt}]) as stream:
-                for text in stream.text_stream:          # 글자(text)만 — 생각(thinking) 블록은 제외
-                    full += text
-                    on_chunk(text)
-                final = stream.get_final_message()
-            if getattr(final, 'stop_reason', '') == 'refusal':
-                on_error(_OPENCODE_REFUSAL)
-                return
-            on_done(full)
+            if cls._uses_messages():
+                client = cls._anthropic_client(cls.get_api_key(), load_opencode_plan())
+                _messages_stream(client, model, system, prompt, on_chunk, on_done, on_error)
+            else:
+                _chat_stream(cls._client(), model, system, prompt, on_chunk, on_done)
         except Exception as e:
-            on_error(str(e))
+            on_error(friendly_error(e, model, 'opencode'))
 
     @classmethod
     def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
-        if image_b64 and opencode_model_supports_image(cls._model()) is False:
+        model = cls._model()
+        if image_b64 and opencode_model_supports_image(model) is False:
             raise RuntimeError(
-                f'선택한 OpenCode 모델({cls._model()})은 이미지를 읽지 못합니다.\n'
+                f'선택한 OpenCode 모델({model})은 이미지를 읽지 못합니다.\n'
                 '메뉴 → 설정 → AI 연결(API 키) → OpenCode에서 🖼 표시가 있는 모델을 고르거나, '
                 '개인정보 보호 모드를 켜서 글자로 분석하세요.')
-        if not cls._uses_messages():
-            return super().complete(system, prompt, image_b64=image_b64, max_tokens=max_tokens)
-        content = []
-        if image_b64:
-            content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}})
-        content.append({"type": "text", "text": prompt})
-        client = cls._anthropic_client(cls.get_api_key(), load_opencode_plan())
-        r = client.messages.create(model=cls._model(), max_tokens=max_tokens, system=system,
-                                   messages=[{"role": "user", "content": content}])
-        if getattr(r, 'stop_reason', '') == 'refusal':
-            raise RuntimeError(_OPENCODE_REFUSAL)
-        return ''.join(b.text for b in r.content if getattr(b, 'type', '') == 'text').strip()
+        if cls._uses_messages():
+            client = cls._anthropic_client(cls.get_api_key(), load_opencode_plan())
+            return _messages_complete(client, model, system, prompt, image_b64=image_b64, max_tokens=max_tokens)
+        return _chat_complete(cls._client(), model, system, prompt, image_b64=image_b64, max_tokens=max_tokens)
 
-    @classmethod
-    def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
-        try:
-            text = cls.complete(OCR_SYSTEM_PROMPT, prompt, image_b64=image_b64, max_tokens=256)
-            return _parse_json_response(text)
-        except Exception as e:
-            return {"title": "", "doc_number": "", "error": str(e)}
-
-
-_OPENCODE_REFUSAL = 'AI가 이 요청에는 답하지 않았습니다. 내용을 조금 바꿔 다시 시도하거나 다른 모델을 골라 주세요.'
-
-
-# ── OllamaAdapter ────────────────────────────────────────────────
-
-class OllamaAdapter:
-    requires_api_key = False
-
-    @staticmethod
-    def get_api_key() -> str:
-        return 'ollama'  # 키 불필요 — 항상 통과
-
-    @staticmethod
-    def _model():
-        return load_ollama_model()
-
-    @classmethod
-    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=INTERNAL_DOC_SYSTEM_PROMPT):
-        import json, requests
-        url = f'{OLLAMA_HOST}/api/generate'
-        model = cls._model()
-        payload = {
-            'model': model,
-            'prompt': f'{system}\n\n{prompt}',
-            'stream': True,
-            'think': False,
-        }
-        try:
-            with requests.post(url, json=payload, stream=True, timeout=120) as resp:
-                if resp.status_code == 404:
-                    on_error(f'모델 "{model}"을 찾을 수 없습니다.\nAI 설정에서 올바른 모델명을 입력하세요.\n(ollama list 명령으로 설치된 모델 확인)')
-                    return
-                resp.raise_for_status()
-                full = ''
-                for line in resp.iter_lines():
-                    if not line:
-                        continue
-                    data = json.loads(line)
-                    if 'error' in data:
-                        on_error(data['error'])
-                        return
-                    text = data.get('response', '')
-                    full += text
-                    if text:
-                        on_chunk(text)
-                    if data.get('done'):
-                        break
-            on_done(full)
-        except requests.exceptions.ConnectionError:
-            on_error('Ollama 서버에 연결할 수 없습니다. Ollama가 실행 중인지 확인하세요.')
-        except Exception as e:
-            on_error(str(e))
-
-    @classmethod
-    def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
-        import json, requests
-        url = f'{OLLAMA_HOST}/api/generate'
-        payload = {
-            'model': cls._model(),
-            'prompt': prompt,
-            'images': [image_b64],
-            'stream': False,
-        }
-        try:
-            resp = requests.post(url, json=payload, timeout=60)
-            resp.raise_for_status()
-            return _parse_json_response(resp.json().get('response', '').strip())
-        except requests.exceptions.ConnectionError:
-            return {'title': '', 'doc_number': '', 'error': 'Ollama 서버에 연결할 수 없습니다.'}
-        except Exception as e:
-            return {'title': '', 'doc_number': '', 'error': str(e)}
-
-
-    @classmethod
-    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
-        import requests
-        payload = {
-            'model': cls._model(),
-            'system': system,
-            'prompt': prompt,
-            'stream': False,
-            'think': False,
-            'options': {'num_predict': max_tokens},
-        }
-        if image_b64:
-            payload['images'] = [image_b64]
-        try:
-            resp = requests.post(f'{OLLAMA_HOST}/api/generate', json=payload, timeout=120)
-        except requests.exceptions.ConnectionError:
-            raise RuntimeError('Ollama 서버에 연결할 수 없습니다. Ollama가 실행 중인지 확인하세요.')
-        resp.raise_for_status()
-        return resp.json().get('response', '').strip()
 
 # ── 어댑터 선택 ──────────────────────────────────────────────────
 
-def _get_adapter():
-    """현재 AI 모드에 맞는 어댑터 클래스 반환."""
-    mode = load_ai_mode()
-    if mode in ('external', 'gemini'):
-        return GeminiAdapter
-    elif mode == 'claude':
-        return ClaudeAdapter
-    elif mode == 'openai':
-        return OpenAIAdapter
-    elif mode == 'nvidia':
-        return NvidiaAdapter
-    elif mode == 'opencode':
-        return OpenCodeAdapter
-    elif mode == 'internal':
-        return OllamaAdapter
-    return GeminiAdapter
-
+_ADAPTERS = {'claude': ClaudeAdapter, 'openai': OpenAIAdapter, 'opencode': OpenCodeAdapter}
 
 
 def get_adapter():
     """현재 AI 모드의 어댑터. AI 꺼짐('none')이면 None."""
-    if load_ai_mode() == 'none':
-        return None
-    return _get_adapter()
+    return _ADAPTERS.get(load_ai_mode())
 
 
-def is_local_adapter(adapter) -> bool:
-    """PC 안에서만 도는 AI(Ollama)인지 — 개인정보 가리기 대상에서 제외."""
-    return adapter is OllamaAdapter
+_get_adapter = get_adapter     # 예전 이름
 
 # ── 공개 인터페이스 ──────────────────────────────────────────────
 
@@ -1200,6 +890,7 @@ class AiStreamThread(QThread):
         self.system = system
         self.structured = structured
         self._is_running = True
+        self.masked_counts = {}
 
     def stop(self):
         self._is_running = False
@@ -1213,20 +904,25 @@ class AiStreamThread(QThread):
         )
 
     def run(self):
-        adapter = _get_adapter()
-        if getattr(adapter, 'requires_api_key', True) and not adapter.get_api_key():
-            self.error_signal.emit("API 키가 설정되지 않았습니다. 설정 버튼을 눌러 키를 입력하세요.")
+        adapter = get_adapter()
+        if adapter is None:
+            self.error_signal.emit("AI가 꺼져 있습니다. [AI 설정]에서 OpenCode·Claude·ChatGPT 중 하나를 연결하세요.")
+            return
+        if not adapter.get_api_key():
+            self.error_signal.emit("API 키가 설정되지 않았습니다. [AI 설정]을 눌러 키를 입력하세요.")
             return
 
-        # 개인정보 보호 모드: 외부 AI로 나가는 글에서 개인정보를 가린다
-        self.masked_counts = {}
-        if not is_local_adapter(adapter):
-            try:
-                from school_profile import privacy_enabled, mask_for_ai
-                if privacy_enabled():
-                    self.prompt, self.masked_counts = mask_for_ai(self.prompt)
-            except Exception:
-                pass  # 설정을 못 읽어도 AI 기능은 계속 동작
+        # 개인정보 보호 모드: AI로 나가는 글에서 개인정보를 가린다
+        try:
+            from school_profile import privacy_enabled, mask_for_ai
+            if privacy_enabled():
+                self.prompt, self.masked_counts = mask_for_ai(self.prompt)
+        except Exception:
+            pass  # 설정을 못 읽어도 AI 기능은 계속 동작
+
+        kwargs = {}
+        if self.system is not None:
+            kwargs['system'] = self.system
 
         if not self.structured:
             # 일반 스트리밍 모드 (자유 채팅 등)
@@ -1238,9 +934,6 @@ class AiStreamThread(QThread):
                 if self._is_running:
                     self.finished_signal.emit(full)
 
-            kwargs = {}
-            if self.system is not None:
-                kwargs['system'] = self.system
             adapter.stream_text(self.prompt, on_chunk, on_done, self.error_signal.emit, **kwargs)
             return
 
@@ -1256,16 +949,10 @@ class AiStreamThread(QThread):
                 if self._is_running:
                     buffer.append(text)
 
-            def on_done(full):
-                pass  # buffer에 이미 다 있음
-
             def on_error(msg):
                 err[0] = msg
 
-            kwargs = {}
-            if self.system is not None:
-                kwargs['system'] = self.system
-            adapter.stream_text(self.prompt, on_chunk, on_done, on_error, **kwargs)
+            adapter.stream_text(self.prompt, on_chunk, lambda full: None, on_error, **kwargs)
 
             if err[0]:
                 if attempt == 0:
@@ -1274,10 +961,7 @@ class AiStreamThread(QThread):
                 self.error_signal.emit(err[0])
                 return
 
-            full = ''.join(buffer)
-            parsed = _parse_json_response(full)
-            body = parsed.get('body', '').strip()
-
+            body = _parse_json_response(''.join(buffer)).get('body', '').strip()
             if len(body) > 20:
                 # 성공: 본문을 스트리밍처럼 한 번에 전송
                 self.new_text_signal.emit(body)
@@ -1285,36 +969,6 @@ class AiStreamThread(QThread):
                 return
 
             if attempt == 0:
-                reason = '본문이 너무 짧음' if len(body) <= 20 else 'JSON 형식 아님'
-                self.prompt = self._retry_prompt(reason)
+                self.prompt = self._retry_prompt('본문이 너무 짧음')
 
-        # 2회 실패
         self.error_signal.emit("AI 응답을 올바르게 받지 못했습니다. 다시 시도해 주세요.")
-
-
-class AiImageWorker(QThread):
-    """이미지 → 공문 제목/번호 추출 스레드."""
-    finished = pyqtSignal(dict)
-    error    = pyqtSignal(str)
-
-    _PROMPT = (
-        "이 이미지는 한국 행정 공문서의 일부입니다.\n"
-        "이미지에서 공문 제목과 공문번호를 추출하세요.\n"
-        "반드시 아래 JSON 형식으로만 답하세요. 설명 없이 JSON만 출력하세요.\n"
-        '{"title": "공문 제목", "doc_number": "공문번호(없으면 빈 문자열)"}'
-    )
-
-    def __init__(self, pixmap: QPixmap):
-        super().__init__()
-        self._image_b64 = _pixmap_to_base64(pixmap)
-
-    def run(self):
-        adapter = _get_adapter()
-        if getattr(adapter, 'requires_api_key', True) and not adapter.get_api_key():
-            self.error.emit("API 키가 설정되지 않았습니다.")
-            return
-        result = adapter.ask_with_image(self._PROMPT, self._image_b64)
-        if "error" in result:
-            self.error.emit(result["error"])
-        else:
-            self.finished.emit(result)

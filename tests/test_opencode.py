@@ -144,7 +144,7 @@ def test_request_has_session_header_user_agent_and_plan_url(oc):
 
 def test_streaming_path_also_sends_headers(oc):
     oc.save_opencode_plan('go')
-    client = oc.OpenCodeAdapter._make_client()
+    client = oc.OpenCodeAdapter._client()
     assert client.base_url.path.rstrip('/') == '/inference/go/openai/v1'
     assert client.default_headers['x-opencode-session'].startswith('ssnnote-')
 
@@ -190,7 +190,7 @@ def test_connection_test_messages(oc):
 
 def test_default_model_and_plan(oc):
     assert oc.load_opencode_plan() == 'go'
-    assert oc.load_opencode_model() == oc.OPENCODE_DEFAULT_MODEL == 'kimi-k3'
+    assert oc.load_opencode_model() == oc.OPENCODE_DEFAULT_MODEL == 'claude-haiku-5-5'
 
 
 def test_streaming_reasoning_and_empty_final_chunk(oc):

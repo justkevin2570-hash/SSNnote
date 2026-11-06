@@ -67,12 +67,12 @@ class ProfileDialog(QDialog):
         title2 = QLabel('🛡️ 개인정보 보호')
         title2.setObjectName('Title')
         root.addWidget(title2)
-        self.chk_privacy = QCheckBox('외부 AI로 보내기 전에 개인정보 가리기 (권장)')
+        self.chk_privacy = QCheckBox('AI로 보내기 전에 개인정보 가리기 (권장)')
         self.chk_privacy.setChecked(privacy_enabled())
         root.addWidget(self.chk_privacy)
         hint2 = QLabel('켜 두면 캡처한 공문은 이미지 대신 PC에서 읽은 글자만 보내고, 주민등록번호·전화번호·'
-                       '이메일·아래 이름을 가립니다. 위 연락처와 담당자 이름은 가리지 않습니다. '
-                       'PC 안에서 도는 AI(Ollama)에는 적용하지 않습니다.')
+                       '이메일·아래 이름을 가립니다(위 연락처와 담당자 이름은 제외). '
+                       '계좌번호·동호수·생년월일과 "○○○ 학생"처럼 이름이 분명한 자리도 가립니다.')
         hint2.setObjectName('Hint')
         hint2.setWordWrap(True)
         root.addWidget(hint2)

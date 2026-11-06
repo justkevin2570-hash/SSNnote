@@ -52,8 +52,6 @@ a = Analysis(
         'PIL.Image',
         'PIL.ImageFilter',
         'PIL.ImageOps',
-        'google.genai',
-        'google.genai.types',
         'httpx',
         'anyio',
         'numpy',

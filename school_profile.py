@@ -63,7 +63,7 @@ def set_privacy_enabled(enabled: bool):
 def mask_for_ai(text: str, profile: dict = None):
     """프로필 기준(가릴 이름 목록, 예외 연락처)으로 개인정보를 가린다. (masked, counts)"""
     p = profile if profile is not None else load_profile()
-    exempt = [p.get('phone', '')]
     keep_names = {p.get('name', '')}  # 담당자 본인 이름은 공문에 들어가야 하므로 유지
+    exempt = [p.get('phone', ''), *keep_names]
     names = [n for n in parse_name_list(p.get('mask_names', '')) if n not in keep_names]
     return mask_pii(text, names=names, exempt=exempt)

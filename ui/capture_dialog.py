@@ -214,13 +214,13 @@ class CaptureResultDialog(QDialog):
 
     # ── 분석 ────────────────────────────────────────────────────
     def start(self):
-        """개인정보 보호 모드 + 외부 AI면 글자를 먼저 읽고, 아니면 이미지를 바로 분석."""
-        from ai_client import get_adapter, is_local_adapter
+        """개인정보 보호 모드면 글자를 먼저 읽고, 아니면 이미지를 바로 분석."""
+        from ai_client import get_adapter
         from school_profile import privacy_enabled
         self.btn_retry.hide()
         self._set_busy(True)
         adapter = get_adapter()
-        need_text = adapter is not None and privacy_enabled() and not is_local_adapter(adapter)
+        need_text = adapter is not None and privacy_enabled()
         if need_text and not self._ocr_text:
             self._set_status('PC에서 글자를 읽는 중… (개인정보 보호 모드)')
             self._run_ocr()

@@ -9,151 +9,157 @@ def _base_path():
 import qtawesome as qta
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QPushButton,
-    QVBoxLayout, QHBoxLayout, QWidget, QLabel, QLineEdit,
-    QMessageBox, QInputDialog, QFrame, QGraphicsDropShadowEffect, QSpinBox,
-    QCheckBox, QDialog
+    QVBoxLayout, QHBoxLayout, QGridLayout, QWidget, QLabel, QLineEdit,
+    QMessageBox, QInputDialog, QFrame, QSpinBox, QCheckBox, QDialog,
 )
-from PyQt5.QtCore import Qt, QTimer, QSize, QEvent, QMimeData
-from PyQt5.QtGui import QFont, QIcon, QPixmap, QColor, QTextCursor, QTextCharFormat
-from ai_client import (AiStreamThread,
-                        load_ai_mode, save_ai_mode,
-                        load_ollama_model, save_ollama_model, OLLAMA_HOST,
-                        load_external_model_name,
-                        load_api_key, save_api_key,
-                        load_gemini_model, save_gemini_model,
-                        GEMINI_DEFAULT_MODELS, GeminiAdapter,
-                        load_claude_key, save_claude_key,
-                        load_claude_model, save_claude_model, CLAUDE_DEFAULT_MODELS,
-                        load_openai_key, save_openai_key,
-                        load_openai_model, save_openai_model, OPENAI_DEFAULT_MODELS,
-                        load_nvidia_key, save_nvidia_key,
-                        load_nvidia_model, save_nvidia_model, NVIDIA_DEFAULT_MODELS,
+from PyQt5.QtCore import Qt, QTimer, QSize, QEvent
+from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat
+from ai_client import (AiStreamThread, PROVIDER_LABELS,
+                        load_ai_mode, save_ai_mode, legacy_ai_name, load_external_model_name,
+                        load_claude_key, save_claude_key, load_claude_model, save_claude_model,
+                        fetch_claude_models, test_claude,
+                        load_openai_key, save_openai_key, load_openai_model, save_openai_model,
+                        fetch_openai_models, test_openai,
                         load_opencode_key, save_opencode_key,
                         load_opencode_model, save_opencode_model,
                         OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
                         fetch_opencode_models, save_opencode_model_info, test_opencode)
 from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
 # rag(유사 공문 찾기)는 numpy·sentence-transformers가 필요해 쓸 때만 불러온다 — 없으면 그 기능만 꺼지고 창은 열림
-from ui.theme import TL as T, keep_light  # 예산·공문 창은 아직 라이트 전용
+from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
+
+
+# ── 색 (차분한 회청색 + 포인트 색 하나) ──────────────────────────
+class C:
+    BG        = '#F5F6F8'    # 창 바탕
+    SURFACE   = '#FFFFFF'    # 카드·종이
+    BORDER    = '#E3E6EB'
+    BORDER_HI = '#CBD2DC'    # 마우스 올림
+    TEXT      = '#1E293B'
+    BODY      = '#2B3443'    # 공문 본문 글자
+    MUTED     = '#64748B'
+    FAINT     = '#94A3B8'
+    HOVER     = '#F1F3F6'
+    ACCENT    = '#4F46E5'    # 포인트 (저장·전송·초안)
+    ACCENT_HI = '#4338CA'
+    ACCENT_SOFT = '#EEF0FD'
+    ACCENT_LINE = '#C7CCF7'
+    FOCUS     = '#A5B0F5'
+    OK        = '#16A34A'
+    OFF       = '#94A3B8'
+    WARN      = '#D97706'
+
+
+_FONT = "'Pretendard GOV', 'Pretendard', 'Malgun Gothic'"
+
+def _arrow_png(name: str, icon: str) -> str:
+    """스핀 박스 화살표 그림 (qtawesome → 임시 PNG). 실패하면 '' (Qt 기본 화살표)."""
+    try:
+        import tempfile
+        path = os.path.join(tempfile.gettempdir(), f'ssnnote_{name}.png')
+        if not os.path.exists(path):
+            qta.icon(icon, color=C.MUTED).pixmap(16, 16).save(path)
+        return path.replace('\\', '/')
+    except Exception:
+        return ''
 
 
 # ── 전체 QSS 테마 ─────────────────────────────────────────────────
-STYLE = f"""
-    QMainWindow {{
-        background-color: #F9FAFB;
+_STYLE_TEMPLATE = f"""
+    QMainWindow, QDialog {{ background-color: {C.BG}; }}
+    QWidget {{ font-family: {_FONT}; font-size: 11pt; color: {C.TEXT}; }}
+    QLabel {{ background: transparent; color: {C.MUTED}; font-size: 10pt; }}
+    QLabel#WindowTitle {{ color: {C.TEXT}; font-size: 13pt; font-weight: 700; }}
+    QLabel#FieldLabel {{ color: {C.MUTED}; font-size: 10pt; font-weight: 600; }}
+    QLabel#DialogTitle {{ color: {C.TEXT}; font-size: 12pt; font-weight: 700; }}
+    QLabel#Hint {{ color: {C.MUTED}; font-size: 9pt; }}
+
+    QFrame#Header {{ background: {C.SURFACE}; border: none; border-bottom: 1px solid {C.BORDER}; }}
+    QFrame#Card {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 10px; }}
+
+    QLineEdit, QSpinBox {{
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 7px;
+        padding: 5px 10px; color: {C.TEXT}; selection-background-color: {C.ACCENT_LINE};
+        selection-color: {C.TEXT};
     }}
-    QWidget {{
-        font-family: 'Pretendard GOV', 'Malgun Gothic';
-        font-size: 12pt;
-        color: #111827;
+    QLineEdit:hover, QSpinBox:hover {{ border-color: {C.BORDER_HI}; }}
+    QLineEdit:focus, QSpinBox:focus {{ border: 1px solid {C.ACCENT}; }}
+    QSpinBox::up-button, QSpinBox::down-button {{
+        subcontrol-origin: border; width: 18px; border: none; border-left: 1px solid {C.BORDER}; background: {C.BG};
     }}
-    QLineEdit {{
-        background-color: #FFFFFF;
-        border: 1px solid #D1D5DB;
-        border-radius: 8px;
-        padding: 6px 12px;
-        color: #111827;
-    }}
-    QLineEdit:focus {{
-        border: 2px solid {T.INDIGO_500};
-        background-color: #FAFAFA;
-    }}
+    QSpinBox::up-button {{ subcontrol-position: top right; border-top-right-radius: 7px; }}
+    QSpinBox::down-button {{ subcontrol-position: bottom right; border-bottom-right-radius: 7px;
+        border-top: 1px solid {C.BORDER}; }}
+    QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: {C.HOVER}; }}
+    QSpinBox::up-arrow {{ image: url(__UP__); width: 8px; height: 8px; }}
+    QSpinBox::down-arrow {{ image: url(__DOWN__); width: 8px; height: 8px; }}
+
     QTextEdit#editor {{
-        background-color: #FFFFFF;
-        border: 5px solid {T.INDIGO_500};
-        border-radius: 10px;
-        padding: 28px 32px;
-        color: #374151;
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 10px;
+        padding: 26px 34px; color: {C.BODY};
+        selection-background-color: {C.ACCENT_LINE}; selection-color: {C.TEXT};
     }}
-    QFrame#AIInputFrame {{
-        background-color: #FFFFFF;
-        border: 1.5px solid {T.GRAY_200};
-        border-radius: 14px;
-    }}
-    QFrame#AIInputFrame QTextEdit {{
-        background: transparent;
-        border: none;
-        border-radius: 0;
-    }}
+    QTextEdit#editor:focus {{ border: 1px solid {C.FOCUS}; }}
+
+    QFrame#ChatBar {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 12px; }}
+    QFrame#ChatBar[focused="true"] {{ border: 1px solid {C.ACCENT}; }}
+    QFrame#ChatBar QTextEdit {{ background: transparent; border: none; padding: 2px 0; color: {C.TEXT}; }}
+
     QPushButton {{
-        background-color: #FFFFFF;
-        border: 1px solid #D1D5DB;
-        border-radius: 8px;
-        padding: 6px 16px;
-        font-weight: 600;
-        color: #374151;
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 7px;
+        padding: 6px 14px; color: {C.TEXT}; font-weight: 600;
     }}
-    QPushButton:hover {{
-        background-color: #F3F4F6;
-        border-color: #9CA3AF;
+    QPushButton:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
+    QPushButton:pressed {{ background: {C.BORDER}; }}
+    QPushButton:disabled {{ color: {C.FAINT}; background: {C.SURFACE}; border-color: {C.BORDER}; }}
+    QPushButton#Ghost {{ background: transparent; border: 1px solid transparent; color: {C.MUTED}; padding: 6px 10px; }}
+    QPushButton#Ghost:hover {{ background: {C.HOVER}; color: {C.TEXT}; }}
+    QPushButton#Chip {{
+        background: {C.BG}; border: 1px solid {C.BORDER}; border-radius: 15px;
+        padding: 4px 12px; color: {C.TEXT}; font-size: 10pt; font-weight: 600; text-align: left;
     }}
-    QPushButton:pressed {{
-        background-color: {T.GRAY_200};
-    }}
-    QPushButton:disabled {{
-        color: #9CA3AF;
-        border-color: {T.GRAY_200};
-        background-color: #F9FAFB;
-    }}
-    QPushButton#AIPrimaryButton {{
-        background-color: {T.INDIGO_500};
-        color: white;
-        border: none;
-        border-radius: 10px;
-    }}
-    QPushButton#AIPrimaryButton:hover {{
-        background-color: {T.INDIGO_600};
-    }}
-    QPushButton#AIPrimaryButton:disabled {{
-        background-color: {T.INDIGO_300};
-    }}
+    QPushButton#Chip:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
+    QPushButton#IconButton {{ padding: 0; }}
     QPushButton#DraftButton {{
-        background-color: #EEF2FF;
-        border: 1px solid #C7D2FE;
-        color: {T.INDIGO_700};
-        font-weight: 700;
+        background: {C.ACCENT_SOFT}; border: 1px solid {C.ACCENT_LINE}; color: {C.ACCENT}; font-weight: 700;
     }}
-    QPushButton#DraftButton:hover {{
-        background-color: #E0E7FF;
+    QPushButton#DraftButton:hover {{ background: #E3E6FC; border-color: {C.FOCUS}; }}
+    QPushButton#DraftButton:disabled {{ background: {C.SURFACE}; border-color: {C.BORDER}; color: {C.FAINT}; }}
+    QPushButton#SaveButton, QPushButton#Primary {{
+        background: {C.ACCENT}; border: 1px solid {C.ACCENT}; color: white; font-weight: 700;
     }}
-    QPushButton#DraftButton:disabled {{
-        background-color: #F5F3FF;
-        border-color: #E0E7FF;
-        color: {T.INDIGO_300};
+    QPushButton#SaveButton:hover, QPushButton#Primary:hover {{ background: {C.ACCENT_HI}; border-color: {C.ACCENT_HI}; }}
+    QPushButton#SaveButton:disabled, QPushButton#Primary:disabled {{
+        background: {C.ACCENT_LINE}; border-color: {C.ACCENT_LINE}; color: white; }}
+    QPushButton#AIPrimaryButton {{ background: {C.ACCENT}; border: none; border-radius: 9px; padding: 0; }}
+    QPushButton#AIPrimaryButton:hover {{ background: {C.ACCENT_HI}; }}
+    QPushButton#AIPrimaryButton:disabled {{ background: {C.BORDER}; }}
+
+    QCheckBox {{ color: {C.TEXT}; font-size: 10pt; spacing: 6px; background: transparent; }}
+    QListWidget {{
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 4px; outline: 0;
     }}
-    QPushButton#HelpButton {{
-        background-color: #FEF3C7;
-        border: 1px solid #FDE68A;
-        color: #92400E;
-        font-weight: 700;
-    }}
-    QPushButton#HelpButton:hover {{
-        background-color: #FDE68A;
-    }}
-    QPushButton#SaveButton {{
-        background-color: {T.INDIGO_500};
-        color: white;
-        border: none;
-        font-weight: 700;
-    }}
-    QPushButton#SaveButton:hover {{
-        background-color: {T.INDIGO_600};
-    }}
-    QPushButton#SaveButton:disabled {{
-        background-color: {T.INDIGO_300};
-    }}
-    QStatusBar {{
-        background-color: #F3F4F6;
-        color: #6B7280;
-        font-size: 10pt;
-        border-top: 1px solid {T.GRAY_200};
-    }}
-    QLabel {{
-        color: #6B7280;
-        font-size: 11pt;
-        background: transparent;
-    }}
+    QListWidget::item {{ padding: 7px 10px; border-radius: 6px; color: {C.TEXT}; }}
+    QListWidget::item:hover {{ background: {C.HOVER}; }}
+    QListWidget::item:selected {{ background: {C.ACCENT_SOFT}; color: {C.ACCENT}; }}
+
+    QMenu {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 6px; }}
+    QMenu::item {{ padding: 7px 16px 7px 12px; border-radius: 5px; color: {C.TEXT}; }}
+    QMenu::item:selected {{ background: {C.HOVER}; }}
+    QMenu::item:disabled {{ color: {C.FAINT}; }}
+    QMenu::indicator {{ width: 0; height: 0; }}
+    QMenu::separator {{ height: 1px; background: {C.BORDER}; margin: 5px 6px; }}
+
+    QStatusBar {{ background: {C.BG}; color: {C.MUTED}; font-size: 9pt; border-top: 1px solid {C.BORDER}; }}
+    QStatusBar::item {{ border: none; }}
+    QToolTip {{ background: {C.TEXT}; color: white; border: none; padding: 4px 8px; }}
 """
+
+
+def _style() -> str:
+    """QApplication이 생긴 뒤에 만든다 (화살표 그림을 그리려면 필요)."""
+    return (_STYLE_TEMPLATE.replace('__UP__', _arrow_png('spin_up', 'fa5s.chevron-up'))
+            .replace('__DOWN__', _arrow_png('spin_down', 'fa5s.chevron-down')))
 
 # ── 문서 유형 ─────────────────────────────────────────────────────
 
@@ -373,49 +379,94 @@ class PlainPasteDocEdit(QTextEdit):
 
 class ApiKeyDialog(QDialog):
     """API 키 입력 + 저장 여부 체크박스 다이얼로그."""
-    def __init__(self, title: str, label: str, current_key: str = '', parent=None):
+    def __init__(self, title: str, label: str, current_key: str = '', parent=None, hint: str = ''):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        self.setFixedSize(440, 180)
+        self.setStyleSheet(_style())
+        self.setFixedWidth(460)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(8)
 
+        head = QLabel(title)
+        head.setObjectName('DialogTitle')
+        layout.addWidget(head)
         lbl = QLabel(label)
-        lbl.setFont(QFont('Malgun Gothic', 10))
+        lbl.setWordWrap(True)
         layout.addWidget(lbl)
+        layout.addSpacing(2)
 
+        row = QHBoxLayout()
+        row.setSpacing(6)
         self._key_edit = QLineEdit()
-        self._key_edit.setPlaceholderText('API 키를 입력하세요')
+        self._key_edit.setPlaceholderText('API 키를 붙여 넣으세요')
         self._key_edit.setText(current_key)
-        self._key_edit.setMinimumHeight(34)
-        layout.addWidget(self._key_edit)
+        self._key_edit.setEchoMode(QLineEdit.Password)
+        self._key_edit.setMinimumHeight(36)
+        row.addWidget(self._key_edit, 1)
+        self._btn_eye = QPushButton()
+        self._btn_eye.setObjectName('IconButton')
+        self._btn_eye.setFixedSize(36, 36)
+        self._btn_eye.setIcon(qta.icon('fa5s.eye', color=C.MUTED))
+        self._btn_eye.setToolTip('키 보기')
+        self._btn_eye.setCheckable(True)
+        self._btn_eye.toggled.connect(lambda on: self._key_edit.setEchoMode(
+            QLineEdit.Normal if on else QLineEdit.Password))
+        row.addWidget(self._btn_eye)
+        layout.addLayout(row)
 
-        self._save_cb = QCheckBox('API 키 저장')
-        self._save_cb.setChecked(bool(current_key))
-        self._save_cb.setFont(QFont('Malgun Gothic', 10))
+        if hint:
+            h = QLabel(hint)
+            h.setObjectName('Hint')
+            h.setWordWrap(True)
+            h.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            layout.addWidget(h)
+
+        self._save_cb = QCheckBox('이 PC에 키 저장 (Windows 암호화)')
+        self._save_cb.setChecked(True)
         layout.addWidget(self._save_cb)
+        layout.addSpacing(6)
 
         btn_row = QHBoxLayout()
-        btn_ok = QPushButton('확인')
-        btn_ok.setMinimumHeight(32)
+        btn_row.addStretch()
+        btn_cancel = QPushButton('취소')
+        btn_cancel.setMinimumHeight(34)
+        btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton('다음')
+        btn_ok.setObjectName('Primary')
+        btn_ok.setMinimumHeight(34)
         btn_ok.setDefault(True)
         btn_ok.clicked.connect(self.accept)
-        btn_cancel = QPushButton('취소')
-        btn_cancel.setMinimumHeight(32)
-        btn_cancel.clicked.connect(self.reject)
-        btn_row.addStretch()
-        btn_row.addWidget(btn_ok)
         btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_ok)
         layout.addLayout(btn_row)
+        keep_light(self)
 
     def key(self) -> str:
         return self._key_edit.text().strip()
 
     def should_save(self) -> bool:
         return self._save_cb.isChecked()
+
+
+# AI 제공자별 설정 정보
+_PROVIDERS = {
+    'opencode': {'desc': 'Go·Zen 요금제'},
+    'claude':   {'desc': 'Anthropic API 키',
+                 'key_label': 'Anthropic(Claude) API 키를 입력하세요.',
+                 'hint': '키 발급: console.anthropic.com → API Keys (사용한 만큼 결제)',
+                 'load_key': load_claude_key, 'save_key': save_claude_key,
+                 'load_model': load_claude_model, 'save_model': save_claude_model,
+                 'fetch': fetch_claude_models, 'test': test_claude},
+    'openai':   {'desc': 'OpenAI API 키',
+                 'key_label': 'OpenAI(ChatGPT) API 키를 입력하세요.',
+                 'hint': '키 발급: platform.openai.com → API keys (ChatGPT 구독과 별도, 사용한 만큼 결제)',
+                 'load_key': load_openai_key, 'save_key': save_openai_key,
+                 'load_model': load_openai_model, 'save_model': save_openai_model,
+                 'fetch': fetch_openai_models, 'test': test_openai},
+}
 
 
 class DocumentEditorWindow(QMainWindow):
@@ -426,71 +477,116 @@ class DocumentEditorWindow(QMainWindow):
         keep_light(self)  # 공문 작성 창은 아직 라이트 전용 (다크 테마에서도 원래 모습 유지)
 
     def init_ui(self):
-        self.setWindowTitle("AI 공문 도우미")
+        self.setWindowTitle("공문 작성")
         self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         self._restore_window_state()  # 저장된 위치/크기 복원, 없으면 기본값
 
-        _font = QFont('Pretendard GOV', 12)
-        _font.setStyleHint(QFont.SansSerif)
-        _input_h = 36  # 기본 ~28px의 130%
+        _input_h = 36
 
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setSpacing(10)
-        layout.setContentsMargins(20, 16, 20, 16)
+        root = QVBoxLayout(central)
+        root.setSpacing(0)
+        root.setContentsMargins(0, 0, 0, 0)
 
-        # ── 헤더: 제목 ──
-        header = QHBoxLayout()
-        header.setSpacing(8)
+        # ── 머리말: 창 이름 · AI 상태(누르면 AI 설정) · 도움말 ──
+        header = QFrame()
+        header.setObjectName('Header')
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(20, 10, 14, 10)
+        hl.setSpacing(6)
+        icon = QLabel()
+        icon.setPixmap(qta.icon('fa5s.file-signature', color=C.ACCENT).pixmap(18, 18))
+        hl.addWidget(icon)
+        title = QLabel('공문 작성')
+        title.setObjectName('WindowTitle')
+        hl.addWidget(title)
+        hl.addStretch()
+        self.btn_apikey = QPushButton("AI 설정")
+        self.btn_apikey.setObjectName('Chip')
+        self.btn_apikey.setCursor(Qt.PointingHandCursor)
+        self.btn_apikey.setMinimumHeight(30)
+        self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT)')
+        self.btn_apikey.clicked.connect(self._show_ai_settings_menu)
+        hl.addWidget(self.btn_apikey)
+        self.btn_help = QPushButton()
+        self.btn_help.setObjectName('Ghost')
+        self.btn_help.setIcon(qta.icon('fa5s.question-circle', color=C.MUTED))
+        self.btn_help.setIconSize(QSize(16, 16))
+        self.btn_help.setFixedSize(32, 30)
+        self.btn_help.setToolTip('사용 방법')
+        self.btn_help.setCursor(Qt.PointingHandCursor)
+        self.btn_help.clicked.connect(self._show_help)
+        hl.addWidget(self.btn_help)
+        root.addWidget(header)
+
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 16, 20, 14)
+        root.addWidget(body, 1)
+
+        # ── 입력 카드: 제목 · 관련 번호 · 붙임 · 자동 초안 ──
+        card = QFrame()
+        card.setObjectName('Card')
+        grid = QGridLayout(card)
+        grid.setContentsMargins(16, 14, 16, 14)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+
+        def field_label(text):
+            lb = QLabel(text)
+            lb.setObjectName('FieldLabel')
+            lb.setFixedWidth(58)
+            return lb
+
         self.title_input = QLineEdit()
         self.title_input.setFixedHeight(_input_h)
-        self.title_input.setPlaceholderText("공문 제목을 입력하세요")
+        self.title_input.setPlaceholderText("공문 제목  (예: 2026학년도 교무회의 운영 계획)")
         self.title_input.textChanged.connect(self._update_draft_button)
         self.title_input.returnPressed.connect(self._try_generate_draft)
-        header.addWidget(QLabel("공문 제목"))
-        header.addWidget(self.title_input)
+        grid.addWidget(field_label('제목'), 0, 0)
+        grid.addWidget(self.title_input, 0, 1, 1, 5)
 
-        # ── 관련 공문번호 ──
-        ref_row = QHBoxLayout()
-        ref_row.setSpacing(8)
         self.ref_input = QLineEdit()
         self.ref_input.setFixedHeight(_input_h)
         self.ref_input.setPlaceholderText("관련 공문번호 (선택)")
         self.ref_input.textChanged.connect(self._update_draft_button)
         self.ref_input.returnPressed.connect(self._try_generate_draft)
-        btn_move_to_title = QPushButton()
-        btn_move_to_title.setMinimumHeight(_input_h)
-        btn_move_to_title.setFixedWidth(_input_h)
-        btn_move_to_title.setToolTip("공문 제목으로 이동")
-        _arrow_path = os.path.join(_base_path(), 'assets', '위화살표.png')
-        btn_move_to_title.setIcon(QIcon(QPixmap(_arrow_path).scaled(
-            _input_h - 8, _input_h - 8, Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )))
-        btn_move_to_title.setIconSize(QSize(_input_h - 8, _input_h - 8))
-        btn_move_to_title.clicked.connect(self._move_ref_to_title)
-        btn_help = QPushButton("도움말")
-        btn_help.setObjectName("HelpButton")
-        btn_help.setMinimumHeight(_input_h)
-        btn_help.clicked.connect(self._show_help)
-        lbl_attach = QLabel("붙임 개수")
-        lbl_attach.setFixedHeight(_input_h)
+        self.btn_move_to_title = QPushButton()
+        self.btn_move_to_title.setObjectName('IconButton')
+        self.btn_move_to_title.setFixedSize(_input_h, _input_h)
+        self.btn_move_to_title.setIcon(qta.icon('fa5s.arrow-up', color=C.MUTED))
+        self.btn_move_to_title.setIconSize(QSize(13, 13))
+        self.btn_move_to_title.setToolTip("관련 번호 칸의 글을 제목으로 올리기")
+        self.btn_move_to_title.clicked.connect(self._move_ref_to_title)
+        lbl_attach = QLabel("붙임")
+        lbl_attach.setObjectName('FieldLabel')
         self.spin_attach = QSpinBox()
         self.spin_attach.setRange(0, 9)
         self.spin_attach.setValue(1)
+        self.spin_attach.setSuffix(' 개')
         self.spin_attach.setFixedHeight(_input_h)
-        self.spin_attach.setFixedWidth(52)
+        self.spin_attach.setFixedWidth(82)
         self.spin_attach.setToolTip("붙임 항목 수 (0 = 붙임 없음)")
         self.spin_attach.lineEdit().returnPressed.connect(self._try_generate_draft)
-        ref_row.addWidget(QLabel("관련 번호"))
-        ref_row.addWidget(self.ref_input, stretch=1)
-        ref_row.addWidget(btn_move_to_title)
-        ref_row.addSpacing(10)
-        ref_row.addWidget(lbl_attach)
-        ref_row.addWidget(self.spin_attach)
-        ref_row.addWidget(btn_help)
+        self.btn_draft = QPushButton("자동 초안")
+        self.btn_draft.setObjectName("DraftButton")
+        self.btn_draft.setIcon(qta.icon('fa5s.magic', color=C.ACCENT, color_disabled=C.FAINT))
+        self.btn_draft.setIconSize(QSize(13, 13))
+        self.btn_draft.setFixedHeight(_input_h)
+        self.btn_draft.setToolTip('제목에 맞는 공문 뼈대를 넣고, AI가 켜져 있으면 내용까지 채웁니다 (Enter)')
+        self.btn_draft.clicked.connect(self.generate_draft)
+        grid.addWidget(field_label('관련 번호'), 1, 0)
+        grid.addWidget(self.ref_input, 1, 1)
+        grid.addWidget(self.btn_move_to_title, 1, 2)
+        grid.addWidget(lbl_attach, 1, 3)
+        grid.addWidget(self.spin_attach, 1, 4)
+        grid.addWidget(self.btn_draft, 1, 5)
+        grid.setColumnStretch(1, 1)
+        layout.addWidget(card)
 
-        # ── 본문 편집 영역 ──
+        # ── 본문 (종이) ──
         self.editor = PlainPasteDocEdit()
         self.editor.setObjectName("editor")
         _editor_font = QFont('굴림체', 12)
@@ -500,74 +596,63 @@ class DocumentEditorWindow(QMainWindow):
         self.editor.document().blockCountChanged.connect(self._apply_editor_line_height)
         self._apply_editor_line_height()
         self.editor.setPlaceholderText(
-            "자동 초안 생성 버튼을 누르거나, 아래 채팅창에 요청을 입력하세요."
+            "제목을 넣고 [자동 초안]을 누르거나, 아래에 AI에게 부탁할 내용을 적어 보세요."
         )
-        _shadow = QGraphicsDropShadowEffect()
-        _shadow.setBlurRadius(20)
-        _shadow.setXOffset(0)
-        _shadow.setYOffset(2)
-        _shadow.setColor(QColor(0, 0, 0, 30))
-        self.editor.setGraphicsEffect(_shadow)
+        layout.addWidget(self.editor, stretch=1)
 
-        # ── AI 채팅바 (캡슐 프레임) ──
-        chat_row = QHBoxLayout()
-        chat_row.setSpacing(0)
-        ai_frame = QFrame()
-        ai_frame.setObjectName("AIInputFrame")
-        ai_frame_layout = QHBoxLayout(ai_frame)
-        ai_frame_layout.setContentsMargins(12, 4, 4, 4)
-        ai_frame_layout.setSpacing(6)
+        # ── AI 요청 칸 ──
+        self.ai_frame = QFrame()
+        self.ai_frame.setObjectName("ChatBar")
+        ai_frame_layout = QHBoxLayout(self.ai_frame)
+        ai_frame_layout.setContentsMargins(14, 6, 6, 6)
+        ai_frame_layout.setSpacing(8)
+        spark = QLabel()
+        spark.setPixmap(qta.icon('fa5s.comment-dots', color=C.FAINT).pixmap(16, 16))
+        spark.setAlignment(Qt.AlignTop)
+        spark.setContentsMargins(0, 8, 0, 0)
+        ai_frame_layout.addWidget(spark)
         self.ai_input = QTextEdit()
         self.ai_input.setPlaceholderText("AI에게 요청")
-        self.ai_input.setFixedHeight(_input_h * 2)
+        self.ai_input.setFixedHeight(52)
+        self.ai_input.setAcceptRichText(False)
         self.ai_input.installEventFilter(self)
         self.editor.installEventFilter(self)
         self.btn_send = QPushButton()
         self.btn_send.setObjectName("AIPrimaryButton")
-        self.btn_send.setIcon(qta.icon('fa5s.paper-plane', color='white'))
-        self.btn_send.setIconSize(QSize(16, 16))
-        self.btn_send.setFixedSize(52, _input_h * 2 - 8)
-        self.btn_send.setToolTip("전송 (Enter)")
+        self.btn_send.setIcon(qta.icon('fa5s.arrow-up', color='white'))
+        self.btn_send.setIconSize(QSize(15, 15))
+        self.btn_send.setFixedSize(38, 38)
+        self.btn_send.setCursor(Qt.PointingHandCursor)
+        self.btn_send.setToolTip("보내기 (Enter · 줄바꿈은 Shift+Enter)")
         self.btn_send.clicked.connect(self.ask_ai)
-        ai_frame_layout.addWidget(self.ai_input)
-        ai_frame_layout.addWidget(self.btn_send)
-        chat_row.addWidget(ai_frame)
+        ai_frame_layout.addWidget(self.ai_input, 1)
+        ai_frame_layout.addWidget(self.btn_send, 0, Qt.AlignBottom)
+        layout.addWidget(self.ai_frame)
 
-        # ── 컨트롤바 ──
+        # ── 아래 버튼 ──
         ctrl_row = QHBoxLayout()
         ctrl_row.setSpacing(8)
-        self.btn_draft = QPushButton("자동 초안 생성")
-        self.btn_draft.setObjectName("DraftButton")
-        self.btn_draft.setMinimumHeight(_input_h)
-        self.btn_draft.clicked.connect(self.generate_draft)
-        self.btn_apikey = QPushButton("AI 설정")
-        self.btn_apikey.setMinimumHeight(_input_h)
-        self.btn_apikey.clicked.connect(self._show_ai_settings_menu)
         self.btn_copy_title = QPushButton("제목 복사")
+        self.btn_copy_title.setIcon(qta.icon('fa5.copy', color=C.MUTED))
         self.btn_copy_title.setMinimumHeight(_input_h)
         self.btn_copy_title.clicked.connect(self._copy_title)
         self.btn_copy = QPushButton("본문 복사")
+        self.btn_copy.setIcon(qta.icon('fa5.copy', color=C.MUTED))
         self.btn_copy.setMinimumHeight(_input_h)
         self.btn_copy.clicked.connect(self._copy_body)
         self.btn_save_exit = QPushButton("저장 후 나가기")
         self.btn_save_exit.setObjectName("SaveButton")
         self.btn_save_exit.setMinimumHeight(_input_h)
+        self.btn_save_exit.setMinimumWidth(130)
         self.btn_save_exit.clicked.connect(self.save_and_close)
-        ctrl_row.addWidget(self.btn_draft)
-        ctrl_row.addWidget(self.btn_apikey)
-        ctrl_row.addStretch()
         ctrl_row.addWidget(self.btn_copy_title)
         ctrl_row.addWidget(self.btn_copy)
+        ctrl_row.addStretch()
         ctrl_row.addWidget(self.btn_save_exit)
-
-        # ── 전체 배치 ──
-        layout.addLayout(header)
-        layout.addLayout(ref_row)
-        layout.addWidget(self.editor, stretch=1)
-        layout.addLayout(chat_row)
         layout.addLayout(ctrl_row)
 
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(_style())
+        self.statusBar().setSizeGripEnabled(False)
         self.statusBar().showMessage("준비 완료")
         self._apply_ai_mode()
         self._update_draft_button()  # 초기 상태: 빈칸이면 비활성
@@ -649,6 +734,10 @@ class DocumentEditorWindow(QMainWindow):
 
     # ── AI 입력창 Enter 키 → 전송 ──
     def eventFilter(self, obj, event):
+        if obj is self.ai_input and event.type() in (QEvent.FocusIn, QEvent.FocusOut):
+            self.ai_frame.setProperty('focused', event.type() == QEvent.FocusIn)   # 요청 칸 테두리 강조
+            self.ai_frame.style().unpolish(self.ai_frame)
+            self.ai_frame.style().polish(self.ai_frame)
         if obj is self.ai_input and event.type() == QEvent.KeyPress:
             if event.key() in (Qt.Key_Return, Qt.Key_Enter) and not (event.modifiers() & Qt.ShiftModifier):
                 self.ask_ai()
@@ -817,44 +906,63 @@ class DocumentEditorWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def _show_help(self):
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton
         dlg = QDialog(self)
         dlg.setWindowTitle("사용 방법")
         dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        dlg.setFixedSize(580, 535)
+        dlg.setStyleSheet(_style())
+        dlg.setFixedWidth(500)
 
         layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(24, 20, 24, 16)
-        layout.setSpacing(6)
+        layout.setContentsMargins(24, 22, 24, 18)
+        layout.setSpacing(12)
+        head = QLabel('공문 작성 사용 방법')
+        head.setObjectName('DialogTitle')
+        layout.addWidget(head)
 
-        _s = "font-family:'Malgun Gothic'; font-size:10pt;"
-        _b = "font-family:'Malgun Gothic'; font-size:10pt; font-weight:bold;"
-        _li = "margin:0; padding:0;"
-        lbl = QLabel(
-            f"<p style='{_b} margin-bottom:4px;'>📋&nbsp; 공문 제목 / 관련번호 캡처</p>"
-            f"<p style='{_s} {_li}'>• 이 창이 앞에 있을 때 Ctrl + Shift + X 를 누르면 캡처화면이 뜹니다.</p>"
-            f"<p style='{_s} {_li}'>• 캡쳐하면 텍스트를 판별해서 공문제목 또는 관련번호에 적힙니다.</p>"
-            f"<p style='{_s} {_li}'>• 두 칸 중 하나만 차있으면 반대쪽 빈 칸으로 자동 배분합니다.</p>"
-            f"<br>"
-            f"<p style='{_b} margin-bottom:4px;'>⚡&nbsp; 자동 초안 생성</p>"
-            f"<p style='{_s} {_li}'>• 공문 제목 또는 관련번호 입력 후 Enter</p>"
-            f"<br>"
-            f"<p style='{_b} margin-bottom:4px;'>⛔&nbsp; AI 생성 취소</p>"
-            f"<p style='{_s} {_li}'>• 생성 중 ESC 키를 누르면 즉시 중단됩니다.</p>"
-        )
-        lbl.setWordWrap(True)
-        lbl.setFont(QFont('Malgun Gothic', 10))
-        layout.addWidget(lbl)
+        items = [
+            ('fa5s.magic', '자동 초안',
+             '제목(또는 관련 번호)을 넣고 Enter나 [자동 초안]을 누르면 공문 뼈대가 들어가고, '
+             'AI가 연결되어 있으면 내용까지 채웁니다.'),
+            ('fa5s.comment-dots', 'AI에게 요청',
+             '아래 칸에 "장소를 시청각실로 바꿔줘"처럼 적고 Enter. 줄바꿈은 Shift+Enter. '
+             '결과가 마음에 안 들면 Ctrl+Z 한 번으로 이전 내용으로 돌아갑니다.'),
+            ('fa5s.crop-alt', '제목·관련 번호 캡처',
+             '이 창이 앞에 있을 때 Ctrl+Shift+X로 화면을 잘라 글자를 읽어 옵니다. '
+             '한 칸만 차 있으면 빈 칸으로 들어갑니다.'),
+            ('fa5s.stop-circle', '취소', 'AI가 쓰는 중에 Esc를 누르면 멈추고 원래 내용으로 되돌립니다.'),
+            ('fa5s.shield-alt', '개인정보 보호',
+             '보호 모드가 켜져 있으면 AI로 보내기 전에 주민번호·전화번호·이름 등을 가립니다.'),
+        ]
+        for ic, name, desc in items:
+            row = QHBoxLayout()
+            row.setSpacing(12)
+            i = QLabel()
+            i.setPixmap(qta.icon(ic, color=C.ACCENT).pixmap(16, 16))
+            i.setFixedWidth(20)
+            i.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+            i.setContentsMargins(0, 3, 0, 0)
+            row.addWidget(i)
+            t = QLabel(f"<span style='color:{C.TEXT}; font-weight:700;'>{name}</span><br>"
+                       f"<span style='color:{C.MUTED};'>{desc}</span>")
+            t.setWordWrap(True)
+            t.setStyleSheet('font-size: 10pt;')
+            t.ensurePolished()                              # 글자 크기(10pt)를 먼저 적용해야 높이 계산이 맞음
+            t.setFixedWidth(420)
+            t.setMinimumHeight(t.heightForWidth(420))      # 줄바꿈한 높이만큼 (잘림 방지)
+            row.addWidget(t, 1)
+            layout.addLayout(row)
 
+        layout.addSpacing(4)
         btn_ok = QPushButton("확인")
-        btn_ok.setFixedWidth(80)
+        btn_ok.setObjectName('Primary')
+        btn_ok.setMinimumSize(84, 34)
         btn_ok.setDefault(True)
         btn_ok.clicked.connect(dlg.accept)
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         btn_row.addWidget(btn_ok)
         layout.addLayout(btn_row)
-
+        keep_light(dlg)
         dlg.exec_()
 
     def _cancel_ai(self):
@@ -876,188 +984,142 @@ class DocumentEditorWindow(QMainWindow):
         cursor.mergeBlockFormat(fmt)
 
     def _apply_ai_mode(self):
-        """현재 AI 모드에 따라 AI 관련 버튼 활성/비활성."""
+        """현재 AI 모드에 따라 AI 상태 표시와 AI 관련 버튼을 맞춘다."""
         mode = load_ai_mode()
         ai_available = mode != 'none'
         self._update_draft_button()
         self.btn_send.setEnabled(ai_available)
         self.ai_input.setEnabled(ai_available)
-        if not ai_available:
-            self.ai_input.setPlaceholderText('AI 이용 안함 — AI 설정에서 변경하세요.')
-        elif mode == 'internal':
+        if ai_available:
+            model = load_external_model_name()
+            self.btn_apikey.setText(f'{PROVIDER_LABELS[mode]} · {model}')
+            self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.OK))
+            self.ai_input.setPlaceholderText('AI에게 요청  (예: 장소를 시청각실로 바꾸고 일시는 11월 10일로 해줘)')
+            return
+        self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.OFF))
+        legacy = legacy_ai_name()
+        if legacy:
+            self.btn_apikey.setText('AI 다시 연결 필요')
+            self.btn_apikey.setIcon(qta.icon('fa5s.exclamation-circle', color=C.WARN))
             self.ai_input.setPlaceholderText(
-                f"AI에게 요청 ({load_ollama_model()} 사용중)"
-            )
-        elif mode == 'opencode':
-            self.ai_input.setPlaceholderText(
-                f"AI에게 요청 (OpenCode · {load_opencode_model()} 사용중)"
-            )
+                f'이전에 쓰던 {legacy}는 더 이상 지원하지 않아요 — 위의 [AI 다시 연결 필요]를 눌러 '
+                'OpenCode·Claude·ChatGPT 중 하나를 연결하세요.')
         else:
-            self.ai_input.setPlaceholderText(
-                f"AI에게 요청 ({load_external_model_name()} 사용중)"
-            )
+            self.btn_apikey.setText('AI 꺼짐 · 연결하기')
+            self.ai_input.setPlaceholderText('AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]에서 연결하면 쓸 수 있어요.')
+        self.btn_apikey.setIconSize(QSize(9, 9) if not legacy else QSize(12, 12))
 
     # ── AI 설정 메뉴 ──
     def _show_ai_settings_menu(self):
         from PyQt5.QtWidgets import QMenu
         mode = load_ai_mode()
         menu = QMenu(self)
-
-        act_gemini  = menu.addAction('Gemini')
-        act_claude  = menu.addAction('Claude')
-        act_openai  = menu.addAction('ChatGPT')
-        act_nvidia  = menu.addAction('NVIDIA')
-        act_opencode = menu.addAction('OpenCode')
+        menu.setStyleSheet(_style())
+        title = menu.addAction('AI 연결')
+        title.setEnabled(False)
+        acts = {}
+        for key in ('opencode', 'claude', 'openai'):
+            mark = '✓  ' if mode == key else '     '
+            a = menu.addAction(f'{mark}{PROVIDER_LABELS[key]}\t{_PROVIDERS[key]["desc"]}')
+            acts[a] = key
         menu.addSeparator()
-        act_internal = menu.addAction('내부 AI (Ollama)')
-        menu.addSeparator()
-        act_none = menu.addAction('AI 이용 안함')
+        act_none = menu.addAction(('✓  ' if mode == 'none' else '     ') + 'AI 끄기')
 
-        for act, modes in [
-            (act_gemini,  ('external', 'gemini')),
-            (act_claude,  ('claude',)),
-            (act_openai,  ('openai',)),
-            (act_nvidia,  ('nvidia',)),
-            (act_opencode, ('opencode',)),
-            (act_internal, ('internal',)),
-            (act_none,    ('none',)),
-        ]:
-            act.setCheckable(True)
-            act.setChecked(mode in modes)
-
-        action = menu.exec_(self.btn_apikey.mapToGlobal(
-            self.btn_apikey.rect().bottomLeft()
-        ))
-
-        if action == act_gemini:
-            self._setup_gemini_ai()
-        elif action == act_claude:
-            self._setup_claude_ai()
-        elif action == act_openai:
-            self._setup_openai_ai()
-        elif action == act_nvidia:
-            self._setup_nvidia_ai()
-        elif action == act_opencode:
-            self._setup_opencode_ai()
-        elif action == act_internal:
-            self._setup_internal_ai()
-        elif action == act_none:
+        action = menu.exec_(self.btn_apikey.mapToGlobal(self.btn_apikey.rect().bottomLeft()))
+        if action is None:
+            return
+        if action == act_none:
             save_ai_mode('none')
             self._apply_ai_mode()
-            self.statusBar().showMessage('AI 이용 안함 — OCR(winrt)만 사용합니다.')
+            self.statusBar().showMessage('AI를 껐습니다 — 자동 초안은 뼈대만 넣습니다.')
+        elif acts.get(action) == 'opencode':
+            self._setup_opencode_ai()
+        elif acts.get(action) == 'claude':
+            self._setup_claude_ai()
+        elif acts.get(action) == 'openai':
+            self._setup_openai_ai()
 
-    def _setup_gemini_ai(self):
-        dlg = ApiKeyDialog('Gemini 설정', 'Gemini API 키를 입력하세요:', load_api_key(), self)
+    def _busy(self, msg):
+        self.statusBar().showMessage(msg)
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
+
+    def _idle(self):
+        QApplication.restoreOverrideCursor()
+
+    def _setup_keyed_ai(self, mode: str):
+        """Claude·ChatGPT: API 키 → 모델(서버의 최신 목록) → 연결 시험 → 저장."""
+        p = _PROVIDERS[mode]
+        label = PROVIDER_LABELS[mode]
+        dlg = ApiKeyDialog(f'{label} 연결', p['key_label'], p['load_key'](), self, hint=p['hint'])
         if dlg.exec_() != dlg.Accepted:
             return
         key = dlg.key()
-        if key:
-            save_api_key(key, persist=dlg.should_save())
-
-        self.statusBar().showMessage('모델 목록 조회 중...')
-        QApplication.processEvents()
-        models = GeminiAdapter.fetch_models() if load_api_key() else GEMINI_DEFAULT_MODELS
-
-        dlg = _ModelSelectDialog('Gemini 모델 선택', models, load_gemini_model(), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        model = dlg.selected_model()
-        if not model:
+        if not key:
+            self.statusBar().showMessage(f'{label} API 키가 비어 있습니다.')
             return
 
-        save_gemini_model(model)
-        save_ai_mode('gemini')
+        self._busy(f'{label} 모델 목록을 받는 중...')
+        try:
+            models = p['fetch'](key)
+        finally:
+            self._idle()
+        dlg2 = _ModelSelectDialog(f'{label} 모델 선택', models, p['load_model'](), self,
+                                  subtitle='목록 위쪽이 최신 모델입니다. 공문 작성에는 빠르고 저렴한 모델로 충분해요.')
+        if dlg2.exec_() != dlg2.Accepted or not dlg2.selected_model():
+            return
+        model = dlg2.selected_model()
+
+        self._busy(f'{label} · {model} 연결 확인 중...')
+        try:
+            ok, msg = p['test'](key, model)
+        finally:
+            self._idle()
+        if not ok:
+            self.statusBar().showMessage(f'{label} 연결 실패')
+            QMessageBox.warning(self, f'{label} 연결 실패', msg)
+            return
+        p['save_key'](key, persist=dlg.should_save())
+        p['save_model'](model)
+        save_ai_mode(mode)
         self._apply_ai_mode()
-        self.statusBar().showMessage(f'Gemini · {model} 설정 완료.')
+        self.statusBar().showMessage(f'{label} · {model} 연결 완료.')
 
     def _setup_claude_ai(self):
-        dlg = ApiKeyDialog('Claude 설정', 'Anthropic API 키를 입력하세요:', load_claude_key(), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        key = dlg.key()
-        if key:
-            save_claude_key(key, persist=dlg.should_save())
-
-        dlg = _ModelSelectDialog('Claude 모델 선택', CLAUDE_DEFAULT_MODELS, load_claude_model(), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        model = dlg.selected_model()
-        if not model:
-            return
-
-        save_claude_model(model)
-        save_ai_mode('claude')
-        self._apply_ai_mode()
-        self.statusBar().showMessage(f'Claude · {model} 설정 완료.')
+        self._setup_keyed_ai('claude')
 
     def _setup_openai_ai(self):
-        dlg = ApiKeyDialog('ChatGPT 설정', 'OpenAI API 키를 입력하세요:', load_openai_key(), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        key = dlg.key()
-        if key:
-            save_openai_key(key, persist=dlg.should_save())
-
-        dlg = _ModelSelectDialog('OpenAI 모델 선택', OPENAI_DEFAULT_MODELS, load_openai_model(), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        model = dlg.selected_model()
-        if not model:
-            return
-
-        save_openai_model(model)
-        save_ai_mode('openai')
-        self._apply_ai_mode()
-        self.statusBar().showMessage(f'OpenAI · {model} 설정 완료.')
-
-    def _setup_nvidia_ai(self):
-        dlg = ApiKeyDialog('NVIDIA 설정', 'NVIDIA API 키를 입력하세요:', load_nvidia_key(), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        key = dlg.key()
-        if key:
-            save_nvidia_key(key, persist=dlg.should_save())
-
-        dlg = _ModelSelectDialog('NVIDIA 모델 선택', NVIDIA_DEFAULT_MODELS, load_nvidia_model(), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        model = dlg.selected_model()
-        if not model:
-            return
-
-        save_nvidia_model(model)
-        save_ai_mode('nvidia')
-        self._apply_ai_mode()
-        self.statusBar().showMessage(f'NVIDIA · {model} 설정 완료.')
+        self._setup_keyed_ai('openai')
 
     def _setup_opencode_ai(self):
         """OpenCode: 요금제 → API 키 → 모델(서버의 최신 목록) → 연결 시험 → 저장."""
-        from PyQt5.QtWidgets import QMessageBox
         plan_keys = list(OPENCODE_PLANS)
         labels = [OPENCODE_PLANS[k]['label'] for k in plan_keys]
-        label, ok = QInputDialog.getItem(self, 'OpenCode 설정', '사용 중인 OpenCode 요금제를 고르세요:',
+        label, ok = QInputDialog.getItem(self, 'OpenCode 연결', '사용 중인 OpenCode 요금제를 고르세요:',
                                          labels, plan_keys.index(load_opencode_plan()), False)
         if not ok:
             return
         plan = plan_keys[labels.index(label)]
 
-        dlg = ApiKeyDialog('OpenCode 설정', 'OpenCode API 키를 입력하세요:', load_opencode_key(), self)
+        dlg = ApiKeyDialog('OpenCode 연결', 'OpenCode API 키를 입력하세요.', load_opencode_key(), self,
+                           hint='키 발급: opencode.ai 로그인 → 콘솔 → API Keys')
         if dlg.exec_() != dlg.Accepted:
             return
         key = dlg.key()
-        if key:
-            save_opencode_key(key, persist=dlg.should_save())
-        key = load_opencode_key()
         if not key:
             self.statusBar().showMessage('OpenCode API 키가 비어 있습니다.')
             return
 
-        self.statusBar().showMessage('OpenCode 모델 목록 조회 중...')
-        QApplication.processEvents()
-        models = fetch_opencode_models(plan)
+        self._busy('OpenCode 모델 목록을 받는 중...')
+        try:
+            models = fetch_opencode_models(plan)
+        finally:
+            self._idle()
 
         def mark(m):
             tags = []
+            if m['id'] == 'claude-haiku-5-5':
+                tags.append('추천')
             if m['image']:
                 tags.append('🖼 이미지')
             if m['id'].startswith('deepseek'):
@@ -1065,57 +1127,32 @@ class DocumentEditorWindow(QMainWindow):
             return m['id'] + ('   ' + ' · '.join(tags) if tags else '')
         shown = [mark(m) for m in models]
         current = next((mark(m) for m in models if m['id'] == load_opencode_model()), '')
-        dlg = _ModelSelectDialog('OpenCode 모델 선택 — 🖼 표시는 캡처 이미지도 읽을 수 있음', shown, current, self)
-        if dlg.exec_() != dlg.Accepted:
+        dlg2 = _ModelSelectDialog('OpenCode 모델 선택', shown, current, self,
+                                  subtitle='🖼 표시가 있는 모델은 캡처한 공문 이미지도 읽을 수 있어요.')
+        if dlg2.exec_() != dlg2.Accepted:
             return
-        picked = dlg.selected_model().split()[0] if dlg.selected_model() else ''
+        picked = dlg2.selected_model().split()[0] if dlg2.selected_model() else ''
         if not picked:
             return
 
         if any(m['image'] is not None for m in models):      # 서버 목록을 받았을 때만 (요청 방식·이미지 지원)
             save_opencode_model_info(models)
-        self.statusBar().showMessage(f'OpenCode · {picked} 연결 확인 중...')
-        QApplication.processEvents()
-        ok, msg = test_opencode(plan, key, picked)
+        self._busy(f'OpenCode · {picked} 연결 확인 중...')
+        try:
+            ok, msg = test_opencode(plan, key, picked)
+        finally:
+            self._idle()
         if not ok:
             self.statusBar().showMessage('OpenCode 연결 실패')
             QMessageBox.warning(self, 'OpenCode 연결 실패', msg)
             return
 
+        save_opencode_key(key, persist=dlg.should_save())
         save_opencode_plan(plan)
         save_opencode_model(picked)
         save_ai_mode('opencode')
         self._apply_ai_mode()
         self.statusBar().showMessage(f'OpenCode · {picked} 연결 완료.')
-
-    def _setup_internal_ai(self):
-        # Ollama 연결 및 모델 목록 가져오기
-        try:
-            import requests
-            resp = requests.get(f'{OLLAMA_HOST}/api/tags', timeout=5)
-            resp.raise_for_status()
-            available = [m['name'] for m in resp.json().get('models', [])]
-        except Exception:
-            QMessageBox.warning(
-                self, 'Ollama 연결 실패',
-                f'Ollama 서버({OLLAMA_HOST})에 연결할 수 없습니다.\n'
-                'Ollama가 실행 중인지 확인하세요.'
-            )
-            return
-
-        dlg = _OllamaModelDialog(available, load_ollama_model(), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-
-        model = dlg.selected_model()
-        if not model:
-            return
-
-        save_ollama_model(model)
-        save_ai_mode('internal')
-        self._apply_ai_mode()
-        self.statusBar().showMessage(f'내부 AI(Ollama · {model}) 설정 완료.')
-
     # ── 저장 ──
     def save_document(self):
         title = self.title_input.text().strip()
@@ -1230,32 +1267,16 @@ class DocumentEditorWindow(QMainWindow):
         target = self._capture_target()
         self._ocr_fallback(pixmap, target)
 
-    def _on_ai_result(self, result, target):
-        title      = result.get('title', '').strip()
-        doc_number = result.get('doc_number', '').strip()
-
-        if target == 'title':
-            self.title_input.setText(title or doc_number)
-        elif target == 'ref':
-            self.ref_input.setText(doc_number or title)
-        else:  # auto
-            if title:
-                self.title_input.setText(title)
-            if doc_number:
-                self.ref_input.setText(doc_number)
-        self.statusBar().showMessage('캡처 완료 (AI 인식)')
-
     def _ocr_fallback(self, pixmap, target='auto'):
-        """API 키 없거나 AI 실패 시 Windows OCR로 폴백. winrt 없으면 안내."""
+        """Windows OCR로 캡처한 글자를 읽어 제목·관련 번호 칸에 넣는다. winrt 없으면 안내."""
         try:
             import winrt  # noqa: F401
         except ImportError:
-            self.statusBar().showMessage('OCR 불가 — API 키를 설정하거나 winsdk 패키지를 설치하세요.')
+            self.statusBar().showMessage('OCR을 쓸 수 없습니다 (Windows OCR 없음).')
             QMessageBox.warning(
                 self, 'OCR 불가',
                 'Windows OCR(winrt) 모듈이 없습니다.\n\n'
-                '① AI 설정 버튼으로 Gemini 키를 입력하거나\n'
-                '② 터미널에서 pip install winsdk 를 실행하세요.'
+                'Windows 10 이상에서 쓸 수 있습니다. 제목·관련 번호를 직접 입력해 주세요.'
             )
             return
 
@@ -1285,141 +1306,59 @@ class DocumentEditorWindow(QMainWindow):
         self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
 
 
-class _OllamaModelDialog(
-    __import__('PyQt5.QtWidgets', fromlist=['QDialog']).QDialog
-):
-    """Ollama 설치 모델 목록에서 클릭으로 선택하는 다이얼로그."""
+class _ModelSelectDialog(QDialog):
+    """AI 모델 목록에서 클릭으로 선택하는 다이얼로그 (검색 가능)."""
 
-    def __init__(self, models: list, current: str, parent=None):
-        from PyQt5.QtWidgets import (QVBoxLayout, QHBoxLayout,
-                                     QListWidget, QListWidgetItem,
-                                     QLineEdit, QPushButton, QLabel)
-        from PyQt5.QtCore import Qt
-        from PyQt5.QtGui import QFont
-        super().__init__(parent)
-        self.setWindowTitle('내부 AI 모델 선택 (Ollama)')
-        self.setMinimumWidth(320)
-        self.setMinimumHeight(360)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-
-        _font = QFont('Malgun Gothic', 11)
-        self.setFont(_font)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-        layout.setContentsMargins(14, 14, 14, 14)
-
-        layout.addWidget(QLabel('설치된 Ollama 모델 중 하나를 선택하세요.'))
-
-        # 검색창
-        self._search = QLineEdit()
-        self._search.setPlaceholderText('모델 검색...')
-        self._search.setMinimumHeight(32)
-        self._search.textChanged.connect(self._filter)
-        layout.addWidget(self._search)
-
-        # 모델 목록
-        self._list = QListWidget()
-        self._list.setFont(_font)
-        self._list.setSpacing(2)
-        self._list.itemDoubleClicked.connect(self.accept)
-        self._models = models
-        self._populate(models, current)
-        layout.addWidget(self._list, stretch=1)
-
-        # 버튼
-        btn_row = QHBoxLayout()
-        btn_ok = QPushButton('선택')
-        btn_ok.setMinimumHeight(34)
-        btn_ok.setDefault(True)
-        btn_ok.clicked.connect(self.accept)
-        btn_cancel = QPushButton('취소')
-        btn_cancel.setMinimumHeight(34)
-        btn_cancel.clicked.connect(self.reject)
-        btn_row.addStretch()
-        btn_row.addWidget(btn_ok)
-        btn_row.addWidget(btn_cancel)
-        layout.addLayout(btn_row)
-
-    def _populate(self, models, select=''):
-        from PyQt5.QtWidgets import QListWidgetItem
-        from PyQt5.QtCore import Qt
-        self._list.clear()
-        for name in models:
-            item = QListWidgetItem(name)
-            item.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-            self._list.addItem(item)
-            if name == select:
-                self._list.setCurrentItem(item)
-        if not self._list.currentItem() and self._list.count():
-            self._list.setCurrentRow(0)
-
-    def _filter(self, text):
-        filtered = [m for m in self._models if text.lower() in m.lower()]
-        current = self._list.currentItem()
-        self._populate(filtered, current.text() if current else '')
-
-    def selected_model(self) -> str:
-        item = self._list.currentItem()
-        return item.text() if item else ''
-
-
-class _ModelSelectDialog(
-    __import__('PyQt5.QtWidgets', fromlist=['QDialog']).QDialog
-):
-    """AI 모델 목록에서 클릭으로 선택하는 범용 다이얼로그."""
-
-    def __init__(self, title: str, models: list, current: str, parent=None):
-        from PyQt5.QtWidgets import (QVBoxLayout, QHBoxLayout,
-                                     QListWidget, QListWidgetItem,
-                                     QLineEdit, QPushButton, QLabel)
-        from PyQt5.QtCore import Qt
-        from PyQt5.QtGui import QFont
+    def __init__(self, title: str, models: list, current: str, parent=None, subtitle: str = ''):
+        from PyQt5.QtWidgets import QListWidget
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setMinimumWidth(360)
-        self.setMinimumHeight(360)
+        self.setStyleSheet(_style())
+        self.setMinimumWidth(420)
+        self.setMinimumHeight(440)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-
-        _font = QFont('Pretendard GOV', 11)
-        self.setFont(_font)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
-        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setContentsMargins(20, 18, 20, 16)
 
-        layout.addWidget(QLabel('사용할 모델을 선택하세요.'))
+        head = QLabel(title)
+        head.setObjectName('DialogTitle')
+        layout.addWidget(head)
+        sub = QLabel(subtitle or '사용할 모델을 고르세요.')
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText('모델 검색...')
-        self._search.setMinimumHeight(32)
+        self._search.setPlaceholderText('모델 검색')
+        self._search.addAction(qta.icon('fa5s.search', color=C.FAINT), QLineEdit.LeadingPosition)
+        self._search.setMinimumHeight(34)
         self._search.textChanged.connect(self._filter)
         layout.addWidget(self._search)
 
         self._list = QListWidget()
-        self._list.setFont(_font)
-        self._list.setSpacing(2)
         self._list.itemDoubleClicked.connect(self.accept)
         self._models = models
         self._populate(models, current)
         layout.addWidget(self._list, stretch=1)
 
         btn_row = QHBoxLayout()
-        btn_ok = QPushButton('선택')
-        btn_ok.setMinimumHeight(34)
-        btn_ok.setDefault(True)
-        btn_ok.clicked.connect(self.accept)
+        btn_row.addStretch()
         btn_cancel = QPushButton('취소')
         btn_cancel.setMinimumHeight(34)
         btn_cancel.clicked.connect(self.reject)
-        btn_row.addStretch()
-        btn_row.addWidget(btn_ok)
+        btn_ok = QPushButton('선택')
+        btn_ok.setObjectName('Primary')
+        btn_ok.setMinimumHeight(34)
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self.accept)
         btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_ok)
         layout.addLayout(btn_row)
+        keep_light(self)
 
     def _populate(self, models, select=''):
         from PyQt5.QtWidgets import QListWidgetItem
-        from PyQt5.QtCore import Qt
         self._list.clear()
         for name in models:
             item = QListWidgetItem(name)
@@ -1439,9 +1378,6 @@ class _ModelSelectDialog(
         item = self._list.currentItem()
         return item.text() if item else ''
 
-
-# 하위 호환 별칭
-_GeminiModelDialog = _ModelSelectDialog
 
 
 if __name__ == "__main__":

@@ -22,7 +22,8 @@ from mcp.types import ToolAnnotations
 import dashboard
 import db
 from korean_search import best_score
-from school_profile import prompt_block
+from privacy import looks_masked
+from school_profile import mask_for_ai, privacy_enabled, prompt_block
 
 EXTERNAL_CHANGE_KEY = 'external_change'
 
@@ -64,13 +65,25 @@ def _deadline(day: str, time: str) -> str:
     return day
 
 
+def _mask(text: str) -> str:
+    """개인정보 보호 모드가 켜져 있으면 Claude에게 보여주기 전에 개인정보를 가린다."""
+    if not text:
+        return text
+    try:
+        if privacy_enabled():
+            return mask_for_ai(text)[0]
+    except Exception:
+        pass
+    return text
+
+
 def _view(t: dict, today: date) -> dict:
-    """Claude에게 보여줄 업무 요약 (내부 열 이름 대신 의미 있는 이름)."""
+    """Claude에게 보여줄 업무 요약 (내부 열 이름 대신 의미 있는 이름). 개인정보 보호 모드면 이름·메모를 가림."""
     dl = t.get('deadline') or ''
-    notes = (t.get('notes') or '').strip()
+    notes = _mask((t.get('notes') or '').strip())
     return {
         'task_id': t['id'],
-        'name': t.get('name', ''),
+        'name': _mask(t.get('name', '')),
         'deadline': dl[:10],
         'time': dl[11:16] if len(dl) > 10 else '',
         'dday': dashboard.dday_label(dl, today),
@@ -80,6 +93,17 @@ def _view(t: dict, today: date) -> dict:
         'recurrence': t.get('recurrence', ''),
         'notes': notes if len(notes) <= 400 else notes[:400] + '…',
     }
+
+
+def _refuse_masked_overwrite(field: str, old: str, new: Optional[str]):
+    """가려서 보여준 글(홍○○, 010-****-5678)을 그대로 저장하면 실제 개인정보가 지워지므로 막는다."""
+    if new is None or new.strip() == old.strip() or not looks_masked(new) or looks_masked(old):
+        return
+    if looks_masked(_mask(old)):
+        raise ToolError(
+            f"개인정보 보호 모드라서 {'업무 이름' if field == 'name' else '메모'}의 개인정보가 가려져 보입니다 "
+            "(○○, ****). 가려진 글로 덮어쓰면 실제 내용이 지워지므로 이 항목은 고칠 수 없습니다. "
+            '사용자에게 서서니 노트에서 직접 고치도록 안내하세요.')
 
 
 def _all_tasks():
@@ -203,6 +227,8 @@ def update_task(task_id: int, name: Optional[str] = None, deadline: Optional[str
     t = db.get_task(task_id)
     if t is None:
         raise ToolError(f'업무 번호 {task_id}를 찾을 수 없습니다. list_tasks로 다시 확인하세요.')
+    _refuse_masked_overwrite('name', t.get('name') or '', name)
+    _refuse_masked_overwrite('notes', t.get('notes') or '', notes)
     new_name = t['name'] if name is None else name.strip()
     if not new_name:
         raise ToolError('업무 이름을 비울 수 없습니다.')

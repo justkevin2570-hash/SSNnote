@@ -4,7 +4,6 @@ sentence-transformers
 scikit-learn
 numpy   # rag.py (유사 공문 찾기) — 빌드에 꼭 포함
 qtawesome
-google-genai
 anthropic
 openai
 requests==2.33.1

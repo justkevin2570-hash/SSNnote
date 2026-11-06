@@ -79,3 +79,23 @@ def test_document_guide_includes_profile(srv):
     school_profile.save_profile({'school': '서서니고', 'name': '홍길동'})
     g = m.official_document_guide()
     assert '서서니고' in g['school_profile'] and any('끝.' in r for r in g['format_rules'])
+
+
+def test_privacy_mode_masks_views_and_blocks_masked_overwrite(srv):
+    m, db = srv
+    from school_profile import set_privacy_enabled
+    set_privacy_enabled(True)
+    t = m.add_task('홍길동 학생 상담', notes='학부모 010-1234-5678')['added']
+    assert t['name'] == '홍○○ 학생 상담' and '010-****-5678' in t['notes']
+    assert db.get_task(t['task_id'])['name'] == '홍길동 학생 상담'          # DB에는 원래 글
+    assert m.search_tasks('홍길동')['tasks'][0]['name'] == '홍○○ 학생 상담'  # 찾기는 원래 글로
+    with pytest.raises(m.ToolError, match='가려'):
+        m.update_task(t['task_id'], name='홍○○ 학생 상담 (완료)')
+    with pytest.raises(m.ToolError, match='가려'):
+        m.update_task(t['task_id'], notes='학부모 010-****-5678 통화함')
+    m.update_task(t['task_id'], done=True)                                  # 다른 항목은 고칠 수 있음
+    row = db.get_task(t['task_id'])
+    assert row['name'] == '홍길동 학생 상담' and row['notes'] == '학부모 010-1234-5678'
+
+    set_privacy_enabled(False)
+    assert m.list_tasks('all')['tasks'][0]['name'] == '홍길동 학생 상담'

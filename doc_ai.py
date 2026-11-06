@@ -284,24 +284,24 @@ class DocAnalysisWorker(QThread):
 
     def run(self):
         try:
-            from ai_client import get_adapter, is_local_adapter
+            from ai_client import get_adapter, friendly_error
             from school_profile import privacy_enabled, mask_for_ai
             adapter = get_adapter()
             if adapter is None:
                 self.failed.emit('AI가 꺼져 있습니다. 메뉴 → 설정 → AI 연결(API 키)에서 사용할 AI를 고르세요.')
                 return
-            if getattr(adapter, 'requires_api_key', True) and not adapter.get_api_key():
+            if not adapter.get_api_key():
                 self.failed.emit('AI API 키가 설정되지 않았습니다. 메뉴 → 설정 → AI 연결(API 키)에서 키를 입력하세요.')
                 return
 
             info = {'mode': 'image', 'masked': {}, 'ocr_text': self._ocr_text}
-            use_text = bool(self._ocr_text) or (privacy_enabled() and not is_local_adapter(adapter))
+            use_text = bool(self._ocr_text) or (privacy_enabled())
             if use_text:
                 text = self._ocr_text
                 if not text:
                     self.failed.emit('글자를 읽지 못했습니다.')
                     return
-                if privacy_enabled() and not is_local_adapter(adapter):
+                if privacy_enabled():
                     text, info['masked'] = mask_for_ai(text)
                 info['mode'] = 'text'
                 self.progress.emit('AI가 공문을 읽는 중…')
@@ -311,4 +311,4 @@ class DocAnalysisWorker(QThread):
                 raw = adapter.complete(ANALYZE_SYSTEM, build_analyze_prompt(), image_b64=self._image_b64)
             self.analyzed.emit(normalize_analysis(parse_json_object(raw)), info)
         except Exception as e:  # 네트워크·키·응답 형식 오류 모두 사용자에게 표시
-            self.failed.emit(str(e))
+            self.failed.emit(friendly_error(e) if getattr(e, 'status_code', None) else str(e))
