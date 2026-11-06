@@ -24,6 +24,23 @@ class _Fake(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _stream(self, body):
+        """OpenCode식 스트리밍: 생각(reasoning_content) → 답(content) → 내용 없는 마지막 조각 → [DONE]."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.end_headers()
+
+        def ev(obj):
+            self.wfile.write(b'data: ' + json.dumps(obj, ensure_ascii=False).encode() + b'\n\n')
+        base = {'id': 'c', 'object': 'chat.completion.chunk', 'created': 0, 'model': body['model']}
+        for d in [{'role': 'assistant', 'reasoning_content': '요청을 살펴보면…'},
+                  {'reasoning_content': ' 장소만 바꾸면 됨.'},
+                  {'content': '2. 장소: '}, {'content': '시청각실'}]:
+            ev({**base, 'choices': [{'index': 0, 'delta': d, 'finish_reason': None}]})
+        ev({**base, 'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]})
+        ev({**base, 'choices': [], 'usage': {'prompt_tokens': 5, 'completion_tokens': 9, 'total_tokens': 14}})
+        self.wfile.write(b'data: [DONE]\n\n')
+
     def do_GET(self):
         _Fake.seen.append(('GET', self.path, {k.lower(): v for k, v in self.headers.items()}, None))
         self._send(200, _Fake.models)
@@ -35,6 +52,8 @@ class _Fake(BaseHTTPRequestHandler):
             return self._send(400, {'error': {'type': 'MissingSessionID', 'message': 'missing'}})
         if self.headers.get('Authorization') == 'Bearer bad':
             return self._send(401, {'error': {'type': 'server_error', 'message': 'Invalid credential'}})
+        if body.get('stream'):
+            return self._stream(body)
         self._send(200, {'id': 'x', 'object': 'chat.completion', 'created': 0, 'model': body['model'],
                          'choices': [{'index': 0, 'finish_reason': 'stop',
                                       'message': {'role': 'assistant', 'content': '{"title": "회의 안내"}'}}]})
@@ -134,3 +153,15 @@ def test_connection_test_messages(oc):
 def test_default_model_and_plan(oc):
     assert oc.load_opencode_plan() == 'go'
     assert oc.load_opencode_model() == oc.OPENCODE_DEFAULT_MODEL == 'deepseek-v4.1-flash'
+
+
+def test_streaming_reasoning_and_empty_final_chunk(oc):
+    """생각 글자는 본문에 안 들어가고, 내용 없는 마지막 조각에도 오류가 나지 않아야 한다."""
+    oc.save_opencode_plan('go')
+    oc.save_opencode_model('kimi-k3')
+    chunks, done, err = [], [], []
+    oc.OpenCodeAdapter.stream_text('장소 바꿔줘', chunks.append, done.append, err.append, system='시스템')
+    assert err == [] and ''.join(chunks) == '2. 장소: 시청각실' and done == ['2. 장소: 시청각실']
+    method, path, headers, body = _Fake.seen[-1]
+    assert body['stream'] is True and body['max_tokens'] >= 4000
+    assert headers['x-opencode-session'].startswith('ssnnote-')

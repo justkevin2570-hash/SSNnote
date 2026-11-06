@@ -763,7 +763,7 @@ class GeminiAdapter:
 
 
     @classmethod
-    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
         """한 번에 응답 전체를 받는다 (이미지 선택). 실패 시 예외."""
         from google.genai import types
         contents = [prompt]
@@ -830,7 +830,7 @@ class ClaudeAdapter:
 
 
     @classmethod
-    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
         import anthropic
         client = anthropic.Anthropic(api_key=cls.get_api_key())
         content = []
@@ -879,10 +879,12 @@ class OpenAIAdapter:
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=1500,
+                max_tokens=4096,          # 먼저 '생각'하는 모델도 답을 끝까지 쓰도록 (쓴 만큼만 과금)
                 stream=True
             ) as stream:
                 for chunk in stream:
+                    if not chunk.choices:      # 일부 호환 서버(OpenCode 등)는 마지막에 내용 없는 조각을 보냄
+                        continue
                     text = chunk.choices[0].delta.content or ""
                     full += text
                     if text:
@@ -910,7 +912,7 @@ class OpenAIAdapter:
 
 
     @classmethod
-    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
         client = cls._make_client()
         if image_b64:
             user = [{"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
@@ -958,7 +960,7 @@ class OpenCodeAdapter(OpenAIAdapter):
                       default_headers=opencode_headers())
 
     @classmethod
-    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
         if image_b64 and opencode_model_supports_image(cls._model()) is False:
             raise RuntimeError(
                 f'선택한 OpenCode 모델({cls._model()})은 이미지를 읽지 못합니다.\n'
@@ -1046,7 +1048,7 @@ class OllamaAdapter:
 
 
     @classmethod
-    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 1200) -> str:
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
         import requests
         payload = {
             'model': cls._model(),

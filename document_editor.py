@@ -624,7 +624,6 @@ class DocumentEditorWindow(QMainWindow):
             f"{_profile_block()}"
             '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
         )
-        self.editor.clear()
         self._start_ai(prompt, system=system, structured=True)
 
     # ── 회신 공문 (AI 공문 캡처 → 회신 공문 작성) ──
@@ -644,7 +643,6 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage('AI가 작업 중입니다. 끝난 뒤 다시 시도하세요.')
             return
         prompt = doc_ai.build_reply_prompt(analysis, _profile_block(), instruction)
-        self.editor.clear()
         self._start_ai(prompt, system=doc_ai.REPLY_SYSTEM, structured=True)
         self.statusBar().showMessage('AI가 회신 공문을 작성 중...')
 
@@ -682,10 +680,11 @@ class DocumentEditorWindow(QMainWindow):
         else:
             prompt = user_text
 
-        self.editor.clear()
         self._start_ai(prompt)
 
     # ── 공통 AI 실행 ──
+    # AI가 쓰는 동안 원래 내용을 보관한다. 오류·빈 답·취소면 원래 내용으로 되돌리고,
+    # 성공하면 결과를 '되돌리기(Ctrl+Z) 한 번'으로 원래 내용에 돌아갈 수 있게 넣는다.
     def _start_ai(self, prompt, system=None, structured=False):
         if self.ai_thread and self.ai_thread.isRunning():
             return
@@ -693,38 +692,78 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage("AI가 생각 중..." if not structured else "AI가 공문을 작성 중...")
         self._set_controls_enabled(False)
 
+        self._ai_gen = getattr(self, '_ai_gen', 0) + 1          # 이번 요청 번호 (늦게 온 이전 응답 무시용)
+        gen = self._ai_gen
+        self._before_ai = self.editor.toPlainText()
+        self.editor.setUndoRedoEnabled(False)                     # 흘러들어오는 글자는 되돌리기 기록에 안 남김
+        self.editor.clear()
+
         self.ai_thread = AiStreamThread(prompt, system=system, structured=structured)
-        self.ai_thread.new_text_signal.connect(self._append_text)
-        self.ai_thread.finished_signal.connect(self._on_finished)
-        self.ai_thread.error_signal.connect(self._on_error)
+        self.ai_thread.new_text_signal.connect(lambda t, g=gen: self._append_text(t, g))
+        self.ai_thread.finished_signal.connect(lambda t, g=gen: self._on_finished(t, g))
+        self.ai_thread.error_signal.connect(lambda m, g=gen: self._on_error(m, g))
         self.ai_thread.start()
 
-    def _append_text(self, text):
+    def _is_current_ai(self, gen):
+        return gen is None or gen == getattr(self, '_ai_gen', 0)
+
+    def _append_text(self, text, gen=None):
+        if not self._is_current_ai(gen):
+            return
         cursor = self.editor.textCursor()
         cursor.movePosition(cursor.End)
         cursor.insertText(text)
         self.editor.setTextCursor(cursor)
 
-    def _on_finished(self, _):
-        # AI 응답 후 공문 규정 자동 보정
+    def _restore_before_ai(self):
+        """AI가 쓰기 전 내용으로 되돌린다."""
+        self.editor.blockSignals(True)
+        self.editor.setPlainText(getattr(self, '_before_ai', ''))
+        self.editor.blockSignals(False)
+        self._apply_editor_line_height()
+        self.editor.setUndoRedoEnabled(True)
+
+    def _on_finished(self, _, gen=None):
+        if not self._is_current_ai(gen):
+            return
+        self._ai_gen = getattr(self, '_ai_gen', 0) + 1          # 이 요청은 끝 — 이후 신호 무시
         raw = self.editor.toPlainText()
+        if not raw.strip():
+            self._restore_before_ai()
+            self.statusBar().showMessage("AI가 빈 답을 보냈습니다 — 원래 내용을 그대로 두었습니다. 다시 시도해 주세요.")
+            self._set_controls_enabled(True)
+            return
+        # AI 응답 후 공문 규정 자동 보정
         corrected = _correct_document_format(raw)
-        if corrected != raw:
-            self.editor.blockSignals(True)
-            self.editor.setPlainText(corrected)
-            self.editor.blockSignals(False)
-            self._apply_editor_line_height()
+        # 원래 내용 → (한 번의 편집으로) 새 내용: Ctrl+Z 한 번이면 원래 내용으로 돌아감
+        self._restore_before_ai()
+        cursor = self.editor.textCursor()
+        cursor.beginEditBlock()
+        cursor.select(QTextCursor.Document)
+        cursor.insertText(corrected)
+        cursor.select(QTextCursor.Document)                       # 줄간격도 같은 편집 안에서 (되돌리기 1번)
+        from PyQt5.QtGui import QTextBlockFormat
+        fmt = QTextBlockFormat()
+        fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
+        cursor.mergeBlockFormat(fmt)
+        cursor.endEditBlock()
+        cursor.movePosition(QTextCursor.End)
+        self.editor.setTextCursor(cursor)
         masked = getattr(self.ai_thread, 'masked_counts', None) or {}
         if masked:
             from privacy import describe
-            self.statusBar().showMessage(f"완료 — 🛡 개인정보 {describe(masked)}을 가리고 보냈습니다.")
+            self.statusBar().showMessage(f"완료 — 🛡 개인정보 {describe(masked)}을 가리고 보냈습니다. (Ctrl+Z: 이전 내용)")
         else:
-            self.statusBar().showMessage("완료")
+            self.statusBar().showMessage("완료 — Ctrl+Z를 누르면 이전 내용으로 돌아갑니다.")
         self._set_controls_enabled(True)
         self.ai_input.clear()
 
-    def _on_error(self, msg):
-        self.statusBar().showMessage(f"오류: {msg}")
+    def _on_error(self, msg, gen=None):
+        if not self._is_current_ai(gen):
+            return
+        self._ai_gen = getattr(self, '_ai_gen', 0) + 1
+        self._restore_before_ai()
+        self.statusBar().showMessage(f"오류: {msg} — 원래 내용으로 되돌렸습니다.")
         self._set_controls_enabled(True)
 
     def _set_controls_enabled(self, enabled):
@@ -820,8 +859,10 @@ class DocumentEditorWindow(QMainWindow):
     def _cancel_ai(self):
         if self.ai_thread and self.ai_thread.isRunning():
             self.ai_thread.stop()
+            self._ai_gen = getattr(self, '_ai_gen', 0) + 1      # 취소 뒤에 도착하는 글자는 무시
             self.ai_thread.wait(500)
-            self.statusBar().showMessage('AI 생성이 취소되었습니다.')
+            self._restore_before_ai()
+            self.statusBar().showMessage('AI 생성을 취소하고 원래 내용으로 되돌렸습니다.')
             self._set_controls_enabled(True)
 
     def _apply_editor_line_height(self):
