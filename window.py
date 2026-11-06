@@ -27,7 +27,7 @@ from ui.chrome import EdgeHandle, MergeButton, TitleBar
 from ui.task_row import _NoteButton, TaskRow
 from ui.document_row import DocumentRow
 from ui.calendar_view import MonthlyCalendarDialog, NativeCalendarDialog
-from ui.theme import T, PALETTE, tc, tct, note_color, qcolor, DARK
+from ui.theme import T, PALETTE, tc, tct, note_color, qcolor, DARK, accent_for_note, set_current_accent, rgba
 import qtawesome as qta
 
 class MemoWindow(QMainWindow):
@@ -52,6 +52,7 @@ class MemoWindow(QMainWindow):
         self.expanded_height = 400
         self.pin_active      = False
         self._bg_color       = tc('#FEFFA7')  # 기본값
+        self._accent         = T.ACCENT       # 메모 색에 맞춘 포인트 색 (_apply_color에서 정함)
         self._capture_hint_shown = False
         self._scale          = 1.0
         self._row_gap        = 0
@@ -148,42 +149,6 @@ class MemoWindow(QMainWindow):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(4)
 
-        field_style_line = f"""
-            QLineEdit {{
-                background: {tc("rgba(255,255,255,0.5)")};
-                border: 1px solid {T.ACCENT};
-                border-radius: 4px;
-                padding: 2px 6px;
-                color: {tct("#333")};
-            }}
-        """
-        _date_base = """
-            QDateEdit::drop-down { width: 0px; border: none; background: transparent; }
-            QDateEdit::up-button { width: 0px; }
-            QDateEdit::down-button { width: 0px; }
-        """
-        self._field_style_date_empty = f"""
-            QDateEdit {{
-                background: {tc("rgba(255,255,255,0.5)")};
-                border: 1px solid {T.ACCENT};
-                border-radius: 4px;
-                padding: 2px 6px;
-                color: {tct("#aaa")};
-                qproperty-alignment: AlignLeft;
-            }}
-        """ + _date_base
-        self._field_style_date_filled = f"""
-            QDateEdit {{
-                background: {tc("rgba(255,255,255,0.5)")};
-                border: 1px solid {T.ACCENT};
-                border-radius: 4px;
-                padding: 2px 6px;
-                color: {tct("#333")};
-                qproperty-alignment: AlignCenter;
-            }}
-        """ + _date_base
-        field_style_date = self._field_style_date_empty
-
         # 1행: 업무
         self.task_input_row = QWidget()
         self.task_input_row.setStyleSheet('background: transparent;')
@@ -191,9 +156,9 @@ class MemoWindow(QMainWindow):
         row1.setContentsMargins(16, 0, 8, 0)
         row1.setSpacing(4)
         self.input_name = QLineEdit()
-        self.input_name.setPlaceholderText('업무명')
+        self.input_name.setPlaceholderText('＋ 업무 추가')
+        self.input_name.setToolTip('업무 이름을 쓰고 Enter — Tab을 누르면 마감일로')
         self.input_name.setFont(QFont('Malgun Gothic', 11))
-        self.input_name.setStyleSheet(field_style_line)
         self._date_touched = False
         self._time_touched = False
         self.input_name.installEventFilter(self)
@@ -202,7 +167,7 @@ class MemoWindow(QMainWindow):
         row1.addWidget(self.input_name, 1)
         content_layout.addWidget(self.task_input_row)
 
-        # 2행: 마감일 (기본 숨김)
+        # 2행: 마감일·시각·반복 — 업무 추가 칸을 누르거나 값이 있을 때만 보임 (_sync_input_details)
         self.date_row_widget = QWidget()
         self.date_row_widget.setStyleSheet('background: transparent;')
         row2 = QHBoxLayout(self.date_row_widget)
@@ -216,7 +181,6 @@ class MemoWindow(QMainWindow):
         self.input_date.setDate(QDate(1900, 1, 1))  # 빈 칸으로 표시
         self.input_date.setFixedWidth(115)
         self.input_date.setFont(QFont('Malgun Gothic', 11))
-        self.input_date.setStyleSheet(field_style_date)
         self.input_date.dateChanged.connect(self._on_date_changed)
         self.input_date.installEventFilter(self)
         for child in self.input_date.findChildren(QWidget):
@@ -226,23 +190,6 @@ class MemoWindow(QMainWindow):
         self.input_time.setFixedWidth(68)
         self.input_time.setFont(QFont('Malgun Gothic', 11))
         self.input_time.setEnabled(False)
-        self.input_time.setStyleSheet(f"""
-            QTimeEdit {{
-                background: {tc("rgba(255,255,255,0.5)")};
-                border: 1px solid {T.ACCENT};
-                border-radius: 4px;
-                padding: 2px 6px;
-                color: {tct("#333")};
-                qproperty-alignment: AlignCenter;
-            }}
-            QTimeEdit:disabled {{
-                background: {tc("rgba(255,255,255,0.2)")};
-                border: 1px solid {tc("#ddd")};
-                color: {tct("#bbb")};
-            }}
-            QTimeEdit::up-button {{ width: 0px; }}
-            QTimeEdit::down-button {{ width: 0px; }}
-        """)
         self.input_time.timeChanged.connect(lambda: setattr(self, '_time_touched', True))
         self.input_time.installEventFilter(self)
         for child in self.input_time.findChildren(QWidget):
@@ -294,18 +241,17 @@ class MemoWindow(QMainWindow):
         self._cal_popup.setWeekdayTextFormat(Qt.Sunday, fmt_sun)
         self._cal_popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
         self._cal_popup.clicked.connect(self._on_cal_date_selected)
-        btn_history = QPushButton('지난 기록')
-        btn_history.setFont(QFont('Malgun Gothic', 10))
+        btn_history = QPushButton()
+        btn_history.setIcon(qta.icon('ph.clock-counter-clockwise-bold', color=qcolor('#000000', 150)))
+        btn_history.setIconSize(QSize(16, 16))
+        btn_history.setToolTip('지난 기록 (삭제한 업무 보기·복원)')
+        btn_history.setCursor(Qt.PointingHandCursor)
         btn_history.setStyleSheet(f"""
-            QPushButton {{
-                background: {tc("rgba(255,255,255,0.5)")};
-                border: 1px solid {T.ACCENT};
-                border-radius: 4px;
-                padding: 2px 6px;
-                color: {T.TEXT_ON_NOTE};
-            }}
-            QPushButton:hover {{ background: {tc("rgba(212,184,0,0.25)")}; }}
+            QPushButton {{ background: transparent; border: none; border-radius: 7px; padding: 0 6px; }}
+            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.08)")}; }}
+            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.14)")}; }}
         """)
+        self._btn_history = btn_history
         btn_history.clicked.connect(self._show_history)
         row1.addWidget(btn_history)
 
@@ -316,21 +262,12 @@ class MemoWindow(QMainWindow):
         self.input_recurrence.installEventFilter(self)
         self.input_recurrence.setFixedWidth(90)
         self.input_recurrence.setFont(QFont('Malgun Gothic', 11))
-        self._recurrence_style_base = (
-            f"QComboBox {{{{ border: 1px solid {T.ACCENT}; border-radius: 4px; padding: 0 6px; "
-            f"background: {tc('#fffde7')}; color: {{color}}; }}}}"
-            f"QComboBox:focus {{{{ border: 2px solid {tc('#4a90d9')}; background: {tc('rgba(255,255,255,0.85)')}; }}}}"
-            "QComboBox::drop-down {{ border: none; width: 0px; }}"
-            "QComboBox QAbstractItemView {{ font-family: 'Malgun Gothic'; font-size: 11pt; }}"
-        )
-        self.input_recurrence.setStyleSheet(self._recurrence_style_base.format(color=tc('#aaa')))
         self._custom_recurrence_val = ''
         self.input_recurrence.currentIndexChanged.connect(self._on_recurrence_index_changed)
 
-        _row_h = self.input_name.sizeHint().height()
-        self.input_date.setFixedHeight(_row_h)
-        self.input_time.setFixedHeight(_row_h)
-        self.input_recurrence.setFixedHeight(_row_h)
+        self._size_inputs()
+        self.date_row_widget.hide()
+        QApplication.instance().focusChanged.connect(self._on_app_focus_changed)
 
         row2.addWidget(self.input_date)
         row2.addWidget(self.input_time)
@@ -356,12 +293,6 @@ class MemoWindow(QMainWindow):
         self.task_scroll.setWidgetResizable(True)
         self.task_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.task_scroll.setWidget(self.task_list_widget)
-        self.task_scroll.setStyleSheet(f"""
-            QScrollArea {{ border: none; background: transparent; }}
-            QScrollBar:vertical {{ width: 6px; background: transparent; }}
-            QScrollBar::handle:vertical {{ background: {T.ACCENT}; border-radius: 3px; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-        """)
         content_layout.addWidget(self.task_scroll)
 
         # 메모 모드 자유 편집기 (기본 숨김)
@@ -583,6 +514,7 @@ class MemoWindow(QMainWindow):
             self.input_date.setStyleSheet(self._field_style_date_empty)
 
     def _on_name_cleared(self, text):
+        self._sync_input_details()
         if not text:
             self.input_date.setDate(QDate(1900, 1, 1))
             self.input_time.setEnabled(False)
@@ -591,8 +523,8 @@ class MemoWindow(QMainWindow):
             self._time_touched = False
 
     def _on_recurrence_index_changed(self, idx):
-        color = tc('#aaa') if idx == 0 else tc('#333')
-        self.input_recurrence.setStyleSheet(self._recurrence_style_base.format(color=color))
+        self.input_recurrence.setStyleSheet(self._recur_style(idx != 0))
+        self._sync_input_details()
         if idx == 5:
             dlg = CustomRecurrenceDialog(self, current=self._custom_recurrence_val)
             if dlg.exec_() == QDialog.Accepted:
@@ -630,7 +562,7 @@ class MemoWindow(QMainWindow):
         self._title_sep.setVisible(on)
         self._sep_date.setVisible(not on)
         self.task_input_row.setVisible(not on)
-        self.date_row_widget.setVisible(not on)
+        self._sync_input_details()
         self.task_scroll.setVisible(not on)
         self.memo_editor.setVisible(on)
         btn = self.title_bar.btn_mode
@@ -703,7 +635,7 @@ class MemoWindow(QMainWindow):
             if item and item.widget() and hasattr(item.widget(), 'task'):
                 row = item.widget()
                 if row.task.get('id') == task_id:
-                    row.setStyleSheet(f'background: {tc("rgba(212,184,0,0.35)")}; border-radius: 4px;')
+                    row.setStyleSheet(f'background: {rgba(self._accent, 0.32)}; border-radius: 6px;')
                     QTimer.singleShot(1500, lambda r=row: r._apply_row_style())
                     break
 
@@ -750,7 +682,9 @@ class MemoWindow(QMainWindow):
         while self.task_list_layout.count() > 1:
             item = self.task_list_layout.takeAt(0)
             if item.widget():
+                item.widget().hide()            # 지워질 때까지 겹쳐 그려지지 않게
                 item.widget().deleteLater()
+        set_current_accent(self._accent)        # 업무 줄이 이 메모 창 색의 포인트 색을 쓰도록
         for task in get_tasks(self.window_id):
             row = TaskRow(task, self._delete_task, self._refresh_tasks, scale=self._scale,
                           expanded=task['id'] in self._expanded_note_ids,
@@ -1386,17 +1320,87 @@ class MemoWindow(QMainWindow):
         pos = btn.mapToGlobal(btn.rect().bottomLeft())
         menu.exec_(pos)
 
-    _SEP_COLOR_MAP = {
-        '#CCFF90': '#A3CC73',
-        '#A8F0E8': '#86C0BA',
-        '#AECBFA': '#8BA2C8',
-        '#D7AEFB': '#AC8BC8',
-        '#FDCFE8': '#CAA6BA',
-        '#E6C9A8': '#B8A186',
-        '#AAAAAA': '#888888',
-        '#DDDDDD': '#B1B1B1',
-        '#FFFFFF': '#CCCCCC',
-    }
+
+    # ── 입력칸 (메모 색에 맞춘 포인트 색) ───────────────────────────
+    def _chip(self, kind, color):
+        """테두리 없는 둥근 칸: 평소엔 옅은 바탕, 누르면 흰 바탕 + 포인트 색 테두리."""
+        ac = self._accent
+        return f"""
+            {kind} {{
+                background: {tc("rgba(0,0,0,0.055)")};
+                border: 1px solid transparent;
+                border-radius: 7px;
+                padding: 2px 9px;
+                color: {color};
+            }}
+            {kind}:hover {{ background: {tc("rgba(0,0,0,0.08)")}; }}
+            {kind}:focus {{ background: {tc("rgba(255,255,255,0.75)")}; border: 1px solid {ac}; }}
+        """
+
+    def _recur_style(self, chosen: bool) -> str:
+        return (self._chip('QComboBox', tct('#333') if chosen else tc('rgba(0,0,0,0.42)'))
+                + "QComboBox::drop-down { border: none; width: 0px; }"
+                  "QComboBox QAbstractItemView { font-family: 'Malgun Gothic'; font-size: 11pt; }")
+
+    def _style_inputs(self):
+        if not hasattr(self, 'input_name'):
+            return
+        ac = self._accent
+        self.input_name.setStyleSheet(self._chip('QLineEdit', tct('#222')).replace('padding: 2px 9px', 'padding: 3px 11px'))
+        _date_base = """
+            QDateEdit::drop-down { width: 0px; border: none; background: transparent; }
+            QDateEdit::up-button { width: 0px; }
+            QDateEdit::down-button { width: 0px; }
+        """
+        self._field_style_date_empty = (self._chip('QDateEdit', tc('rgba(0,0,0,0.42)'))
+                                        + 'QDateEdit { qproperty-alignment: AlignLeft; }' + _date_base)
+        self._field_style_date_filled = (self._chip('QDateEdit', tct('#222'))
+                                         + 'QDateEdit { qproperty-alignment: AlignCenter; }' + _date_base)
+        self.input_date.setStyleSheet(self._field_style_date_filled if self._date_touched
+                                      else self._field_style_date_empty)
+        self.input_time.setStyleSheet(self._chip('QTimeEdit', tct('#222')) + f"""
+            QTimeEdit {{ qproperty-alignment: AlignCenter; }}
+            QTimeEdit:disabled {{ background: transparent; color: {tc("rgba(0,0,0,0.22)")}; }}
+            QTimeEdit::up-button {{ width: 0px; }}
+            QTimeEdit::down-button {{ width: 0px; }}
+        """)
+        self.input_recurrence.setStyleSheet(self._recur_style(self.input_recurrence.currentIndex() != 0))
+        self.task_scroll.setStyleSheet(f"""
+            QScrollArea {{ border: none; background: transparent; }}
+            QScrollBar:vertical {{ width: 6px; background: transparent; }}
+            QScrollBar::handle:vertical {{ background: {rgba(ac, 0.45)}; border-radius: 3px; }}
+            QScrollBar::handle:vertical:hover {{ background: {rgba(ac, 0.7)}; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        """)
+
+    def _size_inputs(self):
+        row_h = self.input_name.sizeHint().height() + 6
+        self.input_name.setFixedHeight(row_h)
+        self._btn_history.setFixedHeight(row_h)
+        for w in (self.input_date, self.input_time, self.input_recurrence):
+            w.setFixedHeight(row_h - 4)
+
+    def _on_app_focus_changed(self, *_):
+        try:
+            self._sync_input_details()
+        except RuntimeError:        # 닫혀서 정리된 창
+            pass
+
+    def _sync_input_details(self):
+        """마감일·시각·반복 줄은 업무 추가 칸을 쓰고 있거나 값을 골랐을 때만 보인다."""
+        if not hasattr(self, 'date_row_widget'):
+            return
+        if getattr(self, '_memo_mode', False):
+            self.date_row_widget.hide()
+            return
+        fw = QApplication.focusWidget()
+        in_form = fw is not None and any(fw is w or w.isAncestorOf(fw)
+                                         for w in (self.task_input_row, self.date_row_widget))
+        show = (in_form or bool(self.input_name.text().strip()) or self._date_touched
+                or self.input_recurrence.currentIndex() != 0
+                or (hasattr(self, '_cal_popup') and self._cal_popup.isVisible()))
+        if show != self.date_row_widget.isVisible():
+            self.date_row_widget.setVisible(show)
 
     def _apply_color(self, hex_color):
         self._bg_color = hex_color            # 저장값(라이트 색) 그대로 유지
@@ -1410,10 +1414,14 @@ class MemoWindow(QMainWindow):
             }}
         """)
         self.title_bar.apply_style(title_color)
+        self._accent = accent_for_note(shown)   # 이 메모 색에 맞춘 포인트 색 (입력칸·선택한 줄·스크롤바)
+        self._style_inputs()
+        if hasattr(self, 'task_list_layout') and self.task_list_layout.count() > 1:
+            self._refresh_tasks()               # 업무 줄도 새 색으로
         if DARK:
             sep_color = QColor(shown).lighter(160).name()
         else:
-            sep_color = self._SEP_COLOR_MAP.get(hex_color.upper(), T.DIVIDER)
+            sep_color = QColor(shown).darker(118).name()
         sep_style = f'background: {sep_color}; border: none;'
         self._title_sep.setStyleSheet(sep_style)
         self._sep_date.setStyleSheet(sep_style)
@@ -2162,10 +2170,7 @@ class MemoWindow(QMainWindow):
         self.input_time.setFixedWidth(int(68 * s))
         self.input_recurrence.setFont(QFont('Malgun Gothic', int(10 * s)))
         self.input_recurrence.setFixedWidth(int(90 * s))
-        _row_h = self.input_name.sizeHint().height()
-        self.input_date.setFixedHeight(_row_h)
-        self.input_time.setFixedHeight(_row_h)
-        self.input_recurrence.setFixedHeight(_row_h)
+        self._size_inputs()
         self.memo_editor.setFont(pr_font(int(12 * s)))
 
     def _set_scale(self, scale, menu=None):

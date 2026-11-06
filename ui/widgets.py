@@ -29,6 +29,12 @@ class AddDateButton(QLabel):
 
     def __init__(self, *args, **kwargs):
         super().__init__('＋날짜', *args, **kwargs)
+        from .theme import current_accent, rgba
+        ac = current_accent()      # 이 메모 창 색에 맞춘 포인트 색
+        self._STYLE_HOVER = (
+            f'color: {tct("#777")}; background: {rgba(ac, 0.12)};'
+            f'border: 1px dashed {ac}; border-radius: 3px; padding: 1px 5px;'
+        )
         self.setCursor(Qt.PointingHandCursor)
         self.setFont(pr_font(10))
         self._row_hover = False

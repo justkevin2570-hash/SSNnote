@@ -287,3 +287,39 @@ for _k, _v in list(vars(T).items()):
         if DARK and isinstance(_v, str) and not _k.startswith('FONT'):
             setattr(T, _k, _DARK.get(_k, dark_color(_v)))
 del _k, _v
+
+
+# ── 메모 색에 맞춘 포인트 색 ─────────────────────────────────────
+# 메모 창마다 바탕색에서 포인트 색(입력칸 테두리·선택한 줄·스크롤바 등)을 만든다.
+# 업무 줄은 만들어질 때 지금 값(current_accent)을 받아 둔다 — 창이 여러 개여도 각자 자기 색.
+_CURRENT_ACCENT = None
+
+
+def accent_for_note(shown_hex: str) -> str:
+    """메모 바탕(표시색)과 같은 색 계열의 진한 포인트 색. 무채색 메모는 회색."""
+    from PyQt5.QtGui import QColor
+    c = QColor(shown_hex)
+    h, s, v, _ = c.getHsv()
+    if h < 0 or s < 12:                       # 흰색·회색 메모
+        return QColor.fromHsv(0, 0, min(220, v + 90) if DARK else max(100, v - 110)).name()
+    if DARK:
+        return QColor.fromHsv(h, min(255, s + 40), min(255, v + 120)).name()
+    if 40 <= h <= 70:                         # 노랑 계열은 황금빛으로 (올리브색 방지)
+        h = 48
+    return QColor.fromHsv(h, min(255, max(s + 90, 150)), max(120, v - 75)).name()
+
+
+def set_current_accent(hex_color):
+    global _CURRENT_ACCENT
+    _CURRENT_ACCENT = hex_color
+
+
+def current_accent() -> str:
+    return _CURRENT_ACCENT or T.ACCENT
+
+
+def rgba(hex_color: str, alpha: float) -> str:
+    """'#d4b800', 0.25 → 'rgba(212,184,0,0.25)' (QSS용)."""
+    from PyQt5.QtGui import QColor
+    c = QColor(hex_color)
+    return f'rgba({c.red()},{c.green()},{c.blue()},{alpha})'

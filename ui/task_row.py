@@ -23,7 +23,7 @@ from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, 
 from .dates import calc_dday
 from .widgets import AddDateButton, CustomCalendarWidget, DdayLabel, RotatedMenuButton
 from .dialogs import CustomRecurrenceDialog
-from .theme import T, tc, tct, qcolor
+from .theme import T, tc, tct, qcolor, current_accent, rgba
 
 class _AutoHeightEdit(QPlainTextEdit):
     selectRequested = pyqtSignal()
@@ -176,6 +176,7 @@ class _NoteButton(QPushButton):
 
     def __init__(self, scale=1.0, glyph_offset=4):
         super().__init__()
+        self._accent       = current_accent()
         self._hovered      = False
         self._has_note     = False
         self._overdue      = False
@@ -223,7 +224,7 @@ class _NoteButton(QPushButton):
         else:
             return
         if self._hovered:
-            color = QColor(T.ACCENT)
+            color = QColor(self._accent)
         else:
             color = qcolor('#000000', alpha)
         try:
@@ -243,6 +244,7 @@ class _ElideButton(QPushButton):
 
     def __init__(self, text=''):
         super().__init__(text)
+        self._accent = current_accent()
         self._hovered = False
         self.setFlat(True)
         self.setCursor(Qt.PointingHandCursor)
@@ -266,7 +268,7 @@ class _ElideButton(QPushButton):
     def paintEvent(self, e):
         p = QPainter(self)
         p.setFont(self.font())
-        p.setPen(QColor(T.ACCENT) if self._hovered else QColor(tc('#333333')))
+        p.setPen(QColor(self._accent) if self._hovered else QColor(tc('#333333')))
         fm = self.fontMetrics()
         elided = fm.elidedText(self.text(), Qt.ElideRight, max(0, self.width() - 4))
         p.drawText(self.rect().adjusted(2, 0, -2, 0), Qt.AlignLeft | Qt.AlignVCenter, elided)
@@ -304,6 +306,8 @@ class _InlineNoteEdit(QWidget):
 
     def __init__(self, parent=None, scale=1.0):
         super().__init__(parent)
+        _ac = current_accent()
+        _ach = QColor(_ac).darker(125).name()
         # 높이는 TaskRow가 내용 기반으로 조절(setGeometry). min/max만 지정.
         self.setMinimumHeight(self.HEIGHT)
         self.setMaximumHeight(self.MAX_HEIGHT)
@@ -321,12 +325,12 @@ class _InlineNoteEdit(QWidget):
         self.ref_edit.setStyleSheet(f"""
             QLineEdit {{
                 background: {tc("rgba(255,255,255,0.6)")};
-                border: 1px solid {T.ACCENT};
+                border: 1px solid {_ac};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: {tct("#333")};
             }}
-            QLineEdit:focus {{ border: 1px solid {T.ACCENT_HOVER}; }}
+            QLineEdit:focus {{ border: 1px solid {_ach}; }}
         """)
         self.ref_edit.textChanged.connect(self.relatedNoChanged)
         self.ref_edit.installEventFilter(self)
@@ -341,13 +345,13 @@ class _InlineNoteEdit(QWidget):
         self.btn_copy.setStyleSheet(f"""
             QPushButton {{
                 background: {tc("rgba(255,255,255,0.6)")};
-                border: 1px solid {T.ACCENT};
+                border: 1px solid {_ac};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: {T.TEXT_ON_NOTE};
             }}
-            QPushButton:hover {{ background: {tc("rgba(212,184,0,0.25)")}; }}
-            QPushButton:pressed {{ background: {tc("rgba(212,184,0,0.42)")}; padding: 2px 0 0 2px; }}
+            QPushButton:hover {{ background: {rgba(_ac, 0.25)}; }}
+            QPushButton:pressed {{ background: {rgba(_ac, 0.42)}; padding: 2px 0 0 2px; }}
         """)
         self.btn_copy.clicked.connect(self._copy_related_no)
         top.addWidget(self.btn_copy)
@@ -363,13 +367,13 @@ class _InlineNoteEdit(QWidget):
         self.btn_shot.setStyleSheet(f"""
             QPushButton {{
                 background: {tc("rgba(255,255,255,0.6)")};
-                border: 1px solid {T.ACCENT};
+                border: 1px solid {_ac};
                 border-radius: 4px;
                 padding: 2px 6px;
                 color: {T.TEXT_ON_NOTE};
             }}
-            QPushButton:hover {{ background: {tc("rgba(212,184,0,0.25)")}; }}
-            QPushButton:pressed {{ background: {tc("rgba(212,184,0,0.42)")}; padding: 2px 0 0 2px; }}
+            QPushButton:hover {{ background: {rgba(_ac, 0.25)}; }}
+            QPushButton:pressed {{ background: {rgba(_ac, 0.42)}; padding: 2px 0 0 2px; }}
         """)
         self.btn_shot.clicked.connect(self._start_inline_capture)
         top.addWidget(self.btn_shot)
@@ -383,12 +387,12 @@ class _InlineNoteEdit(QWidget):
         self.editor.setStyleSheet(f"""
             QPlainTextEdit {{
                 background: {tc("rgba(255,255,255,0.6)")};
-                border: 1px solid {T.ACCENT};
+                border: 1px solid {_ac};
                 border-radius: 4px;
                 color: {tct("#333")};
                 padding: 2px 4px;
             }}
-            QPlainTextEdit:focus {{ border: 1px solid {T.ACCENT_HOVER}; }}
+            QPlainTextEdit:focus {{ border: 1px solid {_ach}; }}
         """)
         self.editor.installEventFilter(self)
         outer.addWidget(self.editor, 1)
@@ -516,6 +520,7 @@ class TaskRow(QWidget):
                  on_select=None, on_navigate=None, on_clear=None,
                  attach_expanded=False, on_attach_toggle=None):
         super().__init__()
+        self._accent = current_accent()     # 이 메모 창 색에 맞춘 포인트 색
         # 행이 남는 공간을 먹고 세로로 늘어나지 않게 (여유 공간은 addStretch가 흡수)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.task      = task
@@ -621,7 +626,7 @@ class TaskRow(QWidget):
             }}
             QPlainTextEdit:focus {{
                 background: {tc("rgba(255,255,255,0.6)")};
-                border-bottom: 1px solid {T.ACCENT};
+                border-bottom: 1px solid {self._accent};
             }}
         """)
         if self._strikethrough:
@@ -685,7 +690,7 @@ class TaskRow(QWidget):
         self.btn_attach.setFont(pr_font(round(11 * scale)))
         self.btn_attach.setStyleSheet(
             f'QPushButton {{ border: none; color: {tct("#555555")}; background: transparent; padding: 0; }}'
-            f'QPushButton:pressed {{ color: {T.ACCENT}; }}'
+            f'QPushButton:pressed {{ color: {self._accent}; }}'
         )
         _att_icon = os.path.join(_base_path(), 'assets', 'clip.png')
         self._attach_icon_ok = os.path.exists(_att_icon)
@@ -792,9 +797,9 @@ class TaskRow(QWidget):
 
     def _apply_row_style(self):
         if getattr(self, '_drag_hover', False):
-            style = f'QWidget#TaskRow {{ background: {tc("rgba(212,184,0,0.16)")}; border-radius: 4px; }}'
+            style = f'QWidget#TaskRow {{ background: {rgba(self._accent, 0.16)}; border-radius: 6px; }}'
         elif self._selected:
-            style = f'QWidget#TaskRow {{ background: {tc("rgba(212,184,0,0.25)")}; border-radius: 4px; }}'
+            style = f'QWidget#TaskRow {{ background: {rgba(self._accent, 0.22)}; border-radius: 6px; }}'
         elif self._hovered:
             style = f'QWidget#TaskRow {{ background: {tc("rgba(0,0,0,12)")}; border-radius: 6px; }}'
         else:
@@ -1084,10 +1089,10 @@ class TaskRow(QWidget):
             else:
                 self.btn_attach.setText('📎' if n == 1 else f'📎{n}')
                 self.btn_attach.setFixedSize(round(19 * self._scale), round(19 * self._scale))
-            accent = f'QPushButton {{ border: none; color: {T.ACCENT}; background: transparent; padding: 0; }}' \
-                     f'QPushButton:pressed {{ color: {T.ACCENT}; }}' if self._attach_expanded else \
+            accent = f'QPushButton {{ border: none; color: {self._accent}; background: transparent; padding: 0; }}' \
+                     f'QPushButton:pressed {{ color: {self._accent}; }}' if self._attach_expanded else \
                      f'QPushButton {{ border: none; color: {tct("#555555")}; background: transparent; padding: 0; }}' \
-                     f'QPushButton:pressed {{ color: {T.ACCENT}; }}'
+                     f'QPushButton:pressed {{ color: {self._accent}; }}'
             self.btn_attach.setStyleSheet(accent)
             self.btn_attach.show()
 
