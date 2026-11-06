@@ -36,6 +36,9 @@ def _read_app_version() -> str:
 APP_VERSION = _read_app_version()
 
 _VERSION_JSON_URL = 'https://gist.githubusercontent.com/justkevin2570-hash/57ec4979c5373758f658ee957fd80386/raw/version.json'
+# 최신 GitHub 릴리스 — 릴리스를 올리면 바로 업데이트 알림 (Gist를 고치지 않아도 됨)
+_LATEST_RELEASE_URL = 'https://api.github.com/repos/justkevin2570-hash/SSNnote/releases/latest'
+_SETUP_ASSET_NAME = 'SSNnote_Setup.exe'
 _APPDATA_DIR = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
 _NOTIFIED_FILE = os.path.join(_APPDATA_DIR, 'last_notified_version.txt')
 _REQUEST_TIMEOUT = 10
@@ -61,9 +64,57 @@ def _fetch_url(url: str, extra_headers: str = '') -> dict | None:
         return None
 
 
+def release_to_version_info(release: dict) -> dict | None:
+    """GitHub 릴리스 API 응답 → version.json과 같은 모양 {version, download_url, sha256, changelog}.
+
+    설치 파일(SSNnote_Setup.exe)이 없거나 초안·시험판이면 None.
+    sha256은 GitHub가 계산해 주는 파일 digest('sha256:...')를 쓴다.
+    """
+    if not isinstance(release, dict) or release.get('draft') or release.get('prerelease'):
+        return None
+    tag = release.get('tag_name') or ''
+    asset = next((a for a in release.get('assets') or [] if a.get('name') == _SETUP_ASSET_NAME), None)
+    if not tag or not asset or not asset.get('browser_download_url'):
+        return None
+    digest = asset.get('digest') or ''
+    sha = digest.split(':', 1)[1].upper() if digest.lower().startswith('sha256:') else ''
+    return {
+        'version': tag,
+        'download_url': asset['browser_download_url'],
+        'sha256': sha,
+        'changelog': (release.get('body') or '').strip(),
+    }
+
+
+def _fetch_latest_release() -> dict | None:
+    try:
+        req = urllib.request.Request(_LATEST_RELEASE_URL)
+        req.add_header('Accept', 'application/vnd.github+json')
+        req.add_header('User-Agent', 'SSNnote')
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT, context=ctx) as resp:
+            return release_to_version_info(json.loads(resp.read().decode('utf-8')))
+    except Exception:
+        return None
+
+
+def pick_newest(*infos) -> dict | None:
+    """여러 출처(GitHub 릴리스, Gist) 중 가장 높은 버전. 모두 실패면 None."""
+    best = None
+    for info in infos:
+        if not info or not info.get('version') or not info.get('download_url'):
+            continue
+        if best is None or is_newer_version(info['version'], best['version']):
+            best = info
+    return best
+
+
 def fetch_version_info() -> dict | None:
-    """version.json에서 버전 정보를 가져온다. 실패 시 None 반환."""
-    data = _fetch_url(_VERSION_JSON_URL)
+    """최신 버전 정보: GitHub 최신 릴리스와 Gist version.json 중 더 새 것. 실패 시 None.
+
+    둘 중 하나만 돼도 동작한다 (학교망에서 한쪽이 막히거나 GitHub API 호출 한도에 걸린 경우).
+    """
+    data = pick_newest(_fetch_latest_release(), _fetch_url(_VERSION_JSON_URL))
     if data is None:
         print('[UPDATE] fetch 실패')
     return data
