@@ -1,6 +1,6 @@
 {
   "version": "v2.71",
   "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.71/SSNnote_Setup.exe",
-  "sha256": "",
+  "sha256": "32D1EAF2E6D960823EE1BC4544EB4B845231345BA841011CC6F54580D1FA1786",
   "changelog": "- 💡 사용 설명서를 웹 페이지로 새로 작성 (메뉴 → 도움말 → 사용 설명서, 모든 기능과 단축키 정리)\n- 🤖 OpenCode에서 Claude Haiku 5.5 사용 가능 (Qwen 3.8·MiniMax M3 등 Claude 방식 모델도)\n- OpenCode 기본 모델을 kimi-k3로 변경, DeepSeek 모델에 '지역 설정 필요' 표시\n- 🛠 v2.68에서 '공문 작성' 창이 열리지 않던 문제 수정\n- 🔄 업데이트 확인을 GitHub 릴리스에서도 직접 (다음 업데이트부터 바로 알림)\n- 📋 오늘 한눈에 보기: 지난 마감·오늘·이번 주 업무와 예산 집행률을 한 장에 (하루 한 번 앱을 켤 때 표시)\n- 📸 AI 공문 캡처 (Ctrl+Shift+X): 공문을 캡처하면 제목·기한·할 일을 뽑아 업무로 등록하고 회신 공문 초안까지 작성\n- 🔍 빠른 찾기 (Ctrl+K): 기능과 업무를 이름이나 초성으로 찾기 (통합 검색을 대신함)\n- 🔑 OpenCode 연결 수리: 키를 넣어도 연결되지 않던 문제 해결, 요금제(Go/Zen) 선택·최신 모델 목록·연결 확인 (메뉴 → 설정 → AI 연결)\n- ✍️ 공문 작성 AI 대화: AI 오류·취소 때 작성 중인 공문이 사라지지 않고, Ctrl+Z로 이전 내용 되돌리기\n- 🤖 Claude 연결 (메뉴 → 설정 → Claude 연결): Claude 앱에서 업무 확인·추가와 공문 초안 작성\n- 🏫 학교 정보 설정과 🛡️ 개인정보 보호 모드: AI로 보내기 전 주민번호·전화번호·학생 이름을 가림\n- 🌙 다크 모드 (메뉴 → 설정 → 다크 모드, 다시 켜면 적용)\n- 메뉴를 자주 쓰는 순서로 정리, 앱 불러오기 단축키를 Ctrl+Shift+E로 변경"
 }
