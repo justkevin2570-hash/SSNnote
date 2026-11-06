@@ -52,13 +52,13 @@ class C:
 
 _FONT = "'Pretendard GOV', 'Pretendard', 'Malgun Gothic'"
 
-def _arrow_png(name: str, icon: str) -> str:
+def _arrow_png(name: str, icon: str, color: str = C.MUTED) -> str:
     """스핀 박스 화살표 그림 (qtawesome → 임시 PNG). 실패하면 '' (Qt 기본 화살표)."""
     try:
         import tempfile
         path = os.path.join(tempfile.gettempdir(), f'ssnnote_{name}.png')
         if not os.path.exists(path):
-            qta.icon(icon, color=C.MUTED).pixmap(16, 16).save(path)
+            qta.icon(icon, color=color).pixmap(16, 16).save(path)
         return path.replace('\\', '/')
     except Exception:
         return ''
@@ -136,6 +136,35 @@ _STYLE_TEMPLATE = f"""
     QPushButton#AIPrimaryButton:disabled {{ background: {C.BORDER}; }}
 
     QCheckBox {{ color: {C.TEXT}; font-size: 10pt; spacing: 6px; background: transparent; }}
+
+    QFrame#Panel {{ background: {C.SURFACE}; border: none; border-right: 1px solid {C.BORDER}; }}
+    QWidget#PanelInner {{ background: {C.SURFACE}; }}
+    QLabel#SectionTitle {{ color: {C.TEXT}; font-size: 11pt; font-weight: 700; }}
+    QLabel#Thumb {{ background: {C.BG}; border: 1px solid {C.BORDER}; border-radius: 6px; }}
+    QLabel#Status {{ color: {C.MUTED}; font-size: 9pt; }}
+    QLabel#Status[state="error"] {{ color: #DC2626; }}
+    QLabel#Status[state="done"] {{ color: {C.TEXT}; }}
+    QPlainTextEdit, QDateEdit, QTimeEdit {{
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 7px; padding: 4px 8px;
+        color: {C.TEXT}; selection-background-color: {C.ACCENT_LINE}; selection-color: {C.TEXT};
+    }}
+    QPlainTextEdit:focus, QDateEdit:focus, QTimeEdit:focus {{ border: 1px solid {C.ACCENT}; }}
+    QLineEdit:disabled, QPlainTextEdit:disabled, QDateEdit:disabled, QTimeEdit:disabled {{
+        background: {C.BG}; color: {C.FAINT}; }}
+    QWidget#PanelFooter {{ background: {C.SURFACE}; border-top: 1px solid {C.BORDER}; }}
+    QCheckBox#FieldCheck {{ color: {C.MUTED}; font-weight: 600; }}
+    QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {C.BORDER_HI}; border-radius: 4px;
+        background: {C.SURFACE}; }}
+    QCheckBox::indicator:checked {{ background: {C.ACCENT}; border-color: {C.ACCENT}; image: url(__CHECK__); }}
+    QCheckBox::indicator:disabled {{ background: {C.BG}; border-color: {C.BORDER}; }}
+    QDateEdit::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; width: 20px; border: none; }}
+    QDateEdit::down-arrow {{ image: url(__DOWN__); width: 8px; height: 8px; }}
+    QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px; }}
+    QScrollBar::handle:vertical {{ background: {C.BORDER_HI}; border-radius: 3px; min-height: 30px; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+    QSplitter::handle {{ background: {C.BORDER}; }}
+    QScrollArea {{ background: transparent; }}
     QListWidget {{
         background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 4px; outline: 0;
     }}
@@ -159,7 +188,8 @@ _STYLE_TEMPLATE = f"""
 def _style() -> str:
     """QApplication이 생긴 뒤에 만든다 (화살표 그림을 그리려면 필요)."""
     return (_STYLE_TEMPLATE.replace('__UP__', _arrow_png('spin_up', 'fa5s.chevron-up'))
-            .replace('__DOWN__', _arrow_png('spin_down', 'fa5s.chevron-down')))
+            .replace('__DOWN__', _arrow_png('spin_down', 'fa5s.chevron-down'))
+            .replace('__CHECK__', _arrow_png('check_white', 'fa5s.check', 'white')))
 
 # ── 문서 유형 ─────────────────────────────────────────────────────
 
@@ -473,6 +503,8 @@ class DocumentEditorWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ai_thread = None
+        self._capturing = False
+        DocumentEditorWindow._instance = self
         self.init_ui()
         keep_light(self)  # 공문 작성 창은 아직 라이트 전용 (다크 테마에서도 원래 모습 유지)
 
@@ -502,6 +534,23 @@ class DocumentEditorWindow(QMainWindow):
         title.setObjectName('WindowTitle')
         hl.addWidget(title)
         hl.addStretch()
+        self.btn_panel = QPushButton('받은 공문')
+        self.btn_panel.setObjectName('Ghost')
+        self.btn_panel.setIcon(qta.icon('fa5s.angle-double-right', color=C.MUTED))
+        self.btn_panel.setToolTip('받은 공문 칸 펼치기')
+        self.btn_panel.setCursor(Qt.PointingHandCursor)
+        self.btn_panel.clicked.connect(lambda: self._show_panel(True))
+        self.btn_panel.hide()
+        hl.addWidget(self.btn_panel)
+        self.btn_capture = QPushButton('공문 캡처')
+        self.btn_capture.setIcon(qta.icon('fa5s.crop-alt', color=C.TEXT))
+        self.btn_capture.setIconSize(QSize(13, 13))
+        self.btn_capture.setMinimumHeight(30)
+        self.btn_capture.setCursor(Qt.PointingHandCursor)
+        self.btn_capture.setToolTip('받은 공문을 화면에서 잘라 AI로 읽기 (Ctrl+Shift+X)')
+        self.btn_capture.clicked.connect(lambda: self._start_capture())
+        hl.addWidget(self.btn_capture)
+        hl.addSpacing(4)
         self.btn_apikey = QPushButton("AI 설정")
         self.btn_apikey.setObjectName('Chip')
         self.btn_apikey.setCursor(Qt.PointingHandCursor)
@@ -520,11 +569,31 @@ class DocumentEditorWindow(QMainWindow):
         hl.addWidget(self.btn_help)
         root.addWidget(header)
 
+        # ── 왼쪽: 받은 공문 칸 (캡처하면 나타남) | 오른쪽: 공문 작성 ──
+        from PyQt5.QtWidgets import QSplitter
+        from ui.capture_panel import CapturePanel
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(1)
+        self.panel = CapturePanel()
+        self.panel.setMinimumWidth(280)
+        self.panel.hide()
+        self.panel.register_requested.connect(self._register_from_panel)
+        self.panel.reply_requested.connect(self.start_reply)
+        self.panel.use_title.connect(lambda t: t and self.title_input.setText(t))
+        self.panel.use_ref.connect(lambda t: t and self.ref_input.setText(t))
+        self.panel.collapse_requested.connect(lambda: self._show_panel(False))
+        self.panel.message.connect(self.statusBar().showMessage)
+        self.splitter.addWidget(self.panel)
         body = QWidget()
         layout = QVBoxLayout(body)
         layout.setSpacing(12)
         layout.setContentsMargins(20, 16, 20, 14)
-        root.addWidget(body, 1)
+        self.splitter.addWidget(body)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        root.addWidget(self.splitter, 1)
+        self.register_task_callback = None   # 메모 창이 넣어 줌: (name, deadline, notes, related_no)
 
         # ── 입력 카드: 제목 · 관련 번호 · 붙임 · 자동 초안 ──
         card = QFrame()
@@ -707,12 +776,13 @@ class DocumentEditorWindow(QMainWindow):
         prompt = (
             f"제목: {title}\n{ref_line}\n"
             f"{rag_context}\n"
+            f"{self._received_context()}"
             f"{_profile_block()}"
             '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
         )
         self._start_ai(prompt, system=system, structured=True)
 
-    # ── 회신 공문 (AI 공문 캡처 → 회신 공문 작성) ──
+    # ── 회신 공문 (받은 공문 칸 → 회신 공문 쓰기) ──
     def start_reply(self, analysis: dict, instruction: str = ''):
         """캡처·분석한 공문에 대한 회신 공문: 제목·관련 칸을 채우고 AI 초안을 만든다."""
         import doc_ai
@@ -769,6 +839,9 @@ class DocumentEditorWindow(QMainWindow):
             prompt = f"현재 작성된 공문:\n{current}\n\n사용자 요청: {user_text}"
         else:
             prompt = user_text
+        ctx = self._received_context()
+        if ctx:
+            prompt = f"{ctx}\n{prompt}"
 
         self._start_ai(prompt)
 
@@ -926,9 +999,9 @@ class DocumentEditorWindow(QMainWindow):
             ('fa5s.comment-dots', 'AI에게 요청',
              '아래 칸에 "장소를 시청각실로 바꿔줘"처럼 적고 Enter. 줄바꿈은 Shift+Enter. '
              '결과가 마음에 안 들면 Ctrl+Z 한 번으로 이전 내용으로 돌아갑니다.'),
-            ('fa5s.crop-alt', '제목·관련 번호 캡처',
-             '이 창이 앞에 있을 때 Ctrl+Shift+X로 화면을 잘라 글자를 읽어 옵니다. '
-             '한 칸만 차 있으면 빈 칸으로 들어갑니다.'),
+            ('fa5s.crop-alt', '공문 캡처',
+             'Ctrl+Shift+X나 [공문 캡처]로 받은 공문을 잘라 오면 왼쪽 칸에 공문번호·기한·요약·할 일이 나옵니다. '
+             '거기서 업무로 등록하거나 회신 공문을 쓰고, AI 대화도 그 공문을 참고합니다.'),
             ('fa5s.stop-circle', '취소', 'AI가 쓰는 중에 Esc를 누르면 멈추고 원래 내용으로 되돌립니다.'),
             ('fa5s.shield-alt', '개인정보 보호',
              '보호 모드가 켜져 있으면 AI로 보내기 전에 주민번호·전화번호·이름 등을 가립니다.'),
@@ -1214,11 +1287,21 @@ class DocumentEditorWindow(QMainWindow):
         g = self.geometry()
         with open(self._STATE_FILE, 'w', encoding='utf-8') as f:
             json.dump({'x': g.x(), 'y': g.y(),
-                       'width': g.width(), 'height': g.height()}, f)
+                       'width': g.width() - (self._panel_extra if self.panel.isVisible() else 0),
+                       'height': g.height()}, f)
+        self.panel.shutdown()
+        if DocumentEditorWindow._instance is self:
+            DocumentEditorWindow._instance = None
         super().closeEvent(event)
 
     # ── 캡처 ──────────────────────────────────────────────────────
-    def _start_capture(self):
+    def _start_capture(self, extra_hide=()):
+        """공문 캡처 (Ctrl+Shift+X·[공문 캡처]). AI가 연결되어 있으면 왼쪽 「받은 공문」 칸에서 분석하고,
+        AI가 꺼져 있으면 글자만 읽어 제목·관련 번호 칸에 넣는다. extra_hide: 캡처하는 동안 숨길 다른 창."""
+        self._capturing = True
+        self._capture_hidden = [w for w in extra_hide if w.isVisible()]
+        for w in self._capture_hidden:
+            w.hide()
         self.hide()
         QApplication.processEvents()
         QTimer.singleShot(250, self._show_capture_overlay)
@@ -1233,6 +1316,10 @@ class DocumentEditorWindow(QMainWindow):
         self._overlay.activateWindow()
 
     def _restore_after_capture(self):
+        self._capturing = False
+        for w in getattr(self, '_capture_hidden', []):
+            w.show()
+        self._capture_hidden = []
         self.show()
         self.raise_()
         self.activateWindow()
@@ -1263,9 +1350,66 @@ class DocumentEditorWindow(QMainWindow):
     def _on_capture_complete(self, pixmap):
         self._overlay.region_captured.disconnect()
         self._restore_after_capture()
+        if load_ai_mode() == 'none':
+            self._ocr_fallback(pixmap, self._capture_target())
+            return
+        self._show_panel(True)
+        self.panel.start(pixmap)
+        self.statusBar().showMessage('받은 공문을 AI가 읽는 중… (왼쪽 칸)')
 
-        target = self._capture_target()
-        self._ocr_fallback(pixmap, target)
+    # ── 받은 공문 칸 ─────────────────────────────────────────────
+    _instance = None          # 지금 열려 있는 공문 작성 창 (메모 창·단축키가 같은 창을 쓰도록)
+    _panel_extra = 0          # 칸을 펼치면서 넓힌 창 폭
+
+    def _show_panel(self, show: bool):
+        if show == self.panel.isVisible():
+            return
+        if show:
+            w = 330
+            self.panel.show()
+            self.splitter.setSizes([w, max(self.width(), 600)])
+            # 칸만큼 창을 넓힌다. 오른쪽에 자리가 없으면 창을 왼쪽으로 옮긴다 (화면 밖으로 안 나가게)
+            screen = QApplication.desktop().availableGeometry(self)
+            g = self.frameGeometry()
+            grow = max(0, min(w, screen.width() - g.width()))
+            shift = max(0, min(g.right() + grow - screen.right(), g.left() - screen.left()))
+            self._panel_extra = grow
+            if grow:
+                if shift:
+                    self.move(self.x() - shift, self.y())
+                self.resize(self.width() + grow, self.height())
+        else:
+            self.panel.hide()
+            if self._panel_extra:
+                self.resize(self.width() - self._panel_extra, self.height())
+            self._panel_extra = 0
+        self.btn_panel.setVisible(not show and self.panel.has_content())
+
+    def _received_context(self) -> str:
+        """AI 대화·자동 초안에 함께 보낼 받은 공문 정리 (칸의 [참고] 체크가 켜져 있을 때)."""
+        if not self.panel.use_as_context():
+            return ''
+        import doc_ai
+        return doc_ai.context_block(self.panel.collect())
+
+    def _register_from_panel(self, a: dict):
+        import doc_ai
+        args = (a['title'], doc_ai.task_deadline(a), doc_ai.task_notes(a), doc_ai.related_line(a))
+        try:
+            if self.register_task_callback:
+                self.register_task_callback(*args)
+            else:
+                import db
+                wid = db.get_first_window_id() or db.create_window()
+                db.add_task(wid, args[0], args[1], notes=args[2], related_no=args[3])
+                db.set_setting('external_change', __import__('datetime').datetime.now().isoformat())
+        except Exception as e:
+            QMessageBox.warning(self, '업무 등록 실패', str(e))
+            return
+        if not self.editor.toPlainText().strip() and not self.title_input.text().strip():
+            self.close()          # 공문을 쓰지 않고 업무만 등록했으면 창을 닫는다
+            return
+        self.statusBar().showMessage(f'업무로 등록했습니다: {a["title"]}')
 
     def _ocr_fallback(self, pixmap, target='auto'):
         """Windows OCR로 캡처한 글자를 읽어 제목·관련 번호 칸에 넣는다. winrt 없으면 안내."""

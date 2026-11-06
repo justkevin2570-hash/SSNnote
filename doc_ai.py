@@ -23,14 +23,12 @@ ANALYZE_SYSTEM = (
 
 _ANALYZE_FORMAT = """{
   "title": "공문 제목 (번호·기관명 제외한 제목만)",
-  "doc_number": "문서번호 (예: 경기도교육청 중등교육과-12345). 없으면 빈 문자열",
-  "doc_date": "시행일자 YYYY-MM-DD. 없으면 빈 문자열",
-  "sender": "발신 기관/부서. 없으면 빈 문자열",
+  "doc_number": "문서번호의 부서명-번호만 (기관명 제외, 예: 중등교육과-12345). 없으면 빈 문자열",
+  "doc_date": "시행일자 YYYY-MM-DD (문서번호 옆이나 시행 칸의 날짜). 없으면 빈 문자열",
   "deadline": "학교가 제출·회신·완료해야 하는 기한 YYYY-MM-DD. 없으면 빈 문자열",
   "deadline_time": "기한 시각 HH:MM (예: 17:00). 없으면 빈 문자열",
   "summary": ["핵심 내용 한 줄", "최대 3줄"],
   "todos": ["학교(담당자)가 해야 할 일. 동사로 끝나게. 최대 5개"],
-  "attachments": ["붙임 파일 이름"],
   "needs_reply": true
 }"""
 
@@ -142,16 +140,15 @@ def normalize_analysis(data: dict, today: date = None) -> dict:
     needs = data.get('needs_reply', False)
     if isinstance(needs, str):
         needs = needs.strip().lower() in ('true', 'yes', '1', '예', '필요')
+    doc_date = normalize_date(text('doc_date'), today)
     return {
         'title': text('title'),
-        'doc_number': text('doc_number'),
-        'doc_date': normalize_date(text('doc_date'), today),
-        'sender': text('sender'),
+        'doc_number': format_doc_number(text('doc_number'), doc_date),   # '중등교육과-12345(2026. 11. 3.)'
+        'doc_date': doc_date,
         'deadline': normalize_date(text('deadline'), today),
         'deadline_time': normalize_time(text('deadline_time')),
         'summary': _str_list(data.get('summary'), 3),
         'todos': _str_list(data.get('todos'), 5),
-        'attachments': _str_list(data.get('attachments'), 10),
         'needs_reply': bool(needs),
     }
 
@@ -167,13 +164,46 @@ def format_korean_date(iso: str) -> str:
         return ''
 
 
+_DOC_NO = re.compile(r'([가-힣A-Za-z0-9·]+?)\s*-\s*(\d[\d\s]*)')
+
+
+def format_doc_number(num: str, iso_date: str = '') -> str:
+    """공문번호를 '중등교육과-12345(2026. 11. 3.)' 형식으로 맞춘다.
+
+    기관명('경기도교육청 ')은 빼고, 괄호 안 날짜가 있으면 그 날짜를, 없으면 iso_date(시행일)를 붙인다.
+    날짜는 '2026. 11. 3.'(월·일 앞 0 없음, 마침표 뒤 한 칸). 번호 모양이 아니면 그대로 돌려준다.
+    """
+    s = (num or '').strip()
+    if not s:
+        return ''
+    s = s.translate(str.maketrans('（）【】〔〕［］', '()()()()'))
+    for ch in '—–‑−':
+        s = s.replace(ch, '-')
+    s = re.sub(r'\s+', ' ', s)
+    date_part = ''
+    m = re.search(r'\(([^)]*)\)', s)
+    if m:
+        date_part, s = m.group(1), (s[:m.start()] + s[m.end():]).strip()
+    hits = list(_DOC_NO.finditer(s))
+    if not hits:
+        return (num or '').strip()
+    dept, number = hits[-1].group(1), re.sub(r'\s', '', hits[-1].group(2))
+    d = ''
+    nums = re.findall(r'\d+', date_part)
+    if len(nums) >= 3:
+        y, mo, dd = int(nums[0]), int(nums[1]), int(nums[2])
+        if y < 100:
+            y += 2000
+        if 1 <= mo <= 12 and 1 <= dd <= 31:
+            d = f'{y}. {mo}. {dd}.'
+    if not d:
+        d = format_korean_date(iso_date)
+    return f'{dept}-{number}({d})' if d else f'{dept}-{number}'
+
+
 def related_line(a: dict) -> str:
-    """'관련' 칸에 넣을 문구: '경기도교육청 중등교육과-12345(2026. 11. 5.)'."""
-    num = a.get('doc_number', '')
-    d = format_korean_date(a.get('doc_date', ''))
-    if num and d:
-        return f'{num}({d})'
-    return num
+    """'관련' 칸에 넣을 문구: '중등교육과-12345(2026. 11. 5.)'."""
+    return format_doc_number(a.get('doc_number', ''), a.get('doc_date', ''))
 
 
 def task_deadline(a: dict) -> str:
@@ -186,22 +216,19 @@ def task_deadline(a: dict) -> str:
 def task_notes(a: dict) -> str:
     """업무 메모 칸에 넣을 정리본."""
     parts = []
-    if a.get('sender'):
-        parts.append(f"발신: {a['sender']}")
     if a.get('summary'):
         parts.append('요약\n' + '\n'.join(f'- {s}' for s in a['summary']))
     if a.get('todos'):
         parts.append('할 일\n' + '\n'.join(f'☐ {t}' for t in a['todos']))
-    if a.get('attachments'):
-        parts.append('붙임: ' + ', '.join(a['attachments']))
     return '\n\n'.join(parts)
 
 
 def summary_text(a: dict) -> str:
     """클립보드용 요약 (메신저·회의 공유용)."""
     head = a.get('title', '')
-    if a.get('doc_number'):
-        head += f" ({a['doc_number']})"
+    rel = related_line(a)
+    if rel:
+        head += f" ({rel})"
     lines = [head] if head else []
     if a.get('deadline'):
         lines.append(f"기한: {format_korean_date(a['deadline'])} {a.get('deadline_time', '')}".rstrip())
@@ -226,16 +253,12 @@ def build_reply_prompt(a: dict, profile_text: str = '', instruction: str = '') -
     info = [f"받은 공문 제목: {a.get('title', '')}"]
     if rel:
         info.append(f'관련 문서: {rel}')
-    if a.get('sender'):
-        info.append(f"발신 기관: {a['sender']}")
     if a.get('deadline'):
         info.append(f"제출 기한: {format_korean_date(a['deadline'])} {a.get('deadline_time', '')}".rstrip())
     if a.get('summary'):
         info.append('받은 공문 요약:\n' + '\n'.join(f'- {s}' for s in a['summary']))
     if a.get('todos'):
         info.append('요구 사항:\n' + '\n'.join(f'- {t}' for t in a['todos']))
-    if a.get('attachments'):
-        info.append('받은 공문 붙임: ' + ', '.join(a['attachments']))
     parts = ['\n'.join(info)]
     if profile_text:
         parts.append(profile_text.strip())
@@ -250,6 +273,21 @@ def build_reply_prompt(a: dict, profile_text: str = '', instruction: str = '') -
         '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
     )
     return '\n\n'.join(parts)
+
+
+def context_block(a: dict) -> str:
+    """AI 대화·자동 초안에 함께 보낼 '받은 공문' 정리 (공문 작성 창 왼쪽 칸)."""
+    lines = [f"받은 공문 제목: {a.get('title', '')}"]
+    rel = related_line(a)
+    if rel:
+        lines.append(f'받은 공문 번호: {rel}')
+    if a.get('deadline'):
+        lines.append(f"기한: {format_korean_date(a['deadline'])} {a.get('deadline_time', '')}".rstrip())
+    if a.get('summary'):
+        lines.append('요약:\n' + '\n'.join(f'- {s}' for s in a['summary']))
+    if a.get('todos'):
+        lines.append('할 일:\n' + '\n'.join(f'- {t}' for t in a['todos']))
+    return '[참고: 받은 공문]\n' + '\n'.join(lines) + '\n'
 
 
 def reply_title(a: dict) -> str:

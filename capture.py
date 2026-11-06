@@ -220,8 +220,8 @@ def _normalize_doc_number(text: str) -> str:
     nums = re.findall(r'\d+', rest.translate(_digit_fix))
     if len(nums) >= 3:
         y  = nums[0].zfill(4)
-        mo = nums[1].zfill(2)
-        d  = nums[2].zfill(2)
+        mo = int(nums[1])     # 공문 표기: '2026. 11. 3.' (월·일 앞에 0을 붙이지 않음)
+        d  = int(nums[2])
         # 연도 보정: OCR이 '2'를 'O'→'0'으로 오인식하면 20xx 범위 벗어남
         y_int = int(y)
         if y_int < 1990 or y_int > 2099:

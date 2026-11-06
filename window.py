@@ -886,11 +886,22 @@ class MemoWindow(QMainWindow):
         delete_document(doc_id)
         self._refresh_documents()
 
+    def _ensure_doc_editor(self):
+        """열려 있는 공문 작성 창(없으면 새로)을 돌려준다. 메모 창이 여러 개여도 창은 하나."""
+        from document_editor import DocumentEditorWindow
+        ed = DocumentEditorWindow._instance
+        if ed is None or not (ed.isVisible() or ed._capturing):
+            ed = DocumentEditorWindow(parent=None)
+        ed.register_task_callback = self._register_captured_task
+        self._doc_editor = ed
+        return ed
+
     def _open_document_editor(self):
         try:
-            from document_editor import DocumentEditorWindow
-            self._doc_editor = DocumentEditorWindow(parent=None)
-            self._doc_editor.show()
+            ed = self._ensure_doc_editor()
+            ed.show()
+            ed.raise_()
+            ed.activateWindow()
         except Exception as e:
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.critical(self, '오류', f'공문 작성 창 열기 실패:\n{e}')
@@ -1093,7 +1104,7 @@ class MemoWindow(QMainWindow):
         # 순서·이름은 「…」 메뉴와 맞춘다 (자주 쓰는 기능 → 창 → 이 메모장 → 설정 → 도움말)
         return [
             Command('📋 오늘 한눈에 보기', self._open_dashboard, '', 'dashboard today 대시보드 마감'),
-            Command('📸 AI 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷'),
+            Command('📸 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷 ai 공문 분석 요약'),
             Command('✏️ 새 업무 입력', new_task, '', 'task add 추가 할일'),
             Command('🆕 새 메모장', new_memo, '', 'new memo 메모'),
             Command('✍️ 공문 작성', self._open_document_editor, '', 'document 기안 초안 회신'),
@@ -1154,32 +1165,14 @@ class MemoWindow(QMainWindow):
         dlg.raise_()
         dlg.activateWindow()
 
-    # ── AI 공문 캡처 (캡처 → AI 분석 → 업무 등록 / 회신 공문) ─────────
+    # ── 공문 캡처 (공문 작성 창의 「받은 공문」 칸에서 분석 → 업무 등록 / 회신 공문) ──
     def _start_ai_capture(self):
-        for win in self._open_windows:
-            win.hide()
-        QApplication.processEvents()
-        QTimer.singleShot(250, self._show_ai_capture_overlay)
-
-    def _show_ai_capture_overlay(self):
-        screenshot = grab_fullscreen()
-        self._overlay = ScreenCaptureOverlay(screenshot)
-        self._overlay.region_captured.connect(self._on_ai_capture_complete)
-        self._overlay.cancelled.connect(self._restore_windows)
-        self._overlay.show()
-        self._overlay.activateWindow()
-        self._overlay.setFocus()
-
-    def _on_ai_capture_complete(self, pixmap):
-        self._overlay.region_captured.disconnect()  # 중복 호출 방지
-        self._restore_windows()
-        from ui.capture_dialog import CaptureResultDialog
-        dlg = CaptureResultDialog(pixmap, on_register=self._register_captured_task,
-                                  on_reply=self._reply_from_capture, parent=None)
-        self._capture_dlg = dlg  # GC 방지
-        dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
+        try:
+            ed = self._ensure_doc_editor()
+        except Exception as e:
+            QMessageBox.critical(self, '오류', f'공문 작성 창 열기 실패:\n{e}')
+            return
+        ed._start_capture(extra_hide=list(self._open_windows))
 
     def _task_list_window(self):
         """업무를 넣을 창: 자신이 업무 목록 모드면 자신, 아니면 열린 업무 목록 창."""
@@ -1196,14 +1189,6 @@ class MemoWindow(QMainWindow):
         target._refresh_tasks()
         target.show()
         target.raise_()
-
-    def _reply_from_capture(self, analysis):
-        self._open_document_editor()
-        editor = getattr(self, '_doc_editor', None)
-        if editor is not None:
-            editor.start_reply(analysis)
-            editor.raise_()
-            editor.activateWindow()
 
     def _open_profile_dialog(self):
         from ui.profile_dialog import ProfileDialog
@@ -1320,7 +1305,7 @@ class MemoWindow(QMainWindow):
 
         # ── 자주 쓰는 기능 ──
         add(menu, '📋 오늘 한눈에 보기', self._open_dashboard)
-        add(menu, '📸 AI 공문 캡처', self._start_ai_capture, shortcut='Ctrl+Shift+X')
+        add(menu, '📸 공문 캡처', self._start_ai_capture, shortcut='Ctrl+Shift+X')
         add(menu, '🔍 빠른 찾기', self._open_command_palette, shortcut='Ctrl+K')
         add(menu, '🆕 새 메모장', lambda: self.on_new(offset_from=self, memo_mode=True,
                                                     on_toggle_hotkey=self._on_toggle_hotkey,

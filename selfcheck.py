@@ -56,16 +56,23 @@ def run(result_path: str) -> int:
         def dialogs_ok():
             from ui.dashboard_dialog import DashboardDialog
             from ui.claude_connect_dialog import ClaudeConnectDialog
-            from ui.capture_dialog import CaptureResultDialog
             from ui.profile_dialog import ProfileDialog
-            from PyQt5.QtGui import QPixmap
-            for d in (DashboardDialog(), ClaudeConnectDialog(auto_check=False),
-                      CaptureResultDialog(QPixmap(10, 10), on_register=lambda *a: None, auto_start=False),
-                      ProfileDialog()):
+            for d in (DashboardDialog(), ClaudeConnectDialog(auto_check=False), ProfileDialog()):
                 d.close()
 
+        def capture_panel_ok():
+            import document_editor
+            from PyQt5.QtGui import QPixmap
+            e = document_editor.DocumentEditorWindow()
+            e._show_panel(True)
+            e.panel.fill({'title': '점검', 'doc_number': '중등교육과-1(2026. 1. 1.)', 'summary': ['a'], 'todos': ['b']})
+            e.panel.thumb.setPixmap(QPixmap(10, 10))
+            assert e._received_context(), '받은 공문 칸 내용이 AI에 전달되지 않음'
+            e.close()
+
         check('메모 창·공문 작성 창·예산 창', windows_ok)
-        check('대시보드·Claude 연결·캡처·학교 정보 창', dialogs_ok)
+        check('대시보드·Claude 연결·학교 정보 창', dialogs_ok)
+        check('공문 작성 창의 받은 공문 칸', capture_panel_ok)
     except Exception:
         ok = False
         lines.append('FAIL Qt 시작\n' + traceback.format_exc())

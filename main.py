@@ -56,7 +56,7 @@ import updater
 
 _WELCOME_FLAG = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'welcome_shown.txt')
 
-_HOTKEY_CAPTURE = 1   # Ctrl+Shift+X: AI 공문 캡처 (공문 작성 창이 앞에 있으면 그 창에 캡처)
+_HOTKEY_CAPTURE = 1   # Ctrl+Shift+X: 공문 캡처 (공문 작성 창의 「받은 공문」 칸에서 분석)
 _HOTKEY_RESTORE = 2   # Ctrl+Shift+E: 앱 창 불러오기
 _MOD_CONTROL    = 0x0002
 _MOD_SHIFT      = 0x0004
@@ -219,7 +219,7 @@ if __name__ == '__main__':
                 _last_active_window = top
 
     def _trigger_ai_capture():
-        # AI 공문 캡처: 캡처 → AI 분석 → 업무 등록/회신 공문
+        # 공문 캡처: 공문 작성 창(열려 있으면 그 창)의 「받은 공문」 칸에서 분석
         if not _open_windows:
             return
         target = _last_active_window if _last_active_window in _open_windows else _open_windows[0]
@@ -228,9 +228,9 @@ if __name__ == '__main__':
     def _on_capture_hotkey():
         active = QApplication.activeWindow()
         if active is not None and type(active).__name__ == 'DocumentEditorWindow' and active.isVisible():
-            active._start_capture()      # 공문 작성 중: 캡처해서 제목/관련번호 칸에
+            active._start_capture(extra_hide=list(_open_windows))   # 공문 작성 중: 같은 창에서 캡처
         else:
-            _trigger_ai_capture()        # 그 밖: AI 공문 캡처 → 업무 등록·회신 공문
+            _trigger_ai_capture()        # 그 밖: 공문 작성 창을 띄워 캡처
 
     def _show_or_restore():
         if _open_windows:

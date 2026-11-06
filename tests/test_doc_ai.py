@@ -51,9 +51,10 @@ def test_normalize_analysis_fills_and_cleans():
     }, TODAY)
     assert a['title'] == '2026. 방과후학교 운영 실태 조사'
     assert a['doc_date'] == '2026-11-03' and a['deadline'] == '2026-11-14' and a['deadline_time'] == '17:00'
+    assert a['doc_number'] == '교육과정과-12345(2026. 11. 3.)'          # 기관명 빼고 날짜까지
     assert a['summary'] == ['운영 현황 조사', '강사 계약 현황 포함']
     assert a['todos'][:2] == ['조사표 작성', '공문으로 제출'] and len(a['todos']) == 5
-    assert a['attachments'] == [] and a['sender'] == '' and a['needs_reply'] is True
+    assert 'attachments' not in a and 'sender' not in a and a['needs_reply'] is True
 
 
 def test_normalize_analysis_garbage():
@@ -62,8 +63,8 @@ def test_normalize_analysis_garbage():
 
 
 A = {'title': '2026. 방과후학교 운영 실태 조사', 'doc_number': '교육과정과-12345', 'doc_date': '2026-11-03',
-     'sender': '경기도교육청', 'deadline': '2026-11-14', 'deadline_time': '17:00',
-     'summary': ['운영 현황 조사'], 'todos': ['조사표 작성'], 'attachments': ['조사표.hwp'], 'needs_reply': True}
+     'deadline': '2026-11-14', 'deadline_time': '17:00',
+     'summary': ['운영 현황 조사'], 'todos': ['조사표 작성'], 'needs_reply': True}
 
 
 def test_task_helpers():
@@ -73,9 +74,9 @@ def test_task_helpers():
     assert task_deadline({**A, 'deadline_time': ''}) == '2026-11-14'
     assert task_deadline({**A, 'deadline': ''}) == ''
     notes = task_notes(A)
-    assert '발신: 경기도교육청' in notes and '☐ 조사표 작성' in notes and '붙임: 조사표.hwp' in notes
+    assert '☐ 조사표 작성' in notes and '- 운영 현황 조사' in notes and '발신' not in notes and '붙임' not in notes
     s = summary_text(A)
-    assert s.startswith('2026. 방과후학교 운영 실태 조사 (교육과정과-12345)') and '기한: 2026. 11. 14. 17:00' in s
+    assert s.startswith('2026. 방과후학교 운영 실태 조사 (교육과정과-12345(2026. 11. 3.))') and '기한: 2026. 11. 14. 17:00' in s
 
 
 def test_reply_title():
@@ -91,3 +92,19 @@ def test_prompts_contain_context():
     q = build_analyze_prompt('본문', today=TODAY)
     assert '[공문 내용]\n본문' in q and '2026-11-05' in q
     assert '이미지' in build_analyze_prompt('', today=TODAY)
+
+
+def test_format_doc_number_official_style():
+    from doc_ai import format_doc_number as f
+    assert f('경기도교육청 중등교육과-12345', '2026-11-03') == '중등교육과-12345(2026. 11. 3.)'
+    assert f('중등교육과-12345(2026. 11. 03.)') == '중등교육과-12345(2026. 11. 3.)'      # 괄호 날짜 우선, 0 없음
+    assert f('중등교육과 - 12 345 (2026.11.3)', '2025-01-01') == '중등교육과-12345(2026. 11. 3.)'
+    assert f('교육과정과-12345（2026. 1. 5.）') == '교육과정과-12345(2026. 1. 5.)'
+    assert f('중등교육과-12345') == '중등교육과-12345'                                   # 날짜 모르면 번호만
+    assert f(f('중등교육과-12345', '2026-11-03'), '2026-12-01') == '중등교육과-12345(2026. 11. 3.)'
+    assert f('') == '' and f('번호 없음') == '번호 없음'
+
+
+def test_ocr_doc_number_has_no_zero_padding():
+    from capture import _normalize_doc_number
+    assert _normalize_doc_number('중 등 교 육 과-12345(2026. 11. 03.)') == '중등교육과-12345(2026. 11. 3.)'
