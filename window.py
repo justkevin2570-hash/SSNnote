@@ -1,4 +1,3 @@
-import os
 import ctypes
 from datetime import date, timedelta
 from PyQt5.QtWidgets import (
@@ -20,7 +19,7 @@ from db import (update_window, delete_window, get_tasks, add_task, delete_task, 
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
 import updater
-from ui.common import _base_path, _load_pretendard, pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT
+from ui.common import pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT
 from ui.dates import _next_recurrence_deadline, calc_dday
 from ui.widgets import _SelectableLabel, AddDateButton, CustomCalendarWidget, DdayLabel, PlainPasteMemoEdit
 from ui.dialogs import CustomRecurrenceDialog
@@ -1813,42 +1812,24 @@ class MemoWindow(QMainWindow):
         self._cal_popup.hide()
 
 
+    MANUAL_URL = 'https://github.com/justkevin2570-hash/SSNnote/blob/master/docs/manual.md'
+
     def show_help(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle('사용 설명서')
-        dlg.setMinimumWidth(460)
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(12, 12, 12, 12)
-        icon_path = os.path.join(_base_path(), 'assets', '수정 아이콘.png')
-        icon_url = QUrl.fromLocalFile(icon_path).toString()
-        _load_pretendard()
-        lbl = QLabel(
-            '<p style="line-height: 160%; font-family: Pretendard; font-size: 12pt;">'
-            '<b>〈업무〉</b><br>'
-            '1. 업무명 칸에서 <b>Tab</b> 키를 누르면 다음 설정 칸으로 이동<br>'
-            '2. 업무 목록에서 업무를 더블 클릭하거나 선택한 후 <b>F2</b> 키를 누르면 업무명 변경 가능<br>'
-            '3. 업무 목록을 선택하고 위아래 방향키로 이동 가능<br>'
-            '4. 업무 목록을 선택하고 <b>Enter</b> 키를 누르면 메모장 열림<br>'
-            '<br>'
-            '<b>〈기타〉</b><br>'
-            "1. '메뉴 - 업데이트 확인' 누르면 업데이트 가능. 이때, 학교 컴퓨터에서는 2번 해야 가능함.<br>"
-            '&nbsp;&nbsp;(방화벽 때문에 처음 한 번은 막히는 듯?)<br>'
-            f'2. <img src="{icon_url}" width="20" height="20" style="vertical-align: middle;"> 버튼을 누르면 메모 모드로 변환. 한 번 더 누르면 원위치.<br>'
-            '3. <b>₩</b> 버튼을 누르면 예산 관리 창이 열립니다.<br>'
-            '4. 나머지는 직접 눌러보세요. 단순합니다.<br>'
-            '<br>'
-            '<b>〈단축키〉</b><br>'
-            '1. <b>ctrl + s</b> : 앱 포커싱 (다른 작업 하다가 이거 누르면 서서니 노트 앱으로 집중)<br>'
-            '2. <b>ctrl + r</b> : 제목표시줄만 남기고 접기/펼치기<br>'
-            '3. <b>ctrl + f</b> : 항상 화면 위에 고정(Fix)'
-            '</p>'
-        )
-        lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        layout.addWidget(lbl)
-        btn = QPushButton('확인', dlg)
-        btn.clicked.connect(dlg.accept)
-        layout.addWidget(btn, alignment=Qt.AlignRight)
-        dlg.exec_()
+        """사용 설명서: 웹 페이지(docs/manual.md)를 기본 브라우저로 연다. 못 열면 주소를 보여준다."""
+        from PyQt5.QtGui import QDesktopServices
+        if QDesktopServices.openUrl(QUrl(self.MANUAL_URL)):
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle('사용 설명서')
+        box.setTextFormat(Qt.RichText)
+        box.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        box.setText('브라우저를 열지 못했습니다. 아래 주소를 브라우저에 붙여 넣어 주세요.<br><br>'
+                    f'<a href="{self.MANUAL_URL}">{self.MANUAL_URL}</a>')
+        copy_btn = box.addButton('주소 복사', QMessageBox.ActionRole)
+        box.addButton('닫기', QMessageBox.RejectRole)
+        box.exec_()
+        if box.clickedButton() is copy_btn:
+            QApplication.clipboard().setText(self.MANUAL_URL)
 
     def delete_memo(self):
         confirm = QMessageBox(self)
