@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, QPoint, QSize, QPropertyAnimation, QEasingCurve, QRectF
 from PyQt5.QtGui import QFont, QColor, QPainter, QPixmap, QCursor
 import qtawesome as qta
-from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR
+from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR, px
 from .dates import calc_dday
 from .theme import T, tc, tct
 
@@ -392,8 +392,8 @@ class TitleBar(QWidget):
         b = QPushButton()
         b._icon_name = icon_name
         b.setIcon(qta.icon(icon_name, color=self._icon_color()))
-        b.setIconSize(QSize(self._ICON_PX, self._ICON_PX))
-        b.setFixedSize(28, 26)
+        b.setIconSize(QSize(px(self._ICON_PX), px(self._ICON_PX)))   # 글꼴 배율만큼 아이콘도
+        b.setFixedSize(px(28), min(px(26), TITLE_BAR_HEIGHT - 4))
         b.setToolTip(tip)
         b.setCursor(Qt.PointingHandCursor)
         return b

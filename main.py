@@ -204,7 +204,7 @@ if __name__ == '__main__':
     import autostart
     autostart.refresh_if_enabled()
     from ui.common import setup_high_dpi
-    setup_high_dpi()          # 125%·150% 배율을 반올림하지 않고 그대로 (노트북에서 글자·칸이 어긋나지 않게)
+    setup_high_dpi()          # 배율은 정수로, 글꼴은 Windows가 선명하게 (ui/common.py 설명)
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)

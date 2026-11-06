@@ -19,7 +19,7 @@ from db import (update_window, delete_window, get_tasks, add_task, delete_task, 
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
 import updater
-from ui.common import pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT, fit_to_screen
+from ui.common import pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT, fit_to_screen, px
 from ui.dates import _next_recurrence_deadline, calc_dday
 from ui.widgets import _SelectableLabel, AddDateButton, CustomCalendarWidget, DdayLabel, PlainPasteMemoEdit
 from ui.dialogs import CustomRecurrenceDialog
@@ -244,7 +244,7 @@ class MemoWindow(QMainWindow):
         self._cal_popup.clicked.connect(self._on_cal_date_selected)
         btn_history = QPushButton()
         btn_history.setIcon(qta.icon('ph.clock-counter-clockwise-bold', color=qcolor('#000000', 150)))
-        btn_history.setIconSize(QSize(16, 16))
+        btn_history.setIconSize(QSize(px(16), px(16)))
         btn_history.setToolTip('지난 기록 (삭제한 업무 보기·복원)')
         btn_history.setCursor(Qt.PointingHandCursor)
         btn_history.setStyleSheet(f"""
@@ -344,7 +344,7 @@ class MemoWindow(QMainWindow):
             b.setFont(_btn_font)
             b.setStyleSheet(_btn_style)
             b.setIcon(qta.icon(icon, color=_btn_icon))
-            b.setIconSize(QSize(15, 15))
+            b.setIconSize(QSize(px(15), px(15)))
             b.setCursor(Qt.PointingHandCursor)
             b.setToolTip(tip)
             b.clicked.connect(slot)

@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
 
 import dashboard
 from db import get_budget_items, get_open_tasks, get_setting, set_setting
-from .common import pr_font
+from .common import pr_font, px
 from .theme import T
 
 SHOW_ON_START_KEY = 'dashboard_on_start'
@@ -101,7 +101,7 @@ class DashboardDialog(QDialog):
         self.setWindowTitle('오늘 한눈에 보기')
         self.setStyleSheet(_STYLE)
         self.setFont(pr_font(10))
-        self.setFixedWidth(440)
+        self.setFixedWidth(px(440))
         s = summary if summary is not None else dashboard.build_summary(get_open_tasks(), get_budget_items())
         self._build(s)
         set_setting(LAST_SHOWN_KEY, date.today().isoformat())
@@ -212,7 +212,7 @@ class DashboardDialog(QDialog):
         lay.setContentsMargins(6, 4, 6, 4)
         lay.setSpacing(8)
         dd = QLabel(t.get('dday') or '')
-        dd.setFixedWidth(54)
+        dd.setFixedWidth(px(54))
         dd.setStyleSheet(f"color: {T.DANGER if overdue else T.TEXT_ON_NOTE}; font-weight: 700;")
         name = QLabel(('★ ' if t.get('priority') else '') + (t.get('name') or ''))
         name.setStyleSheet(f'color: {T.INK};')

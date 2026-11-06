@@ -27,7 +27,7 @@ from ai_client import (AiStreamThread, PROVIDER_LABELS,
 from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
 # rag(유사 공문 찾기)는 numpy·sentence-transformers가 필요해 쓸 때만 불러온다 — 없으면 그 기능만 꺼지고 창은 열림
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
-from ui.common import fit_to_screen, default_geometry
+from ui.common import fit_to_screen, default_geometry, px
 
 
 # ── 색 (차분한 회청색 + 포인트 색 하나) ──────────────────────────
@@ -415,7 +415,7 @@ class ApiKeyDialog(QDialog):
         self.setWindowTitle(title)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setStyleSheet(_style())
-        self.setFixedWidth(460)
+        self.setFixedWidth(px(460))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 18)
@@ -987,7 +987,7 @@ class DocumentEditorWindow(QMainWindow):
         dlg.setWindowTitle("사용 방법")
         dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         dlg.setStyleSheet(_style())
-        dlg.setFixedWidth(500)
+        dlg.setFixedWidth(px(500))
 
         layout = QVBoxLayout(dlg)
         layout.setContentsMargins(24, 22, 24, 18)
@@ -1025,8 +1025,8 @@ class DocumentEditorWindow(QMainWindow):
             t.setWordWrap(True)
             t.setStyleSheet('font-size: 10pt;')
             t.ensurePolished()                              # 글자 크기(10pt)를 먼저 적용해야 높이 계산이 맞음
-            t.setFixedWidth(420)
-            t.setMinimumHeight(t.heightForWidth(420))      # 줄바꿈한 높이만큼 (잘림 방지)
+            t.setFixedWidth(px(420))
+            t.setMinimumHeight(t.heightForWidth(px(420)))      # 줄바꿈한 높이만큼 (잘림 방지)
             row.addWidget(t, 1)
             layout.addLayout(row)
 
@@ -1479,8 +1479,8 @@ class _ModelSelectDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setStyleSheet(_style())
-        self.setMinimumWidth(420)
-        self.setMinimumHeight(440)
+        self.setMinimumWidth(px(420))
+        self.setMinimumHeight(px(440))
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)

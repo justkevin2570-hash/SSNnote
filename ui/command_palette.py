@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
 )
 
 from korean_search import best_score
-from .common import pr_font
+from .common import pr_font, px
 from .theme import T
 
 Command = namedtuple('Command', 'title run shortcut keywords')
@@ -64,7 +64,7 @@ class CommandPalette(QWidget):
         self._commands = list(commands)
         self._tasks = list(tasks)
         self._on_task = on_task
-        self.setFixedWidth(460)
+        self.setFixedWidth(px(460))
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)

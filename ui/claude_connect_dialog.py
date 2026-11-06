@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
 )
 
 import claude_connect as cc
-from .common import pr_font
+from .common import pr_font, px
 from .theme import T, tc
 
 # 창을 닫아도 진행 중인 작업 스레드가 끝날 때까지 참조 유지
@@ -107,7 +107,7 @@ class ClaudeConnectDialog(QDialog):
         self.setWindowTitle('Claude 연결')
         self.setStyleSheet(_STYLE)
         self.setFont(pr_font(10))
-        self.setFixedWidth(500)
+        self.setFixedWidth(px(500))
         self._jobs = []
         self._build()
         if auto_check:

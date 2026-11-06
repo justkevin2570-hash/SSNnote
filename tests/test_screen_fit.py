@@ -51,11 +51,12 @@ def test_default_geometry_is_centered_and_fits(ag):
     assert abs((x - ag.left()) - (ag.left() + ag.width() - x - w)) <= 1
 
 
-def test_high_dpi_rounding_is_pass_through():
+def test_high_dpi_rounding_is_whole_number():
+    """소수점 배율(1.25배)은 Qt 5에서 글씨가 흐려지므로 정수 배율만 쓴다."""
     from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import QApplication
     from ui.common import setup_high_dpi
     if not hasattr(QApplication, 'setHighDpiScaleFactorRoundingPolicy'):
         pytest.skip('Qt 5.14 미만')
     setup_high_dpi()
-    assert QApplication.highDpiScaleFactorRoundingPolicy() == Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    assert QApplication.highDpiScaleFactorRoundingPolicy() == Qt.HighDpiScaleFactorRoundingPolicy.Floor

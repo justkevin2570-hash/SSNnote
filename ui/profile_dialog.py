@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
 from privacy import parse_name_list
 from school_profile import (PROFILE_FIELDS, load_profile, save_profile,
                             privacy_enabled, set_privacy_enabled)
-from .common import pr_font
+from .common import pr_font, px
 from .theme import T, tc, tct
 
 _STYLE = f"""
@@ -38,7 +38,7 @@ class ProfileDialog(QDialog):
         self.setWindowTitle('학교 정보 · 개인정보 보호')
         self.setStyleSheet(_STYLE)
         self.setFont(pr_font(10))
-        self.setFixedWidth(460)  # 폭 고정 → 줄바꿈 안내문 높이가 일정하게 계산됨
+        self.setFixedWidth(px(460))  # 폭 고정 → 줄바꿈 안내문 높이가 일정하게 계산됨
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 14)
@@ -78,7 +78,7 @@ class ProfileDialog(QDialog):
         root.addWidget(hint2)
         self.ed_names = QPlainTextEdit(p.get('mask_names', ''))
         self.ed_names.setPlaceholderText('가릴 이름 (학생 명단 등) — 쉼표나 줄바꿈으로 구분\n예: 김철수, 이영희')
-        self.ed_names.setFixedHeight(70)
+        self.ed_names.setFixedHeight(px(70))
         root.addWidget(self.ed_names)
         self.lbl_count = QLabel('')
         self.lbl_count.setObjectName('Hint')

@@ -160,16 +160,18 @@ def _svg_icon(svg_path, color, size) -> 'QIcon':
 # 노트북처럼 작은 화면이나, 큰 모니터에서 쓰던 창 크기·위치를 그대로 열 때 화면 밖으로 나가지 않게 한다.
 
 def setup_high_dpi():
-    """Windows 배율(125%·150% 등)을 반올림하지 않고 그대로 적용한다. QApplication을 만들기 전에 부른다.
+    """화면 배율 설정. QApplication을 만들기 전에 부른다.
 
-    Qt 5 기본값은 배율을 정수로 반올림해서 125%는 100%(글자만 커지고 칸은 그대로 → 글자 잘림),
-    150%는 200%(모든 게 두 배)로 그려진다. PassThrough면 1.25배·1.5배로 창·글자·아이콘이 함께 커진다.
+    배율은 정수로만(Floor: 125%·150% → 1배, 200% → 2배) 적용하고, 글꼴은 Windows가 배율에 맞는
+    크기로 직접 그리게 둔다. Qt 5는 1.25배 같은 소수점 배율에서 글자를 늘려 그리느라 Windows의
+    글꼴 다듬기(힌팅·ClearType)를 못 써서 글씨가 흐리고 깨져 보인다 (v2.75에서 겪음).
+    대신 글꼴이 커져도 잘리지 않도록 칸·버튼 폭은 고정 숫자 대신 글자 길이로 정한다.
     """
     from PyQt5.QtCore import Qt
     from PyQt5.QtWidgets import QApplication
     policy = getattr(Qt, 'HighDpiScaleFactorRoundingPolicy', None)
     if policy is not None and hasattr(QApplication, 'setHighDpiScaleFactorRoundingPolicy'):
-        QApplication.setHighDpiScaleFactorRoundingPolicy(policy.PassThrough)
+        QApplication.setHighDpiScaleFactorRoundingPolicy(policy.Floor)
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
@@ -208,3 +210,19 @@ def default_geometry(pref_w, pref_h, frac_w=0.72, frac_h=0.82):
     w = min(pref_w, int(ag.width() * frac_w))
     h = min(pref_h, int(ag.height() * frac_h))
     return ag.left() + (ag.width() - w) // 2, ag.top() + (ag.height() - h) // 2, w, h
+
+
+def ui_scale() -> float:
+    """글꼴 배율 (Windows 125% → 1.25). 화면은 정수 배율로 그리고 글꼴만 커지므로,
+    픽셀로 정한 창·칸 폭에 곱해서 글자가 잘리지 않게 한다."""
+    from PyQt5.QtWidgets import QApplication
+    app = QApplication.instance()
+    screen = app.primaryScreen() if app else None
+    if screen is None:
+        return 1.0
+    return max(1.0, min(2.5, screen.logicalDotsPerInch() / 96.0))
+
+
+def px(n) -> int:
+    """픽셀 값을 글꼴 배율에 맞춰 늘린다: px(440) → 125%에서 550."""
+    return int(round(n * ui_scale()))
