@@ -33,7 +33,7 @@ from ai_client import (AiStreamThread,
                         OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
                         fetch_opencode_models, save_opencode_vision_models, test_opencode)
 from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
-from rag import search_similar, make_search_prompt, embedding_to_bytes, encode
+# rag(유사 공문 찾기)는 numpy·sentence-transformers가 필요해 쓸 때만 불러온다 — 없으면 그 기능만 꺼지고 창은 열림
 from ui.theme import TL as T, keep_light  # 예산·공문 창은 아직 라이트 전용
 
 
@@ -610,6 +610,7 @@ class DocumentEditorWindow(QMainWindow):
         # RAG: 유사 공문 검색하여 컨텍스트 추가
         rag_context = ''
         try:
+            from rag import search_similar, make_search_prompt
             embeddings = get_all_embeddings()
             if embeddings:
                 similar = search_similar(title, embeddings, top_k=2)
@@ -1137,6 +1138,7 @@ class DocumentEditorWindow(QMainWindow):
 
         # RAG: 저장한 문서 자동 임베딩
         try:
+            from rag import encode, embedding_to_bytes
             vec = encode(f"{title}\n{content}")
             save_embedding(doc_id, title, content, '', embedding_to_bytes(vec))
         except Exception:

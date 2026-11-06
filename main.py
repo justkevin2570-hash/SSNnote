@@ -7,6 +7,13 @@ import ctypes.wintypes
 import threading
 from collections import defaultdict
 
+# 빌드 자체 점검: SSNnote.exe --self-check <결과 파일> (자동 빌드가 릴리스 전에 실행 — selfcheck.py)
+# 다른 모듈을 불러오기 전에 처리해서, 빌드에 빠진 모듈이 있어도 결과 파일에 원인이 남게 한다.
+if __name__ == '__main__' and '--self-check' in sys.argv:
+    import selfcheck
+    _i = sys.argv.index('--self-check')
+    sys.exit(selfcheck.run(sys.argv[_i + 1] if len(sys.argv) > _i + 1 else 'selfcheck.txt'))
+
 if getattr(sys, 'frozen', False):
     sys.stdout = open(os.devnull, 'w')
     sys.stderr = open(os.devnull, 'w')
