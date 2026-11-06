@@ -1002,7 +1002,8 @@ class DocumentEditorWindow(QMainWindow):
              '결과가 마음에 안 들면 Ctrl+Z 한 번으로 이전 내용으로 돌아갑니다.'),
             ('fa5s.crop-alt', '공문 캡처',
              'Ctrl+Shift+X나 [공문 캡처]로 받은 공문을 잘라 오면 왼쪽 칸에 공문번호·기한·요약·할 일이 나옵니다. '
-             '거기서 업무로 등록하거나 회신 공문을 쓰고, AI 대화도 그 공문을 참고합니다.'),
+             '번호가 안 잡혔으면 그 부분만 한 번 더 캡처하세요 — 같은 공문에 합쳐서 다시 읽습니다. '
+             '다른 공문은 왼쪽 [새 공문]. 업무로 등록하거나 회신 공문을 쓰고, AI 대화도 그 공문을 참고합니다.'),
             ('fa5s.stop-circle', '취소', 'AI가 쓰는 중에 Esc를 누르면 멈추고 원래 내용으로 되돌립니다.'),
             ('fa5s.shield-alt', '개인정보 보호',
              '보호 모드가 켜져 있으면 AI로 보내기 전에 주민번호·전화번호·이름 등을 가립니다.'),
@@ -1355,8 +1356,11 @@ class DocumentEditorWindow(QMainWindow):
             self._ocr_fallback(pixmap, self._capture_target())
             return
         self._show_panel(True)
-        self.panel.start(pixmap)
-        self.statusBar().showMessage('받은 공문을 AI가 읽는 중… (왼쪽 칸)')
+        self.panel.add_capture(pixmap)
+        n = self.panel.capture_count()
+        self.statusBar().showMessage(
+            f'캡처 {n}장을 합쳐서 AI가 다시 읽는 중… (다른 공문은 왼쪽 [새 공문])' if n > 1
+            else '받은 공문을 AI가 읽는 중… (번호가 안 잡혔으면 그 부분만 한 번 더 캡처하세요)')
 
     # ── 받은 공문 칸 ─────────────────────────────────────────────
     _instance = None          # 지금 열려 있는 공문 작성 창 (메모 창·단축키가 같은 창을 쓰도록)
@@ -1387,12 +1391,14 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_panel.setVisible(not show and self.panel.has_content())
 
     def _fill_from_capture(self, title: str, doc_number: str):
-        """캡처 분석 결과를 오른쪽 제목·관련 번호 칸에도 넣는다. 찾은 값만 넣고, 못 찾은 칸은 그대로 둔다
-        (예: 공문번호 부분만 다시 캡처하면 이미 넣은 제목은 유지)."""
-        if title:
-            self.title_input.setText(title)
-        if doc_number:
-            self.ref_input.setText(doc_number)
+        """캡처 분석 결과를 오른쪽 제목·관련 번호 칸에도 넣는다. 찾은 값만 넣고, 칸이 비어 있거나
+        지난번에 캡처로 넣은 값 그대로일 때만 바꾼다 (사용자가 고친 제목·번호는 유지)."""
+        for value, box, key in ((title, self.title_input, '_auto_title'), (doc_number, self.ref_input, '_auto_ref')):
+            cur = box.text().strip()
+            if value and (not cur or cur == getattr(self, key, None)):
+                box.setText(value)
+                box.setCursorPosition(0)          # 긴 번호도 앞부분부터 보이게
+                setattr(self, key, value)
 
     def _received_context(self) -> str:
         """AI 대화·자동 초안에 함께 보낼 받은 공문 정리 (칸의 [참고] 체크가 켜져 있을 때)."""

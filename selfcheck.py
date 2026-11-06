@@ -66,7 +66,8 @@ def run(result_path: str) -> int:
             e = document_editor.DocumentEditorWindow()
             e._show_panel(True)
             e.panel.fill({'title': '점검', 'doc_number': '중등교육과-1(2026. 1. 1.)', 'summary': ['a'], 'todos': ['b']})
-            e.panel.thumb.setPixmap(QPixmap(10, 10))
+            e.panel._pixmaps = [QPixmap(10, 10), QPixmap(10, 20)]
+            assert e.panel._combined_pixmap().height() == 46, '캡처 이어 붙이기 실패'
             assert e._received_context(), '받은 공문 칸 내용이 AI에 전달되지 않음'
             e.close()
 
