@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QScrollBar
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSettings, QUrl, QSize
-from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextBlockFormat, QTextCursor
+from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextBlockFormat, QTextCursor, QFontMetrics
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
                 get_documents, add_document, update_document, delete_document,
@@ -19,7 +19,7 @@ from db import (update_window, delete_window, get_tasks, add_task, delete_task, 
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
 import updater
-from ui.common import pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT
+from ui.common import pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT, fit_to_screen
 from ui.dates import _next_recurrence_deadline, calc_dday
 from ui.widgets import _SelectableLabel, AddDateButton, CustomCalendarWidget, DdayLabel, PlainPasteMemoEdit
 from ui.dialogs import CustomRecurrenceDialog
@@ -88,10 +88,13 @@ class MemoWindow(QMainWindow):
                 sc.setEnabled(False)
 
     def apply_state(self, x, y, width, height, collapsed, color='', scale=1.0, row_gap=0):
+        # 큰 모니터에서 쓰던 위치·크기라도 지금 화면 안에 들어오게 (노트북·모니터 분리 대비)
+        x, y, width, height = fit_to_screen(x, y, max(width, EdgeHandle.MIN_W), height, max_frac=0.95,
+                                            min_w=EdgeHandle.MIN_W)
         self.expanded_height = height
         self.collapsed       = collapsed
         self.move(x, y)
-        self.resize(max(width, EdgeHandle.MIN_W), TITLE_BAR_HEIGHT if collapsed else height)
+        self.resize(width, TITLE_BAR_HEIGHT if collapsed else height)
         if collapsed:
             self.content.hide()
             self.setFixedHeight(TITLE_BAR_HEIGHT)
@@ -179,7 +182,6 @@ class MemoWindow(QMainWindow):
         self.input_date.setMinimumDate(QDate(1900, 1, 1))
         self.input_date.setSpecialValueText('마감일')
         self.input_date.setDate(QDate(1900, 1, 1))  # 빈 칸으로 표시
-        self.input_date.setFixedWidth(115)
         self.input_date.setFont(QFont('Malgun Gothic', 11))
         self.input_date.dateChanged.connect(self._on_date_changed)
         self.input_date.installEventFilter(self)
@@ -187,7 +189,6 @@ class MemoWindow(QMainWindow):
             child.installEventFilter(self)
         self.input_time = QTimeEdit(QTime(9, 0))
         self.input_time.setDisplayFormat('HH:mm')
-        self.input_time.setFixedWidth(68)
         self.input_time.setFont(QFont('Malgun Gothic', 11))
         self.input_time.setEnabled(False)
         self.input_time.timeChanged.connect(lambda: setattr(self, '_time_touched', True))
@@ -260,7 +261,6 @@ class MemoWindow(QMainWindow):
         for _i in range(self.input_recurrence.count()):
             self.input_recurrence.setItemData(_i, Qt.AlignLeft, Qt.TextAlignmentRole)
         self.input_recurrence.installEventFilter(self)
-        self.input_recurrence.setFixedWidth(90)
         self.input_recurrence.setFont(QFont('Malgun Gothic', 11))
         self._custom_recurrence_val = ''
         self.input_recurrence.currentIndexChanged.connect(self._on_recurrence_index_changed)
@@ -1374,11 +1374,19 @@ class MemoWindow(QMainWindow):
         """)
 
     def _size_inputs(self):
+        """칸 크기를 글자 크기에서 정한다 (고정 숫자 대신) — 배율·글꼴·글자 크기 설정이 달라도 안 잘리게."""
         row_h = self.input_name.sizeHint().height() + 6
         self.input_name.setFixedHeight(row_h)
         self._btn_history.setFixedHeight(row_h)
         for w in (self.input_date, self.input_time, self.input_recurrence):
             w.setFixedHeight(row_h - 4)
+        pad = 2 * 9 + 2 + 8          # 좌우 안쪽 여백(9px씩) + 테두리 + 여유
+        fm = QFontMetrics(self.input_date.font())
+        self.input_date.setFixedWidth(max(fm.horizontalAdvance('0000-00-00'), fm.horizontalAdvance('마감일')) + pad)
+        self.input_time.setFixedWidth(QFontMetrics(self.input_time.font()).horizontalAdvance('00:00') + pad)
+        fr = QFontMetrics(self.input_recurrence.font())
+        self.input_recurrence.setFixedWidth(max(fr.horizontalAdvance(self.input_recurrence.itemText(i))
+                                                for i in range(self.input_recurrence.count())) + pad)
 
     def _on_app_focus_changed(self, *_):
         try:
@@ -2165,11 +2173,8 @@ class MemoWindow(QMainWindow):
         s = self._scale
         self.input_name.setFont(QFont('Malgun Gothic', int(11 * s)))
         self.input_date.setFont(QFont('Malgun Gothic', int(11 * s)))
-        self.input_date.setFixedWidth(int(115 * s))
         self.input_time.setFont(QFont('Malgun Gothic', int(11 * s)))
-        self.input_time.setFixedWidth(int(68 * s))
         self.input_recurrence.setFont(QFont('Malgun Gothic', int(10 * s)))
-        self.input_recurrence.setFixedWidth(int(90 * s))
         self._size_inputs()
         self.memo_editor.setFont(pr_font(int(12 * s)))
 

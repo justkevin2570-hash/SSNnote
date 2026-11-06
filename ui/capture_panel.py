@@ -96,6 +96,7 @@ class CapturePanel(QFrame):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         inner = QWidget()
         inner.setObjectName('PanelInner')
+        self._inner = inner
         scroll.setWidget(inner)
         outer.addWidget(scroll, 1)
         footer = QWidget()
@@ -250,6 +251,14 @@ class CapturePanel(QFrame):
             w.toggled.connect(lambda *_: self._edited('deadline'))
         self.ed_date.dateChanged.connect(lambda *_: self._edited('deadline'))
         self.ed_time.timeChanged.connect(lambda *_: self._edited('deadline'))
+
+    def content_min_width(self) -> int:
+        """칸 안의 글자·버튼이 잘리지 않는 최소 폭 (배율·글꼴에 따라 달라짐)."""
+        footer = self.findChild(QWidget, 'PanelFooter')
+        need = self._inner.minimumSizeHint().width() + 10          # 세로 스크롤바 자리
+        if footer is not None:
+            need = max(need, footer.minimumSizeHint().width())
+        return need
 
     # ── 상태 ────────────────────────────────────────────────────
     def has_content(self) -> bool:

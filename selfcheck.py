@@ -39,6 +39,9 @@ def run(result_path: str) -> int:
 
     try:
         from PyQt5.QtWidgets import QApplication
+        if QApplication.instance() is None:
+            from ui.common import setup_high_dpi
+            setup_high_dpi()        # 실제 앱과 같은 화면 배율 설정으로 점검
         app = QApplication.instance() or QApplication(['SSNnote'])
 
         def windows_ok():

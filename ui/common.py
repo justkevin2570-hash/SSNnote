@@ -154,3 +154,57 @@ def _svg_icon(svg_path, color, size) -> 'QIcon':
     renderer.render(p)
     p.end()
     return QIcon(pm)
+
+
+# ── 화면 크기에 맞추기 ───────────────────────────────────────────
+# 노트북처럼 작은 화면이나, 큰 모니터에서 쓰던 창 크기·위치를 그대로 열 때 화면 밖으로 나가지 않게 한다.
+
+def setup_high_dpi():
+    """Windows 배율(125%·150% 등)을 반올림하지 않고 그대로 적용한다. QApplication을 만들기 전에 부른다.
+
+    Qt 5 기본값은 배율을 정수로 반올림해서 125%는 100%(글자만 커지고 칸은 그대로 → 글자 잘림),
+    150%는 200%(모든 게 두 배)로 그려진다. PassThrough면 1.25배·1.5배로 창·글자·아이콘이 함께 커진다.
+    """
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QApplication
+    policy = getattr(Qt, 'HighDpiScaleFactorRoundingPolicy', None)
+    if policy is not None and hasattr(QApplication, 'setHighDpiScaleFactorRoundingPolicy'):
+        QApplication.setHighDpiScaleFactorRoundingPolicy(policy.PassThrough)
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
+
+def _screen_for(x, y, w):
+    from PyQt5.QtCore import QPoint
+    from PyQt5.QtWidgets import QApplication
+    for pt in (QPoint(x + w // 2, y + 12), QPoint(x + 12, y + 12)):   # 제목 줄 가운데 → 왼쪽 위
+        s = QApplication.screenAt(pt)
+        if s is not None:
+            return s
+    return QApplication.primaryScreen()
+
+
+def fit_to_screen(x, y, w, h, max_frac=0.92, min_w=0, min_h=0):
+    """(x, y, w, h)를 그 창이 있는 화면(없으면 주 화면) 안에 들어가게 줄이고 옮긴다.
+    화면에서 사라진 모니터에 있던 창은 주 화면 안으로 들어온다."""
+    screen = _screen_for(x, y, w)
+    if screen is None:
+        return x, y, w, h
+    ag = screen.availableGeometry()
+    w = max(min_w, min(w, int(ag.width() * max_frac)))
+    h = max(min_h, min(h, int(ag.height() * max_frac)))
+    x = max(ag.left(), min(x, ag.left() + ag.width() - w))
+    y = max(ag.top(), min(y, ag.top() + ag.height() - h))
+    return x, y, w, h
+
+
+def default_geometry(pref_w, pref_h, frac_w=0.72, frac_h=0.82):
+    """처음 여는 창의 크기: 원하는 크기와 화면 비율 중 작은 쪽, 화면 가운데."""
+    from PyQt5.QtWidgets import QApplication
+    screen = QApplication.primaryScreen()
+    if screen is None:
+        return 150, 150, pref_w, pref_h
+    ag = screen.availableGeometry()
+    w = min(pref_w, int(ag.width() * frac_w))
+    h = min(pref_h, int(ag.height() * frac_h))
+    return ag.left() + (ag.width() - w) // 2, ag.top() + (ag.height() - h) // 2, w, h

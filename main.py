@@ -203,8 +203,8 @@ if __name__ == '__main__':
     init_db()
     import autostart
     autostart.refresh_if_enabled()
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    from ui.common import setup_high_dpi
+    setup_high_dpi()          # 125%·150% 배율을 반올림하지 않고 그대로 (노트북에서 글자·칸이 어긋나지 않게)
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)

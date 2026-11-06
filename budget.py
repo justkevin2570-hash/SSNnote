@@ -1185,9 +1185,11 @@ class BudgetWindow(QMainWindow):
         try:
             with open(_STATE_FILE, 'r', encoding='utf-8') as f:
                 s = json.load(f)
-            self.setGeometry(s['x'], s['y'], s['width'], s['height'])
+            from ui.common import fit_to_screen
+            self.setGeometry(*fit_to_screen(s['x'], s['y'], s['width'], s['height'], min_w=640, min_h=420))
         except Exception:
-            self.setGeometry(150, 150, 1120, 720)
+            from ui.common import default_geometry
+            self.setGeometry(*default_geometry(1120, 720, frac_w=0.85))
 
     def showEvent(self, event):
         super().showEvent(event)

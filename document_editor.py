@@ -27,6 +27,7 @@ from ai_client import (AiStreamThread, PROVIDER_LABELS,
 from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
 # rag(유사 공문 찾기)는 numpy·sentence-transformers가 필요해 쓸 때만 불러온다 — 없으면 그 기능만 꺼지고 창은 열림
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
+from ui.common import fit_to_screen, default_geometry
 
 
 # ── 색 (차분한 회청색 + 포인트 색 하나) ──────────────────────────
@@ -576,7 +577,7 @@ class DocumentEditorWindow(QMainWindow):
         self.splitter.setChildrenCollapsible(False)
         self.splitter.setHandleWidth(1)
         self.panel = CapturePanel()
-        self.panel.setMinimumWidth(280)
+        self.panel.setMinimumWidth(260)
         self.panel.hide()
         self.panel.register_requested.connect(self._register_from_panel)
         self.panel.reply_requested.connect(self.start_reply)
@@ -607,7 +608,8 @@ class DocumentEditorWindow(QMainWindow):
         def field_label(text):
             lb = QLabel(text)
             lb.setObjectName('FieldLabel')
-            lb.setFixedWidth(58)
+            lb.ensurePolished()     # 글자 크기(QSS)를 먼저 적용해야 폭 계산이 맞음
+            lb.setFixedWidth(lb.fontMetrics().horizontalAdvance('관련 번호') + 6)   # 글자 길이 기준
             return lb
 
         self.title_input = QLineEdit()
@@ -637,7 +639,8 @@ class DocumentEditorWindow(QMainWindow):
         self.spin_attach.setValue(1)
         self.spin_attach.setSuffix(' 개')
         self.spin_attach.setFixedHeight(_input_h)
-        self.spin_attach.setFixedWidth(82)
+        self.spin_attach.ensurePolished()
+        self.spin_attach.setFixedWidth(self.spin_attach.fontMetrics().horizontalAdvance('0 개') + 52)
         self.spin_attach.setToolTip("붙임 항목 수 (0 = 붙임 없음)")
         self.spin_attach.lineEdit().returnPressed.connect(self._try_generate_draft)
         self.btn_draft = QPushButton("자동 초안")
@@ -1279,9 +1282,9 @@ class DocumentEditorWindow(QMainWindow):
         try:
             with open(self._STATE_FILE, 'r', encoding='utf-8') as f:
                 s = json.load(f)
-            self.setGeometry(s['x'], s['y'], s['width'], s['height'])
+            self.setGeometry(*fit_to_screen(s['x'], s['y'], s['width'], s['height'], min_w=560, min_h=420))
         except Exception:
-            self.setGeometry(150, 150, 860, 640)
+            self.setGeometry(*default_geometry(900, 680))   # 처음엔 화면 크기에 맞춘 크기로
 
     def closeEvent(self, event):
         import json, os
@@ -1370,11 +1373,14 @@ class DocumentEditorWindow(QMainWindow):
         if show == self.panel.isVisible():
             return
         if show:
-            w = 330
+            # 칸 폭은 화면 크기에 비례 (노트북처럼 좁은 화면에선 좁게)
+            screen = QApplication.desktop().availableGeometry(self)
+            need = self.panel.content_min_width()
+            self.panel.setMinimumWidth(need)
+            w = max(need, min(340, int(screen.width() * 0.22)))
             self.panel.show()
             self.splitter.setSizes([w, max(self.width(), 600)])
             # 칸만큼 창을 넓힌다. 오른쪽에 자리가 없으면 창을 왼쪽으로 옮긴다 (화면 밖으로 안 나가게)
-            screen = QApplication.desktop().availableGeometry(self)
             g = self.frameGeometry()
             grow = max(0, min(w, screen.width() - g.width()))
             shift = max(0, min(g.right() + grow - screen.right(), g.left() - screen.left()))
