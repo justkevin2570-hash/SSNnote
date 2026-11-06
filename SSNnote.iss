@@ -1,6 +1,6 @@
 [Setup]
 AppName=SSNnote
-AppVersion=2.74
+AppVersion=2.75
 AppPublisher=justkevin2570
 DefaultDirName={autopf}\SSNnote
 DefaultGroupName=SSNnote
@@ -10,10 +10,10 @@ Compression=lzma
 SolidCompression=yes
 CloseApplications=yes
 AppId={{12345678-1234-1234-1234-123456789012}}
-VersionInfoVersion=2.74.0.0
+VersionInfoVersion=2.75.0.0
 VersionInfoProductName=SSNnote
 VersionInfoCompany=justkevin2570
-VersionInfoProductVersion=2.74
+VersionInfoProductVersion=2.75
 
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
