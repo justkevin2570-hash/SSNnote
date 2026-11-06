@@ -584,6 +584,7 @@ class DocumentEditorWindow(QMainWindow):
         self.panel.use_ref.connect(lambda t: t and self.ref_input.setText(t))
         self.panel.collapse_requested.connect(lambda: self._show_panel(False))
         self.panel.message.connect(self.statusBar().showMessage)
+        self.panel.analyzed.connect(self._fill_from_capture)
         self.splitter.addWidget(self.panel)
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -1385,6 +1386,14 @@ class DocumentEditorWindow(QMainWindow):
             self._panel_extra = 0
         self.btn_panel.setVisible(not show and self.panel.has_content())
 
+    def _fill_from_capture(self, title: str, doc_number: str):
+        """캡처 분석 결과를 오른쪽 제목·관련 번호 칸에도 넣는다. 찾은 값만 넣고, 못 찾은 칸은 그대로 둔다
+        (예: 공문번호 부분만 다시 캡처하면 이미 넣은 제목은 유지)."""
+        if title:
+            self.title_input.setText(title)
+        if doc_number:
+            self.ref_input.setText(doc_number)
+
     def _received_context(self) -> str:
         """AI 대화·자동 초안에 함께 보낼 받은 공문 정리 (칸의 [참고] 체크가 켜져 있을 때)."""
         if not self.panel.use_as_context():
@@ -1406,8 +1415,8 @@ class DocumentEditorWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, '업무 등록 실패', str(e))
             return
-        if not self.editor.toPlainText().strip() and not self.title_input.text().strip():
-            self.close()          # 공문을 쓰지 않고 업무만 등록했으면 창을 닫는다
+        if not self.editor.toPlainText().strip():
+            self.close()          # 공문 본문을 쓰지 않고 업무만 등록했으면 창을 닫는다
             return
         self.statusBar().showMessage(f'업무로 등록했습니다: {a["title"]}')
 

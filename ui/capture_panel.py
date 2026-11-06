@@ -36,6 +36,7 @@ class CapturePanel(QFrame):
     use_title(str) / use_ref(str) — 공문 작성 창의 제목 / 관련 번호 칸에 넣기
     collapse_requested()      — 칸 접기
     message(str)              — 상태 표시줄에 보일 안내
+    analyzed(str, str)        — 분석이 끝남: (제목, 공문번호) → 오른쪽 제목·관련 번호 칸에도 넣는다
     """
     register_requested = pyqtSignal(dict)
     reply_requested = pyqtSignal(dict)
@@ -43,6 +44,7 @@ class CapturePanel(QFrame):
     use_ref = pyqtSignal(str)
     collapse_requested = pyqtSignal()
     message = pyqtSignal(str)
+    analyzed = pyqtSignal(str, str)
 
     MUTED = '#64748B'
     ACCENT = '#4F46E5'
@@ -370,6 +372,7 @@ class CapturePanel(QFrame):
             return
         self.fill(a)
         self._set_busy(False)
+        self.analyzed.emit(self.ed_title.text().strip(), self.ed_docno.text().strip())
         msg = '분석 완료. 고칠 곳은 고쳐서 쓰세요.'
         if a.get('needs_reply'):
             msg += '\n회신이 필요한 공문으로 보여요.'
