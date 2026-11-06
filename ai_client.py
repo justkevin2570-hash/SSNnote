@@ -27,6 +27,7 @@ OPENCODE_KEY_FILE   = os.path.join(APPDATA_DIR, 'opencode_key.txt')
 OPENCODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'opencode_model.txt')
 OPENCODE_PLAN_FILE  = os.path.join(APPDATA_DIR, 'opencode_plan.txt')
 OPENCODE_VISION_FILE = os.path.join(APPDATA_DIR, 'opencode_vision_models.json')
+OPENCODE_MODELS_FILE = os.path.join(APPDATA_DIR, 'opencode_models.json')   # {id: {image, protocol}}
 OLLAMA_HOST        = 'http://localhost:11434'
 
 # ── 자격증명 암호화 헬퍼 (Windows DPAPI, 미지원 시 평문 폴백) ──
@@ -86,17 +87,21 @@ NVIDIA_DEFAULT_MODELS = [
 #   요청에는 x-opencode-session 헤더가 꼭 있어야 한다 (없으면 400 MissingSessionID).
 OPENCODE_PLANS = {
     'go':  {'label': 'OpenCode Go (월 구독)',
-            'base_url': 'https://opencode.ai/inference/go/openai/v1',
+            'base_url': 'https://opencode.ai/inference/go/openai/v1',          # OpenAI(chat-completions) 방식
+            'anthropic_base_url': 'https://opencode.ai/inference/go/anthropic',  # Claude(messages) 방식
             'models_url': 'https://opencode.ai/inference/go/v1/models'},
     'zen': {'label': 'OpenCode Zen (충전식)',
             'base_url': 'https://opencode.ai/inference/openai/v1',
+            'anthropic_base_url': 'https://opencode.ai/inference/anthropic',
             'models_url': 'https://opencode.ai/inference/v1/models'},
 }
-OPENCODE_DEFAULT_MODEL = 'deepseek-v4.1-flash'
+# 학습 미사용·보관 0일이고 지역 설정 없이 쓸 수 있으며 이미지도 읽는 모델 (OpenCode Go 문서, 2026-11)
+OPENCODE_DEFAULT_MODEL = 'kimi-k3'
 # 서버에서 모델 목록을 못 받을 때 쓰는 예비 목록 (Go, chat-completions 지원, 2026-11 기준)
 OPENCODE_DEFAULT_MODELS = [
-    "deepseek-v4.1-flash",
     "kimi-k3",
+    "claude-haiku-5-5",
+    "deepseek-v4.1-flash",
     "kimi-k3.1-pro",
     "glm-5.3-flash",
     "glm-5.3",
@@ -549,9 +554,39 @@ def save_opencode_vision_models(model_ids):
         json.dump(sorted(model_ids), f)
 
 
+def save_opencode_model_info(models):
+    """모델별 이미지 지원·요청 방식 저장 (마지막으로 서버에서 받은 목록)."""
+    import json
+    os.makedirs(APPDATA_DIR, exist_ok=True)
+    info = {m['id']: {'image': bool(m.get('image')), 'protocol': m.get('protocol', 'chat')} for m in models}
+    with open(OPENCODE_MODELS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(info, f, ensure_ascii=False)
+    save_opencode_vision_models([m['id'] for m in models if m.get('image')])
+
+
+def _opencode_model_info(model: str) -> dict:
+    import json
+    try:
+        with open(OPENCODE_MODELS_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f).get(model) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def opencode_model_protocol(model: str) -> str:
+    """'messages'(Claude 방식) 또는 'chat'(OpenAI 방식). 모르면 이름으로 짐작 (claude-* → messages)."""
+    p = _opencode_model_info(model).get('protocol')
+    if p in ('chat', 'messages'):
+        return p
+    return 'messages' if model.startswith('claude-') else 'chat'
+
+
 def opencode_model_supports_image(model: str):
     """True / False / None(모름 — 목록을 받은 적 없음)."""
     import json
+    info = _opencode_model_info(model)
+    if 'image' in info:
+        return info['image']
     try:
         with open(OPENCODE_VISION_FILE, 'r', encoding='utf-8') as f:
             return model in json.load(f)
@@ -577,10 +612,10 @@ def opencode_headers() -> dict:
 
 
 def fetch_opencode_models(plan: str) -> list:
-    """요금제에서 쓸 수 있는 대화 모델 [{'id', 'name', 'image'}].
+    """요금제에서 쓸 수 있는 대화 모델 [{'id', 'name', 'image', 'protocol'}].
 
-    서서니 노트는 chat-completions 방식으로 요청하므로 그 방식을 기본 지원하는 모델만 고른다.
-    실패하면 예비 목록 (image=None: 모름).
+    OpenAI(chat-completions) 방식 또는 Claude(messages) 방식을 기본 지원하는 모델만 고른다.
+    두 방식 모두 되면 OpenAI 방식. 실패하면 예비 목록 (image=None: 모름).
     """
     import requests
     try:
@@ -588,29 +623,37 @@ def fetch_opencode_models(plan: str) -> list:
         r.raise_for_status()
         out = []
         for m in r.json().get('data', []):
-            if m.get('type', 'chat') != 'chat' or 'chat-completions' not in (m.get('api') or {}):
+            api = m.get('api') or {}
+            if m.get('type', 'chat') != 'chat' or not ('chat-completions' in api or 'messages' in api):
                 continue
             price = (((m.get('cost') or {}).get('text') or {}).get('input') or {}).get('price')
             if price == 0:      # 무료 모델은 OpenCode 앱 안에서만 쓸 수 있어 다른 앱에서는 항상 거절됨
                 continue
             inputs = (m.get('modalities') or {}).get('input', [])
             out.append({'id': m['id'], 'name': m.get('name', m['id']),
-                        'image': any(str(x).startswith('image/') for x in inputs)})
+                        'image': any(str(x).startswith('image/') for x in inputs),
+                        'protocol': 'chat' if 'chat-completions' in api else 'messages'})
         if out:
             return out
     except Exception:
         pass
-    return [{'id': mid, 'name': mid, 'image': None} for mid in OPENCODE_DEFAULT_MODELS]
+    return [{'id': mid, 'name': mid, 'image': None, 'protocol': 'messages' if mid.startswith('claude-') else 'chat'}
+            for mid in OPENCODE_DEFAULT_MODELS]
 
 
 def test_opencode(plan: str, key: str, model: str):
     """아주 짧은 요청으로 연결을 확인한다. (ok, 한국어 메시지)."""
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=key, base_url=OPENCODE_PLANS[plan]['base_url'],
-                        default_headers=opencode_headers(), max_retries=0, timeout=30)
-        client.chat.completions.create(model=model, max_tokens=16,
-                                       messages=[{"role": "user", "content": "OK라고만 답하세요."}])
+        if opencode_model_protocol(model) == 'messages':
+            client = OpenCodeAdapter._anthropic_client(key, plan, max_retries=0, timeout=30)
+            client.messages.create(model=model, max_tokens=256,
+                                   messages=[{"role": "user", "content": "OK라고만 답하세요."}])
+        else:
+            from openai import OpenAI
+            client = OpenAI(api_key=key, base_url=OPENCODE_PLANS[plan]['base_url'],
+                            default_headers=opencode_headers(), max_retries=0, timeout=30)
+            client.chat.completions.create(model=model, max_tokens=16,
+                                           messages=[{"role": "user", "content": "OK라고만 답하세요."}])
         return True, '연결 성공'
     except Exception as e:
         code = getattr(e, 'status_code', None)
@@ -943,7 +986,8 @@ class NvidiaAdapter(OpenAIAdapter):
 # ── OpenCodeAdapter (OpenAI 호환 API) ────────────────────────────
 
 class OpenCodeAdapter(OpenAIAdapter):
-    """OpenCode Go/Zen (OpenAI 호환 chat-completions). 요금제에 맞는 주소와 필수 헤더를 붙인다."""
+    """OpenCode Go/Zen. 요금제에 맞는 주소와 필수 헤더를 붙이고, 모델에 따라
+    OpenAI(chat-completions) 방식 또는 Claude(messages) 방식(예: claude-haiku-5-5)으로 요청한다."""
 
     @classmethod
     def get_api_key(cls) -> str:
@@ -960,13 +1004,54 @@ class OpenCodeAdapter(OpenAIAdapter):
                       default_headers=opencode_headers())
 
     @classmethod
+    def _uses_messages(cls) -> bool:
+        return opencode_model_protocol(cls._model()) == 'messages'
+
+    @staticmethod
+    def _anthropic_client(key: str, plan: str, **kw):
+        import anthropic
+        return anthropic.Anthropic(api_key=key, base_url=OPENCODE_PLANS[plan]['anthropic_base_url'],
+                                   default_headers=opencode_headers(), **kw)
+
+    @classmethod
+    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
+        if not cls._uses_messages():
+            return super().stream_text(prompt, on_chunk, on_done, on_error, system=system)
+        try:
+            full = ""
+            client = cls._anthropic_client(cls.get_api_key(), load_opencode_plan())
+            with client.messages.stream(model=cls._model(), max_tokens=4096, system=system,
+                                        messages=[{"role": "user", "content": prompt}]) as stream:
+                for text in stream.text_stream:          # 글자(text)만 — 생각(thinking) 블록은 제외
+                    full += text
+                    on_chunk(text)
+                final = stream.get_final_message()
+            if getattr(final, 'stop_reason', '') == 'refusal':
+                on_error(_OPENCODE_REFUSAL)
+                return
+            on_done(full)
+        except Exception as e:
+            on_error(str(e))
+
+    @classmethod
     def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
         if image_b64 and opencode_model_supports_image(cls._model()) is False:
             raise RuntimeError(
                 f'선택한 OpenCode 모델({cls._model()})은 이미지를 읽지 못합니다.\n'
                 '메뉴 → 설정 → AI 연결(API 키) → OpenCode에서 🖼 표시가 있는 모델을 고르거나, '
                 '개인정보 보호 모드를 켜서 글자로 분석하세요.')
-        return super().complete(system, prompt, image_b64=image_b64, max_tokens=max_tokens)
+        if not cls._uses_messages():
+            return super().complete(system, prompt, image_b64=image_b64, max_tokens=max_tokens)
+        content = []
+        if image_b64:
+            content.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": image_b64}})
+        content.append({"type": "text", "text": prompt})
+        client = cls._anthropic_client(cls.get_api_key(), load_opencode_plan())
+        r = client.messages.create(model=cls._model(), max_tokens=max_tokens, system=system,
+                                   messages=[{"role": "user", "content": content}])
+        if getattr(r, 'stop_reason', '') == 'refusal':
+            raise RuntimeError(_OPENCODE_REFUSAL)
+        return ''.join(b.text for b in r.content if getattr(b, 'type', '') == 'text').strip()
 
     @classmethod
     def ask_with_image(cls, prompt: str, image_b64: str) -> dict:
@@ -975,6 +1060,9 @@ class OpenCodeAdapter(OpenAIAdapter):
             return _parse_json_response(text)
         except Exception as e:
             return {"title": "", "doc_number": "", "error": str(e)}
+
+
+_OPENCODE_REFUSAL = 'AI가 이 요청에는 답하지 않았습니다. 내용을 조금 바꿔 다시 시도하거나 다른 모델을 골라 주세요.'
 
 
 # ── OllamaAdapter ────────────────────────────────────────────────

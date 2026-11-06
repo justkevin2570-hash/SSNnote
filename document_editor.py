@@ -31,7 +31,7 @@ from ai_client import (AiStreamThread,
                         load_opencode_key, save_opencode_key,
                         load_opencode_model, save_opencode_model,
                         OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
-                        fetch_opencode_models, save_opencode_vision_models, test_opencode)
+                        fetch_opencode_models, save_opencode_model_info, test_opencode)
 from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
 # rag(유사 공문 찾기)는 numpy·sentence-transformers가 필요해 쓸 때만 불러온다 — 없으면 그 기능만 꺼지고 창은 열림
 from ui.theme import TL as T, keep_light  # 예산·공문 창은 아직 라이트 전용
@@ -1055,7 +1055,14 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage('OpenCode 모델 목록 조회 중...')
         QApplication.processEvents()
         models = fetch_opencode_models(plan)
-        mark = lambda m: f"{m['id']}   🖼 이미지" if m['image'] else m['id']  # noqa: E731
+
+        def mark(m):
+            tags = []
+            if m['image']:
+                tags.append('🖼 이미지')
+            if m['id'].startswith('deepseek'):
+                tags.append('⚠ 지역 설정 필요')     # OpenCode 기본(유럽·미국)에서는 막혀 있음
+            return m['id'] + ('   ' + ' · '.join(tags) if tags else '')
         shown = [mark(m) for m in models]
         current = next((mark(m) for m in models if m['id'] == load_opencode_model()), '')
         dlg = _ModelSelectDialog('OpenCode 모델 선택 — 🖼 표시는 캡처 이미지도 읽을 수 있음', shown, current, self)
@@ -1065,6 +1072,8 @@ class DocumentEditorWindow(QMainWindow):
         if not picked:
             return
 
+        if any(m['image'] is not None for m in models):      # 서버 목록을 받았을 때만 (요청 방식·이미지 지원)
+            save_opencode_model_info(models)
         self.statusBar().showMessage(f'OpenCode · {picked} 연결 확인 중...')
         QApplication.processEvents()
         ok, msg = test_opencode(plan, key, picked)
@@ -1075,8 +1084,6 @@ class DocumentEditorWindow(QMainWindow):
 
         save_opencode_plan(plan)
         save_opencode_model(picked)
-        if any(m['image'] is not None for m in models):      # 서버 목록을 받았을 때만 이미지 지원 정보 저장
-            save_opencode_vision_models([m['id'] for m in models if m['image']])
         save_ai_mode('opencode')
         self._apply_ai_mode()
         self.statusBar().showMessage(f'OpenCode · {picked} 연결 완료.')

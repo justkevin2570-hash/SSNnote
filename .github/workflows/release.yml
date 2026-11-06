@@ -23,6 +23,8 @@ permissions:
 env:
   GIST_ID: 57ec4979c5373758f658ee957fd80386
   PYTHONUTF8: '1'
+  # 입력값은 스크립트 글자에 직접 넣지 않고 환경 변수로만 넘긴다 (명령 주입 방지)
+  VERSION: ${{ inputs.version }}
 
 jobs:
   release:
@@ -39,7 +41,8 @@ jobs:
 
       - name: 버전 확인 (version.json · SSNnote.iss · 입력값)
         run: |
-          $want = '${{ inputs.version }}'
+          $want = $env:VERSION
+          if ($want -notmatch '^v\d+\.\d+(\.\d+)?$') { throw "버전 형식이 올바르지 않습니다: $want (예: v2.70)" }
           $v = (Get-Content version.json -Raw -Encoding utf8 | ConvertFrom-Json).version
           if ($v -ne $want) { throw "version.json 버전($v)이 입력($want)과 다릅니다" }
           $iss = (Select-String -Path SSNnote.iss -Pattern '^AppVersion=(.+)$').Matches[0].Groups[1].Value
@@ -121,7 +124,7 @@ jobs:
         run: |
           $notes = (Get-Content version.json -Raw -Encoding utf8 | ConvertFrom-Json).changelog
           [IO.File]::WriteAllText("$env:RUNNER_TEMP\notes.md", $notes, [Text.UTF8Encoding]::new($false))
-          gh release create '${{ inputs.version }}' dist/SSNnote_Setup.exe --title '${{ inputs.version }}' --notes-file "$env:RUNNER_TEMP\notes.md" --target $env:GITHUB_SHA
+          gh release create $env:VERSION dist/SSNnote_Setup.exe --title $env:VERSION --notes-file "$env:RUNNER_TEMP\notes.md" --target $env:GITHUB_SHA
 
       - name: Gist 갱신 (기존 사용자 업데이트 알림)
         if: ${{ inputs.update_gist }}
