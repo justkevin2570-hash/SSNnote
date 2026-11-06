@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QApplication,
     QFrame, QCalendarWidget, QTextEdit, QListWidget, QAbstractItemView, QListWidgetItem
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QTimer, QPoint, QSize, pyqtSignal
+from PyQt5.QtCore import Qt, QDate, QTime, QTimer, QPoint, QRectF, QSize, pyqtSignal
 from PyQt5.QtGui import QFontMetrics, QColor, QPainter, QTextCharFormat, QTextCursor, QKeySequence
 from .common import pr_font
 from .theme import T, tc, tct, qcolor
@@ -24,18 +24,38 @@ class AddDateButton(QLabel):
         'padding: 1px 5px;'
     )
 
+    _STYLE_HIDDEN = ('color: transparent; background: transparent;'
+                     'border: 1px dashed transparent; border-radius: 3px; padding: 1px 5px;')
+
     def __init__(self, *args, **kwargs):
         super().__init__('＋날짜', *args, **kwargs)
         self.setCursor(Qt.PointingHandCursor)
         self.setFont(pr_font(10))
-        self.setStyleSheet(self._STYLE_NORMAL)
+        self._row_hover = False
+        self._self_hover = False
+        self._restyle()
+
+    def set_row_hover(self, on: bool):
+        """업무 줄에 마우스를 올렸을 때만 보인다 (평소엔 자리만 차지 — 줄이 움직이지 않게)."""
+        self._row_hover = on
+        self._restyle()
+
+    def _restyle(self):
+        if self._self_hover:
+            self.setStyleSheet(self._STYLE_HOVER)
+        elif self._row_hover:
+            self.setStyleSheet(self._STYLE_NORMAL)
+        else:
+            self.setStyleSheet(self._STYLE_HIDDEN)
 
     def enterEvent(self, event):
-        self.setStyleSheet(self._STYLE_HOVER)
+        self._self_hover = True
+        self._restyle()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.setStyleSheet(self._STYLE_NORMAL)
+        self._self_hover = False
+        self._restyle()
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
@@ -55,15 +75,57 @@ class ClickableLabel(QLabel):
 
 
 class DdayLabel(QLabel):
-    """D‑day 표시 라벨. 텍스트를 2px 위로 당겨서 다른 행 요소들과 시각 중심을 맞춘다."""
-    SHIFT = 2
+    """D-day 표시. 급한 정도(tone)에 따라 둥근 바탕색으로 보여주고, 마우스를 올리면 날짜를 보여준다.
+
+    tone: 'overdue'(지남, 빨강) · 'today'(오늘, 주황) · 'soon'(1~3일, 옅은 주황) ·
+          'week'(4~7일, 옅은 호박색) · 'later'(그 뒤, 회색 글자만) · 'error'
+    """
     clicked = pyqtSignal()
 
-    def __init__(self, dday_text, date_text, *args, **kwargs):
+    # (바탕색, 글자색) — 바탕 None이면 글자만
+    _TONES = {
+        'overdue': ('#E5484D', '#FFFFFF'),
+        'today':   ('#F76B15', '#FFFFFF'),
+        'soon':    ('rgba(247,107,21,0.16)', '#C2410C'),
+        'week':    ('rgba(176,112,0,0.15)', '#8A5A00'),
+        'later':   (None, 'rgba(0,0,0,0.55)'),
+        'error':   (None, 'rgba(0,0,0,0.35)'),
+    }
+
+    def __init__(self, dday_text, date_text, *args, tone='later', **kwargs):
         super().__init__(dday_text, *args, **kwargs)
         self._dday_text = dday_text
         self._date_text = date_text
         self.setCursor(Qt.PointingHandCursor)
+        self.set_tone(tone)
+
+    def set_tone(self, tone: str):
+        self._tone = tone if tone in self._TONES else 'later'
+        self.updateGeometry()
+        self.update()
+
+    def _colors(self):
+        bg, fg = self._TONES[self._tone]
+
+        def q(c, is_bg):
+            if c is None:
+                return None
+            if c.startswith('rgba'):
+                r, g, b, a = [x.strip() for x in c[5:-1].split(',')]
+                col = QColor(int(r), int(g), int(b))
+                col = QColor((tc if is_bg else tct)(col.name()))
+                col.setAlphaF(float(a))
+                return col
+            if c == '#FFFFFF':
+                return QColor(c)           # 진한 바탕 위의 흰 글자는 다크 모드에서도 흰색 그대로
+            return QColor((tc if is_bg else tct)(c))
+        return q(bg, True), q(fg, False)
+
+    def sizeHint(self):
+        fm = QFontMetrics(self.font())
+        return QSize(fm.horizontalAdvance(self.text()) + 16, max(fm.height() + 4, 22))
+
+    minimumSizeHint = sizeHint
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -72,30 +134,30 @@ class DdayLabel(QLabel):
 
     def paintEvent(self, event):
         p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        bg, fg = self._colors()
+        fm = QFontMetrics(self.font())
+        h = max(fm.height() + 2, 20)
+        w = fm.horizontalAdvance(self.text()) + 14
+        x = self.width() - w            # 오른쪽 정렬 (D-day 칸이 줄마다 같은 끝에 맞도록)
+        y = (self.height() - h) / 2.0
+        if bg is not None:
+            p.setPen(Qt.NoPen)
+            p.setBrush(bg)
+            p.drawRoundedRect(QRectF(x, y, w, h), h / 2.0, h / 2.0)
         p.setFont(self.font())
-        p.setPen(self.palette().color(self.foregroundRole()))
-        rect = self.rect()
-        rect.translate(0, -self.SHIFT)
-        p.drawText(rect, self.alignment(), self.text())
+        p.setPen(fg)
+        p.drawText(QRectF(x, y, w, h), Qt.AlignCenter, self.text())
         p.end()
 
     def enterEvent(self, event):
         self.setText(self._date_text)
-        f = self.font()
-        f.setPointSizeF(f.pointSizeF() - 0.3)
-        self.setFont(f)
-        self._original_style = self.styleSheet()
-        if T.DANGER in self._original_style:
-            self.setStyleSheet(self._original_style.replace(T.DANGER, tc('#e96060')))
+        self.updateGeometry()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         self.setText(self._dday_text)
-        f = self.font()
-        f.setPointSizeF(f.pointSizeF() + 0.3)
-        self.setFont(f)
-        if hasattr(self, '_original_style'):
-            self.setStyleSheet(self._original_style)
+        self.updateGeometry()
         super().leaveEvent(event)
 
 
@@ -106,6 +168,12 @@ class RotatedMenuButton(QPushButton):
     def __init__(self, parent=None):
         super().__init__('…', parent)
         self._hovered = False
+        self._row_active = True     # 업무 줄에서는 TaskRow가 마우스 올림·선택 때만 켠다
+
+    def set_row_active(self, on: bool):
+        if on != self._row_active:
+            self._row_active = on
+            self.update()
 
     def sizeHint(self):
         fm = QFontMetrics(self.font())
@@ -124,6 +192,8 @@ class RotatedMenuButton(QPushButton):
         self.update()
 
     def paintEvent(self, e):
+        if not (self._row_active or self._hovered or self.isDown()):
+            return                      # 평소엔 숨김 (자리는 유지)
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
 
@@ -135,7 +205,7 @@ class RotatedMenuButton(QPushButton):
         p.translate(self.width() / 2.0, self.height() / 2.0)
         p.rotate(90)
         p.setFont(self.font())
-        p.setPen(qcolor('#000000'))
+        p.setPen(qcolor('#000000', 170))
         p.drawText(
             -self.height() // 2, -self.width() // 2,
             self.height(), self.width(),

@@ -4,12 +4,12 @@ import ctypes
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QApplication,
-    QFrame, QGraphicsColorizeEffect, QGraphicsOpacityEffect
+    QFrame, QGraphicsOpacityEffect
 )
 from PyQt5.QtCore import Qt, QTimer, QPoint, QSize, QPropertyAnimation, QEasingCurve, QRectF
-from PyQt5.QtGui import QFont, QColor, QPainter, QIcon, QPixmap, QCursor
+from PyQt5.QtGui import QFont, QColor, QPainter, QPixmap, QCursor
 import qtawesome as qta
-from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR, themed_pixmap
+from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR
 from .dates import calc_dday
 from .theme import T, tc, tct
 
@@ -312,94 +312,58 @@ class MergeButton(QWidget):
 
 
 class TitleBar(QWidget):
+    """메모 창 제목 줄: 이름 · 오늘 날짜 | 예산 · 메모 모드 · 메뉴 · 항상 위 · 닫기.
+    아이콘은 모두 같은 얇은 선 아이콘(같은 크기·같은 색)이고, 켜진 버튼(메모 모드·항상 위)만 바탕을 칠한다."""
+
+    _ICON_PX = 17
+
     def __init__(self, parent):
         super().__init__(parent)
         self.parent    = parent
         self._drag_pos = None
         self.setFixedHeight(TITLE_BAR_HEIGHT)
-        self.setStyleSheet(f"""
-            QWidget {{
-                background: {TITLE_COLOR};
-                border-radius: 0;
-            }}
-            QPushButton {{
-                background: transparent;
-                border: none;
-                border-radius: 4px;
-                padding: 0;
-            }}
-            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.12)")}; border-radius: 3px; }}
-            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.22)")}; border-radius: 3px; }}
-            QPushButton#btn_mode, QPushButton#btn_budget {{
-                background: transparent;
-                border: 1px solid transparent;
-                border-radius: 6px;
-                padding: 0px 6px;
-                color: {tct("#2979ff")};
-            }}
-            QPushButton#btn_mode:hover, QPushButton#btn_budget:hover {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.12)")}; }}
-            QPushButton#btn_mode:pressed, QPushButton#btn_budget:pressed {{ background: {tc("rgba(0,0,0,0.20)")}; border-color: {tc("rgba(0,0,0,0.20)")}; }}
-        """)
+        self.apply_style(TITLE_COLOR)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 8, 0)
-        layout.setSpacing(2)
+        layout.setContentsMargins(14, 0, 6, 0)
+        layout.setSpacing(1)
 
         self.label = QLabel('서서니 노트')
-        self.label.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
+        f = QFont('Pretendard GOV', 10)
+        f.setFamilies(['Pretendard GOV', 'Pretendard', 'Malgun Gothic'])
+        f.setWeight(QFont.DemiBold)
+        self.label.setFont(f)
         self.label.setStyleSheet(f'color: {T.TEXT_ON_NOTE}; background: transparent;')
+        self.date_label = QLabel('')
+        fd = QFont(f)
+        fd.setWeight(QFont.Normal)
+        fd.setPointSizeF(9.5)
+        self.date_label.setFont(fd)
+        self.date_label.setStyleSheet(f'color: {tc("rgba(0,0,0,0.45)")}; background: transparent; padding-left: 6px;')
+        self._update_date()
+        self._date_timer = QTimer(self)
+        self._date_timer.timeout.connect(self._update_date)
+        self._date_timer.start(60 * 1000)
 
-        btn_menu  = QPushButton('…')
-        btn_menu.setToolTip('메뉴')
-        btn_menu.setStyleSheet('font-size: 19px; letter-spacing: 0px; padding: 0px 6px 0px 6px;')
-        self.btn_pin   = QPushButton('📌')
-        self.btn_pin.setToolTip('항상 위 꺼짐')
-        self.btn_pin.setFixedSize(26, 26)
-        self.btn_pin.setFont(QFont('Segoe UI Emoji', 12))
-        _gray = QGraphicsColorizeEffect()
-        _gray.setColor(QColor(tc('#888888')))
-        _gray.setStrength(1.0)
-        self.btn_pin.setGraphicsEffect(_gray)
-        _x_icon_path = os.path.join(_base_path(), 'assets', '엑스아이콘.png')
-        self.btn_close = QPushButton()
-        self.btn_close.setIcon(QIcon(themed_pixmap(_x_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
-        self.btn_close.setIconSize(QSize(18, 18))
-        self.btn_close.setFixedSize(26, 26)
-        self.btn_close.setToolTip('닫기')
-        self.btn_close.setStyleSheet(f"""
-            QPushButton {{ background: transparent; border: none; }}
-            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.12)")}; border-radius: 3px; }}
-            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.22)")}; border-radius: 3px; padding: 2px 0 0 2px; }}
-        """)
-
-        _edit_icon_path = os.path.join(_base_path(), 'assets', '수정 아이콘.png')
-        self.btn_mode = QPushButton()
+        btn_menu = self._icon_button('ph.dots-three-bold', '메뉴')
+        self.btn_menu = btn_menu
+        self.btn_pin = self._icon_button('ph.push-pin-bold', '항상 위 꺼짐')
+        self.btn_close = self._icon_button('ph.x-bold', '닫기')
+        self.btn_mode = self._icon_button('ph.note-pencil-bold', '메모 모드로 전환')
         self.btn_mode.setObjectName('btn_mode')
-        self.btn_mode.setIcon(QIcon(themed_pixmap(_edit_icon_path).scaled(18, 18, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
-        self.btn_mode.setIconSize(QSize(18, 18))
-        self.btn_mode.setFixedSize(26, 26)
-        self.btn_mode.setToolTip('메모 모드로 전환')
-        _gray_mode = QGraphicsColorizeEffect()
-        _gray_mode.setColor(QColor(tc('#888888')))
-        _gray_mode.setStrength(1.0)
-        self.btn_mode.setGraphicsEffect(_gray_mode)
         self.btn_mode.clicked.connect(parent._toggle_memo_mode)
-
-        self.btn_budget = QPushButton()
+        self.btn_budget = self._icon_button('ph.currency-krw-bold', '예산 관리')
         self.btn_budget.setObjectName('btn_budget')
-        self.btn_budget.setIcon(qta.icon('fa5s.won-sign', color=tc('#888888')))
-        self.btn_budget.setIconSize(QSize(18, 18))
-        self.btn_budget.setFixedSize(26, 26)
-        self.btn_budget.setToolTip('예산 관리')
         self.btn_budget.clicked.connect(parent._open_budget_window)
 
         layout.addWidget(self.label)
+        layout.addWidget(self.date_label)
         layout.addStretch()
         layout.addWidget(self.btn_budget, 0, Qt.AlignVCenter)
         layout.addWidget(self.btn_mode, 0, Qt.AlignVCenter)
-        layout.addWidget(btn_menu)
-        layout.addWidget(self.btn_pin)
-        layout.addWidget(self.btn_close)
+        layout.addWidget(btn_menu, 0, Qt.AlignVCenter)
+        layout.addWidget(self.btn_pin, 0, Qt.AlignVCenter)
+        layout.addWidget(self.btn_close, 0, Qt.AlignVCenter)
 
         # 가운데 오버레이 상태 메시지 (전체 너비, 마우스 이벤트 통과)
         self.status_label = QLabel('', self)
@@ -417,6 +381,46 @@ class TitleBar(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.status_label.setGeometry(0, 0, self.width(), self.height())
+
+    # ── 모양 ────────────────────────────────────────────────────
+    @staticmethod
+    def _icon_color(active=False):
+        from .theme import qcolor
+        return qcolor('#000000', 215 if active else 140)
+
+    def _icon_button(self, icon_name, tip):
+        b = QPushButton()
+        b._icon_name = icon_name
+        b.setIcon(qta.icon(icon_name, color=self._icon_color()))
+        b.setIconSize(QSize(self._ICON_PX, self._ICON_PX))
+        b.setFixedSize(28, 26)
+        b.setToolTip(tip)
+        b.setCursor(Qt.PointingHandCursor)
+        return b
+
+    def set_active(self, button, on: bool, icon_name=None):
+        """켜진 상태(메모 모드·항상 위)는 진한 아이콘 + 옅은 바탕."""
+        if icon_name:
+            button._icon_name = icon_name
+        button.setIcon(qta.icon(button._icon_name, color=self._icon_color(on)))
+        button.setProperty('active', on)
+        button.style().unpolish(button)
+        button.style().polish(button)
+
+    def apply_style(self, bg):
+        self.setStyleSheet(f"""
+            QWidget {{ background: {bg}; border-radius: 0; }}
+            QPushButton {{ background: transparent; border: none; border-radius: 6px; padding: 0; }}
+            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.10)")}; }}
+            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.18)")}; }}
+            QPushButton[active="true"] {{ background: {tc("rgba(0,0,0,0.13)")}; }}
+            QPushButton[active="true"]:hover {{ background: {tc("rgba(0,0,0,0.18)")}; }}
+        """)
+
+    def _update_date(self):
+        from datetime import date
+        d = date.today()
+        self.date_label.setText(f"{d.month}. {d.day}.({'월화수목금토일'[d.weekday()]})")
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:

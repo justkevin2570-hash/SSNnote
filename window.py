@@ -5,10 +5,10 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QApplication,
     QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QMenu, QAction, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
-    QPlainTextEdit, QTextEdit, QGraphicsColorizeEffect, QTimeEdit,
+    QPlainTextEdit, QTextEdit, QTimeEdit,
     QComboBox, QScrollBar
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSettings, QUrl
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSettings, QUrl, QSize
 from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextBlockFormat, QTextCursor
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
@@ -27,7 +27,8 @@ from ui.chrome import EdgeHandle, MergeButton, TitleBar
 from ui.task_row import _NoteButton, TaskRow
 from ui.document_row import DocumentRow
 from ui.calendar_view import MonthlyCalendarDialog, NativeCalendarDialog
-from ui.theme import T, PALETTE, tc, tct, note_color, DARK
+from ui.theme import T, PALETTE, tc, tct, note_color, qcolor, DARK
+import qtawesome as qta
 
 class MemoWindow(QMainWindow):
     def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None,
@@ -387,46 +388,42 @@ class MemoWindow(QMainWindow):
         _bottom_panel = QWidget()
         _bottom_panel.setStyleSheet('background: transparent;')
         bottom_layout = QHBoxLayout(_bottom_panel)
-        bottom_layout.setContentsMargins(8, 6, 8, 6)
+        bottom_layout.setContentsMargins(8, 7, 8, 8)
         bottom_layout.setSpacing(6)
 
+        # 세 버튼 모두 같은 모양 (아이콘 + 글자, 은은한 바탕) — 진한 색은 쓰지 않는다
         _btn_style = f"""
             QPushButton {{
-                background: {tc("rgba(255,255,255,0.5)")};
-                border: 1px solid {T.ACCENT};
-                border-radius: 6px;
-                padding: 4px 8px;
+                background: {tc("rgba(255,255,255,0.45)")};
+                border: 1px solid {tc("rgba(0,0,0,0.08)")};
+                border-radius: 8px;
+                padding: 6px 10px;
                 color: {T.TEXT_ON_NOTE};
             }}
-            QPushButton:hover {{ background: {tc("rgba(212,184,0,0.25)")}; }}
+            QPushButton:hover {{ background: {tc("rgba(255,255,255,0.75)")}; border-color: {tc("rgba(0,0,0,0.14)")}; }}
+            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.06)")}; }}
         """
+        _btn_font = QFont('Pretendard GOV', 10)
+        _btn_font.setFamilies(['Pretendard GOV', 'Pretendard', 'Malgun Gothic'])
+        _btn_font.setWeight(QFont.DemiBold)
+        _btn_icon = qcolor('#000000', 165)
 
-        btn_at_a_glance = QPushButton('달력')
-        btn_at_a_glance.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
-        btn_at_a_glance.setStyleSheet(f"""
-            QPushButton {{
-                background: {T.TEXT_ON_NOTE};
-                border: 1px solid {T.ACCENT};
-                border-radius: 6px;
-                padding: 4px 8px;
-                color: {tct("#ffffff")};
-            }}
-            QPushButton:hover {{ background: {tc("#6b5410")}; }}
-        """)
-        btn_at_a_glance.clicked.connect(self._show_monthly_calendar)
-        bottom_layout.addWidget(btn_at_a_glance)
+        def _bottom_button(text, icon, slot, tip):
+            b = QPushButton(text)
+            b.setFont(_btn_font)
+            b.setStyleSheet(_btn_style)
+            b.setIcon(qta.icon(icon, color=_btn_icon))
+            b.setIconSize(QSize(15, 15))
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            bottom_layout.addWidget(b)
+            return b
 
-        btn_doc_write = QPushButton('공문 작성 (AI)')
-        btn_doc_write.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
-        btn_doc_write.setStyleSheet(_btn_style)
-        btn_doc_write.clicked.connect(self._open_document_editor)
-        bottom_layout.addWidget(btn_doc_write)
-
-        btn_doc_history = QPushButton('저장 기록')
-        btn_doc_history.setFont(QFont('Malgun Gothic', 10, QFont.Bold))
-        btn_doc_history.setStyleSheet(_btn_style)
-        btn_doc_history.clicked.connect(self._show_official_doc_history)
-        bottom_layout.addWidget(btn_doc_history)
+        _bottom_button('달력', 'ph.calendar-blank-bold', self._show_monthly_calendar, '월간 달력 (모든 메모장의 마감 업무)')
+        _bottom_button('공문 작성', 'ph.pen-nib-bold', self._open_document_editor,
+                       '공문 작성 창 (AI 초안·공문 캡처)')
+        _bottom_button('저장 기록', 'ph.files-bold', self._show_official_doc_history, '공문 작성 창에서 저장한 공문')
 
         # 기존 capture 메서드 호환용 더미 위젯 (숨김)
         self.lbl_capture_result = QLabel('')
@@ -637,17 +634,13 @@ class MemoWindow(QMainWindow):
         self.task_scroll.setVisible(not on)
         self.memo_editor.setVisible(on)
         btn = self.title_bar.btn_mode
+        self.title_bar.set_active(btn, on)
         if on:
             self.memo_editor.setFocus()
             btn.setToolTip('업무 모드로 전환')
-            btn.setGraphicsEffect(None)
         else:
             self.input_name.setFocus()
             btn.setToolTip('메모 모드로 전환')
-            _gray = QGraphicsColorizeEffect()
-            _gray.setColor(QColor(tc('#888888')))
-            _gray.setStrength(1.0)
-            btn.setGraphicsEffect(_gray)
 
     def _on_memo_text_changed(self):
         if self._memo_save_timer is not None:
@@ -1416,31 +1409,7 @@ class MemoWindow(QMainWindow):
                 border: 1px solid {tc("rgba(0,0,0,0.4)")};
             }}
         """)
-        self.title_bar.setStyleSheet(f"""
-            QWidget {{
-                background: {title_color};
-                border-radius: 0;
-            }}
-            QPushButton {{
-                background: transparent;
-                border: none;
-                border-radius: 4px;
-                padding: 0;
-            }}
-            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.12)")}; }}
-            QPushButton#btn_mode {{
-                background: transparent;
-                border: 1px solid transparent;
-                border-radius: 6px;
-                padding: 4px 8px;
-                color: {T.TEXT_ON_NOTE};
-                font-family: 'Malgun Gothic';
-                font-size: 10pt;
-                font-weight: bold;
-            }}
-            QPushButton#btn_mode:hover {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.12)")}; }}
-            QPushButton#btn_mode:pressed {{ background: {tc("rgba(0,0,0,0.20)")}; border-color: {tc("rgba(0,0,0,0.20)")}; }}
-        """)
+        self.title_bar.apply_style(title_color)
         if DARK:
             sep_color = QColor(shown).lighter(160).name()
         else:
@@ -1857,18 +1826,11 @@ class MemoWindow(QMainWindow):
         self.activateWindow()
         btn = self.title_bar.btn_pin
         if self.pin_active:
-            btn.setText('📍')
+            self.title_bar.set_active(btn, True, 'ph.push-pin-fill')
             btn.setToolTip('항상 위 켜짐')
-            btn.setStyleSheet(f'background: {tc("rgba(0,0,0,0.18)")}; border-radius: 4px;')
-            btn.setGraphicsEffect(None)
         else:
-            btn.setText('📌')
+            self.title_bar.set_active(btn, False, 'ph.push-pin-bold')
             btn.setToolTip('항상 위 꺼짐')
-            btn.setStyleSheet('')
-            _gray = QGraphicsColorizeEffect()
-            _gray.setColor(QColor(tc('#888888')))
-            _gray.setStrength(1.0)
-            btn.setGraphicsEffect(_gray)
 
     def _snap_full(self, pos):
         """스냅 위치와 정렬 엣지 정보를 함께 반환."""

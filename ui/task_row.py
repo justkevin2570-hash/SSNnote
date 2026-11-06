@@ -168,37 +168,39 @@ class _AutoHeightEdit(QPlainTextEdit):
         self._v_pad = max(0, (fixed_h - int(y)) // 2)
 
 class _NoteButton(QPushButton):
-    """업무 메모 펼치기/접기 토글 버튼. 접힘 ▼ / 펼침 ▲."""
-    _CODEPOINT_COLLAPSED = '\u25bc'  # ▼
-    _CODEPOINT_EXPANDED  = '\u25b2'  # ▲
+    """업무 메모 펼치기/접기 토글 버튼.
+
+    메모가 있으면 메모 아이콘(줄 세 개), 펼쳐져 있으면 위쪽 꺾쇠. 메모가 없으면 평소엔 보이지 않고
+    업무 줄에 마우스를 올렸을 때만 옅은 연필 아이콘(메모 쓰기)으로 보인다.
+    """
 
     def __init__(self, scale=1.0, glyph_offset=4):
         super().__init__()
-        self._color_normal = QColor(tc('#555555'))
-        self._color_hover  = QColor(T.ACCENT)
         self._hovered      = False
         self._has_note     = False
         self._overdue      = False
         self._expanded     = False
+        self._row_hover    = True     # 업무 줄에서는 TaskRow가 켜고 끈다 (그 밖의 곳에서는 늘 보임)
         self._glyph_offset = glyph_offset
         self.setFlat(True)
         sz = int(22 * scale)
+        self._icon_px = max(12, int(15 * scale))
         self.setFixedSize(sz, sz)
-        self.setFont(pr_font(int(10 * scale)))
         self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet('QPushButton { border: none; background: transparent; padding: 0; }')
 
     def set_note_color(self, has_note: bool, overdue: bool = None):
         self._has_note = has_note
         if overdue is not None:
             self._overdue = overdue
-        if self._overdue:
-            self._color_normal = qcolor('#666666', 80)
-        else:
-            self._color_normal = qcolor('#555555', 255 if has_note else 80)
         self.update()
 
     def set_expanded(self, expanded: bool):
         self._expanded = expanded
+        self.update()
+
+    def set_row_hover(self, on: bool):
+        self._row_hover = on
         self.update()
 
     def enterEvent(self, e):
@@ -212,14 +214,27 @@ class _NoteButton(QPushButton):
         super().leaveEvent(e)
 
     def paintEvent(self, e):
+        if self._expanded:
+            name, alpha = 'ph.caret-up-bold', 200
+        elif self._has_note:
+            name, alpha = 'ph.text-align-left-bold', (120 if self._overdue else 175)
+        elif self._row_hover or self._hovered:
+            name, alpha = 'ph.note-pencil', 90
+        else:
+            return
+        if self._hovered:
+            color = QColor(T.ACCENT)
+        else:
+            color = qcolor('#000000', alpha)
+        try:
+            import qtawesome as qta
+            pm = qta.icon(name, color=color).pixmap(self._icon_px, self._icon_px)
+        except Exception:
+            return
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setFont(self.font())
-        p.setPen(self._color_hover if self._hovered else self._color_normal)
-        rect = self.rect()
-        rect.translate(0, self._glyph_offset)
-        p.drawText(rect, Qt.AlignCenter,
-                   self._CODEPOINT_EXPANDED if self._expanded else self._CODEPOINT_COLLAPSED)
+        x = (self.width() - self._icon_px) // 2
+        y = (self.height() - self._icon_px) // 2
+        p.drawPixmap(x, y, pm)
         p.end()
 
 
@@ -548,7 +563,8 @@ class TaskRow(QWidget):
             self.btn_star.setText(MI.STAR_BORDER)
             self.btn_star.setFont(mi_font(_star_pt))
             self.btn_star.setStyleSheet(f"""
-                QPushButton {{ color: {tct("#AAAAAA")}; border: none; padding: 0; }}
+                QPushButton {{ color: {tc("rgba(0,0,0,0.25)")}; border: none; padding: 0; }}
+                QPushButton:hover {{ color: {tc("rgba(0,0,0,0.5)")}; }}
                 QPushButton:pressed {{ padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }}
             """)
         self.btn_star.clicked.connect(self._toggle_priority)
@@ -557,30 +573,24 @@ class TaskRow(QWidget):
 
         deadline = task['deadline']
         overdue = False
-        urgent = False
+        tone = 'later'
         if deadline:
             dday = calc_dday(deadline)
             if dday.startswith('D+'):
                 overdue = True
-                dday_color = tc('#666')
+                tone = 'overdue'
             elif dday == 'D-day' or '시간' in dday:
-                dday_color = T.DANGER
-                urgent = True
+                tone = 'today'
             elif dday == '날짜오류':
-                dday_color = tc('#aaa')
+                tone = 'error'
             else:
                 days_left = int(dday[2:])
-                if days_left <= 5:
-                    dday_color = T.DANGER
-                    urgent = True
-                else:
-                    dday_color = tc('#333')
-            if overdue:
-                suffix = f'기한 지남({dday})'
-            else:
-                suffix = f'({dday})'
+                if days_left <= 3:
+                    tone = 'soon'
+                elif days_left <= 7:
+                    tone = 'week'
+            suffix = f'{dday} 지남' if overdue else dday
         else:
-            dday_color = tc('#333')
             suffix = ''
 
         if overdue:
@@ -599,11 +609,7 @@ class TaskRow(QWidget):
         _base_pt = 12 * scale
         name_font = pr_font(12)
         name_font.setPointSizeF(_base_pt)  # 기한 지나도(overdue) 크기 유지 — 축소하지 않음
-        if overdue:
-            pass
-        elif urgent:
-            name_font.setBold(True)
-        elif _is_starred:
+        if _is_starred and not overdue:     # 굵은 글씨는 중요 표시한 업무만 (급한 정도는 D-day 색으로)
             name_font.setBold(True)
         self.name_edit.setFont(name_font)
         self.name_edit.setStyleSheet(f"""
@@ -639,19 +645,21 @@ class TaskRow(QWidget):
                     date_text = f'{base_date_text}{time_suffix}'
             except ValueError:
                 date_text = suffix
-            dday_lbl = DdayLabel(suffix, date_text)
+            dday_lbl = DdayLabel(suffix, date_text, tone=tone)
             dday_lbl.clicked.connect(self._show_date_picker)
-            dday_font = pr_font(12)
-            dday_font.setBold((urgent or _is_starred) and not overdue)
-            dday_font.setPointSizeF(_base_pt)  # 기한 지나도(overdue) 크기 유지 — 축소하지 않음
+            dday_font = pr_font(10)
+            dday_font.setPointSizeF(10.5 * scale)
+            dday_font.setWeight(QFont.DemiBold if tone in ('overdue', 'today', 'soon') else QFont.Normal)
             dday_lbl.setFont(dday_font)
-            dday_lbl.setStyleSheet(f'color: {dday_color}; background: transparent;')
+            dday_lbl.setToolTip('마감일 바꾸기')
         else:
             dday_lbl = None
             self._add_date_btn = AddDateButton()
             self._add_date_btn.clicked.connect(self._show_date_picker)
 
         btn_menu = RotatedMenuButton()
+        btn_menu.set_row_active(False)      # 줄에 마우스를 올리거나 선택했을 때만 보임
+        self.btn_menu = btn_menu
         _f = btn_menu.font()
         _f.setPixelSize(19)
         btn_menu.setFont(_f)
@@ -666,6 +674,7 @@ class TaskRow(QWidget):
         self.btn_note.setToolTip('업무 메모 (펼치기/접기)')
         self.btn_note.clicked.connect(self._toggle_note)
         self.btn_note.set_expanded(expanded)
+        self.btn_note.set_row_hover(False)
 
         # ── 붙임파일 버튼 (클립 아이콘) ─────────────────────────
         self.btn_attach = QPushButton()
@@ -712,7 +721,8 @@ class TaskRow(QWidget):
             lbl_recur = QLabel(MAT.REPEAT)
             _recur_font = mat_font(int(13 * scale))
             lbl_recur.setFont(_recur_font)
-            lbl_recur.setStyleSheet(f'color: {tct("#333")}; background: transparent;')
+            lbl_recur.setStyleSheet(f'color: {tc("rgba(0,0,0,0.45)")}; background: transparent;')
+            lbl_recur.setToolTip('반복 업무')
             _fm = QFontMetrics(_recur_font)
             lbl_recur.setFixedWidth(_fm.horizontalAdvance(MAT.REPEAT) + 4)
             icon_dday_layout = QHBoxLayout()
@@ -762,16 +772,36 @@ class TaskRow(QWidget):
         self._hovered = on
         self._apply_row_style()
 
+    def _sync_row_controls(self):
+        """⋮·메모 쓰기·＋날짜는 줄에 마우스를 올렸거나 선택했을 때만 보인다."""
+        on = self._hovered or self._selected
+        self.btn_menu.set_row_active(on)
+        self.btn_note.set_row_hover(on)
+        if hasattr(self, '_add_date_btn'):
+            self._add_date_btn.set_row_hover(on)
+
+    def enterEvent(self, e):
+        self._hovered = True
+        self._apply_row_style()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self._hovered = False
+        self._apply_row_style()
+        super().leaveEvent(e)
+
     def _apply_row_style(self):
         if getattr(self, '_drag_hover', False):
             style = f'QWidget#TaskRow {{ background: {tc("rgba(212,184,0,0.16)")}; border-radius: 4px; }}'
         elif self._selected:
             style = f'QWidget#TaskRow {{ background: {tc("rgba(212,184,0,0.25)")}; border-radius: 4px; }}'
         elif self._hovered:
-            style = f'QWidget#TaskRow {{ background: {tc("rgba(0,0,0,18)")}; }}'
+            style = f'QWidget#TaskRow {{ background: {tc("rgba(0,0,0,12)")}; border-radius: 6px; }}'
         else:
             style = 'QWidget#TaskRow { background: transparent; }'
         self.setStyleSheet(style)
+        if hasattr(self, 'btn_note'):
+            self._sync_row_controls()
 
     def set_selected(self, selected: bool):
         self._selected = selected
@@ -1416,7 +1446,8 @@ class TaskRow(QWidget):
             self.btn_star.setText(MI.STAR_BORDER)
             self.btn_star.setFont(mi_font(int(15 * self._scale)))
             self.btn_star.setStyleSheet(f"""
-                QPushButton {{ color: {tct("#AAAAAA")}; border: none; padding: 0; }}
+                QPushButton {{ color: {tc("rgba(0,0,0,0.25)")}; border: none; padding: 0; }}
+                QPushButton:hover {{ color: {tc("rgba(0,0,0,0.5)")}; }}
                 QPushButton:pressed {{ padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }}
             """)
         set_task_priority(self.task['id'], new)
