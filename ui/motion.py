@@ -1,14 +1,14 @@
 """ui/motion.py — 마감이 급한 업무를 움직임으로 알리기.
 
 원칙
-  · 급할수록 더 움직인다. 평소엔 가만히, 마감이 다가오면 D-day 표시가 숨쉬듯 빛나고 점점 빨라진다.
+  · 평소엔 가만히. 마감 5일 전부터 업무 줄 왼쪽 세로선이 숨쉬듯 나타났다 사라진다(0%↔100%).
+    박자는 두 가지: 3일 안(당일~D-3) 3초, 4~5일 전 6초. ★ 업무는 금색 선과 함께 별도 같은 박자로.
   · 마감 몇 시간 전부터는 남은 시간이 실시간으로 줄고, 줄 아래 막대가 차오른다.
-  · 기한이 지나면 빨간 점이 심장 박동처럼 뛴다.
-  · ★ 중요 업무는 한 단계 먼저 움직이기 시작하고, 왼쪽 세로선이 금색이다.
-  · 번쩍임 없이 은은하게. 창이 가려지거나 접혀 있으면 그리지 않는다.
+  · 기한이 지난 업무는 움직이지 않고 빨간 「D+n 지남」 표시로만 알린다. D-day 표시는 움직이지 않는다.
+  · 창이 가려지거나 접혀 있으면 그리지 않는다.
 
-설정(메뉴 → 설정 → 급함 표시)
-  느긋하게 / 기본 / 미리미리 / 직접 설정 / 움직임 끄기  — app_settings 'motion_profile'(JSON)
+설정(메뉴 → 설정 → 급함 표시) — app_settings 'motion_profile'(JSON {"enabled", "countdown_hours"})
+  움직임 켜기/끄기 · 남은 시간 표시: 끄기 / 1 / 3(기본) / 6시간 전
 
     u = urgency(task)            # 이 업무를 지금 어떻게 움직일지
     clock().register(widget, fn)  # fn(t초)를 초당 30번 — 등록한 위젯이 보일 때만
@@ -23,55 +23,44 @@ from datetime import date, datetime
 from PyQt5.QtCore import QObject, QTimer
 
 SETTING_KEY = 'motion_profile'
-
-# 보통 업무 숨쉬기 시작(마감 며칠 전), ★ 중요 업무 숨쉬기 시작, 남은 시간 실시간 표시(몇 시간 전, 0=끔)
-PRESETS = {
-    'relaxed': {'label': '느긋하게', 'normal_days': 0, 'star_days': 1, 'countdown_hours': 1},
-    'default': {'label': '기본', 'normal_days': 0, 'star_days': 3, 'countdown_hours': 3},
-    'early':   {'label': '미리미리', 'normal_days': 3, 'star_days': 7, 'countdown_hours': 6},
-}
-PRESET_ORDER = ('default', 'early', 'relaxed')
-DAY_CHOICES = (0, 1, 3, 7, 14)          # 직접 설정에서 고를 수 있는 '며칠 전'
 HOUR_CHOICES = (0, 1, 3, 6)              # 남은 시간 표시 시작 (0 = 끄기)
-
+DEFAULT_HOURS = 3
 BREATH_STEPS = ((3, 3.0), (5, 6.0))     # (며칠 안, 숨쉬기 주기 초)
+_OLD_PRESET_HOURS = {'relaxed': 1, 'default': 3, 'early': 6}   # 예전 설정(느긋하게·기본·미리미리)에서 옮겨 오기
 
 _cache = None
 
 
 def load() -> dict:
-    """{'preset', 'normal_days', 'star_days', 'countdown_hours', 'enabled'}"""
+    """{'enabled', 'countdown_hours'}"""
     global _cache
     if _cache is not None:
         return dict(_cache)
-    cfg = {'preset': 'default', **{k: v for k, v in PRESETS['default'].items() if k != 'label'}}
+    cfg = {'enabled': True, 'countdown_hours': DEFAULT_HOURS}
     try:
         from db import get_setting
         raw = json.loads(get_setting(SETTING_KEY, '') or '{}')
-        preset = raw.get('preset', 'default')
-        if preset in PRESETS:
-            cfg.update({k: v for k, v in PRESETS[preset].items() if k != 'label'}, preset=preset)
-        elif preset in ('custom', 'off'):
-            cfg['preset'] = preset
-            for k in ('normal_days', 'star_days', 'countdown_hours'):
-                if isinstance(raw.get(k), int) and raw[k] >= 0:
-                    cfg[k] = raw[k]
+        if isinstance(raw, dict):
+            if 'enabled' in raw:
+                cfg['enabled'] = bool(raw['enabled'])
+            elif raw.get('preset') == 'off':
+                cfg['enabled'] = False
+            h = raw.get('countdown_hours')
+            if isinstance(h, int) and h in HOUR_CHOICES:
+                cfg['countdown_hours'] = h
+            elif raw.get('preset') in _OLD_PRESET_HOURS:
+                cfg['countdown_hours'] = _OLD_PRESET_HOURS[raw['preset']]
     except Exception:
         pass
-    cfg['enabled'] = cfg['preset'] != 'off'
     _cache = cfg
     return dict(cfg)
 
 
-def save(preset: str, normal_days=None, star_days=None, countdown_hours=None):
-    """프리셋 이름(default/early/relaxed/off) 또는 'custom' + 값 세 개."""
+def save(enabled=None, countdown_hours=None):
     global _cache
-    data = {'preset': preset}
-    if preset in ('custom', 'off'):
-        cur = load()
-        data.update(normal_days=cur['normal_days'] if normal_days is None else int(normal_days),
-                    star_days=cur['star_days'] if star_days is None else int(star_days),
-                    countdown_hours=cur['countdown_hours'] if countdown_hours is None else int(countdown_hours))
+    cur = load()
+    data = {'enabled': cur['enabled'] if enabled is None else bool(enabled),
+            'countdown_hours': cur['countdown_hours'] if countdown_hours is None else int(countdown_hours)}
     from db import set_setting
     set_setting(SETTING_KEY, json.dumps(data))
     _cache = None
@@ -81,12 +70,8 @@ def describe(cfg: dict = None) -> str:
     cfg = cfg or load()
     if not cfg['enabled']:
         return '움직임 끔'
-
-    def d(n):
-        return '당일' if n == 0 else f'{n}일 전'
     h = cfg['countdown_hours']
-    return (f"보통 {d(cfg['normal_days'])} · ★ {d(cfg['star_days'])} · "
-            f"남은 시간 {str(h) + '시간 전' if h else '끔'}")
+    return f"5일 전부터 움직임 · 남은 시간 {str(h) + '시간 전' if h else '끔'}"
 
 
 # ── 급한 정도 ─────────────────────────────────────────────────────

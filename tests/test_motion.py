@@ -7,9 +7,9 @@ pytest.importorskip('PyQt5')
 from ui import motion  # noqa: E402
 
 NOW = datetime(2026, 11, 7, 14, 0)
-DEFAULT = {'preset': 'default', 'normal_days': 0, 'star_days': 3, 'countdown_hours': 3, 'enabled': True}
-EARLY = {'preset': 'early', 'normal_days': 3, 'star_days': 7, 'countdown_hours': 6, 'enabled': True}
-OFF = {**DEFAULT, 'preset': 'off', 'enabled': False}
+DEFAULT = {'countdown_hours': 3, 'enabled': True}
+SIX = {'countdown_hours': 6, 'enabled': True}
+OFF = {**DEFAULT, 'enabled': False}
 
 
 def u(deadline, priority=0, cfg=DEFAULT, done=0):
@@ -50,11 +50,42 @@ def test_overdue_and_done():
     assert u('2026-11-06', done=1) == u('', done=1)                    # 완료 표시하면 조용
 
 
-def test_presets_and_off():
-    assert u('2026-11-07 16:30', cfg=EARLY)['countdown'] == u('2026-11-07 16:30')['countdown']
+def test_countdown_hours_and_off():
+    assert not u('2026-11-07 18:00')['countdown'] and u('2026-11-07 18:00', cfg=SIX)['countdown']
+    assert not u('2026-11-07 14:30', cfg={**DEFAULT, 'countdown_hours': 0})['countdown']
     off = u('2026-11-07 14:30', cfg=OFF)
     assert off['breathe'] == 0 and not off['countdown']
-    assert u('2026-11-06', cfg=OFF)['overdue']                         # 기한 지남 판정은 그대로(박동만 꺼짐)
+    assert u('2026-11-06', cfg=OFF)['overdue']                         # 기한 지남 판정은 그대로
+
+
+@pytest.fixture
+def mdb(tmp_path, monkeypatch):
+    import db
+    monkeypatch.setattr(db, 'DB_DIR', str(tmp_path))
+    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 'ssnnote.db'))
+    db.init_db()
+    monkeypatch.setattr(motion, '_cache', None)
+    return db
+
+
+@pytest.mark.parametrize('old,expected', [
+    ({'preset': 'early'}, {'enabled': True, 'countdown_hours': 6}),
+    ({'preset': 'relaxed'}, {'enabled': True, 'countdown_hours': 1}),
+    ({'preset': 'off', 'countdown_hours': 3}, {'enabled': False, 'countdown_hours': 3}),
+    ({'preset': 'custom', 'normal_days': 7, 'countdown_hours': 0}, {'enabled': True, 'countdown_hours': 0}),
+    ({}, {'enabled': True, 'countdown_hours': 3}),
+])
+def test_old_settings_are_carried_over(mdb, old, expected):
+    import json
+    mdb.set_setting(motion.SETTING_KEY, json.dumps(old))
+    assert motion.load() == expected
+
+
+def test_save_roundtrip(mdb):
+    motion.save(enabled=False)
+    assert motion.load() == {'enabled': False, 'countdown_hours': 3}
+    motion.save(countdown_hours=6)
+    assert motion.load() == {'enabled': False, 'countdown_hours': 6}
 
 
 def test_wave_shapes():
@@ -64,5 +95,6 @@ def test_wave_shapes():
 
 
 def test_describe():
-    assert motion.describe(DEFAULT) == '보통 당일 · ★ 3일 전 · 남은 시간 3시간 전'
+    assert motion.describe(DEFAULT) == '5일 전부터 움직임 · 남은 시간 3시간 전'
+    assert motion.describe({**DEFAULT, 'countdown_hours': 0}) == '5일 전부터 움직임 · 남은 시간 끔'
     assert motion.describe(OFF) == '움직임 끔'

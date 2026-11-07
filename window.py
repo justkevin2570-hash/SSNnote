@@ -737,9 +737,10 @@ class MemoWindow(QMainWindow):
         self._slide_anim = anim
         anim.start()
 
-    def _set_motion_profile(self, preset, menu=None, **values):
+    def _set_motion(self, menu=None, **values):
+        """급함 표시 설정 저장 (enabled / countdown_hours) → 열린 창 모두 바로 반영."""
         from ui import motion
-        motion.save(preset, **values)
+        motion.save(**values)
         for win in (self._open_windows or [self]):
             try:
                 win._tick_urgency()
@@ -747,70 +748,6 @@ class MemoWindow(QMainWindow):
                 pass
         if menu:
             menu.close()
-
-    def _motion_custom_dialog(self, menu=None):
-        """직접 설정: 보통·★ 업무 숨쉬기 시작, 남은 시간 표시 시작."""
-        from PyQt5.QtWidgets import QComboBox, QFormLayout
-        from ui import motion
-        from ui.calendar_view import P, _ghost_button, _primary_button, _ui_font
-        from ui.common import icon_png
-        if menu:
-            menu.close()
-        cfg = motion.load()
-        dlg = QDialog(self)
-        dlg.setWindowTitle('급함 표시 직접 설정')
-        dlg.setStyleSheet(f"QDialog {{ background: {P.BG}; }} QLabel {{ color: {P.TEXT}; background: transparent; }}"
-                          f"QComboBox {{ border: 1px solid {P.LINE}; border-radius: 7px; padding: 5px 10px;"
-                          f" background: {P.BG}; color: {P.TEXT}; min-width: 120px; }}"
-                          f"QComboBox:hover {{ background: {P.HOVER}; }}"
-                          f"QComboBox::drop-down {{ border: none; width: 24px; }}"
-                          f"QComboBox::down-arrow {{ image: url({icon_png('ph.caret-down', P.MUTED, 14)}); width: 11px; height: 11px; }}"
-                          f"QComboBox QAbstractItemView {{ background: {P.BG}; color: {P.TEXT}; border: 1px solid {P.LINE};"
-                          f" selection-background-color: {P.CHIP}; selection-color: {P.TEXT}; outline: 0; }}")
-        lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(22, 20, 22, 16)
-        lay.setSpacing(12)
-        t = QLabel('급함 표시 직접 설정')
-        t.setFont(_ui_font(13, QFont.Bold))
-        lay.addWidget(t)
-        sub = QLabel('언제부터 급한 업무 왼쪽 세로선이 숨쉬듯 움직일지 정해요. D-day 색 표시는 그대로예요.')
-        sub.setFont(_ui_font(9))
-        sub.setStyleSheet(f'color: {P.MUTED};')
-        sub.setWordWrap(True)
-        lay.addWidget(sub)
-        form = QFormLayout()
-        form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(10)
-
-        def days_combo(cur):
-            c = QComboBox()
-            for n in motion.DAY_CHOICES:
-                c.addItem('당일' if n == 0 else f'{n}일 전', n)
-            c.setCurrentIndex(max(0, c.findData(cur)))
-            return c
-        cb_normal = days_combo(cfg['normal_days'])
-        cb_star = days_combo(cfg['star_days'])
-        cb_hours = QComboBox()
-        for n in motion.HOUR_CHOICES:
-            cb_hours.addItem('끄기' if n == 0 else f'{n}시간 전', n)
-        cb_hours.setCurrentIndex(max(0, cb_hours.findData(cfg['countdown_hours'])))
-        form.addRow('보통 업무 — 숨쉬기 시작', cb_normal)
-        form.addRow('★ 중요 업무 — 숨쉬기 시작', cb_star)
-        form.addRow('남은 시간 표시 시작', cb_hours)
-        lay.addLayout(form)
-        row = QHBoxLayout()
-        row.addStretch()
-        b_cancel = _ghost_button('취소')
-        b_ok = _primary_button('저장')
-        b_ok.setDefault(True)
-        row.addWidget(b_cancel)
-        row.addWidget(b_ok)
-        lay.addLayout(row)
-        b_cancel.clicked.connect(dlg.reject)
-        b_ok.clicked.connect(dlg.accept)
-        if dlg.exec_() == QDialog.Accepted:
-            self._set_motion_profile('custom', normal_days=cb_normal.currentData(),
-                                     star_days=cb_star.currentData(), countdown_hours=cb_hours.currentData())
 
     def _on_task_note_toggle(self, task_id, expanded):
         if expanded:
@@ -1255,13 +1192,12 @@ class MemoWindow(QMainWindow):
         _mcfg = _motion.load()
         urg = self._submenu(settings, '급함 표시 (움직임)', 230, icon='ph.lightning')
         self._menu_header(urg, _motion.describe(_mcfg))
-        for key in _motion.PRESET_ORDER:
-            add(urg, _motion.PRESETS[key]['label'], lambda k=key: self._set_motion_profile(k, menu),
-                checked=_mcfg['preset'] == key)
+        add(urg, '움직임 켜기', lambda: self._set_motion(menu, enabled=not _mcfg['enabled']), checked=_mcfg['enabled'])
         urg.addSeparator()
-        add(urg, '직접 설정…', lambda: self._motion_custom_dialog(menu), checked=_mcfg['preset'] == 'custom')
-        urg.addSeparator()
-        add(urg, '움직임 끄기', lambda: self._set_motion_profile('off', menu), checked=_mcfg['preset'] == 'off')
+        self._menu_header(urg, '남은 시간 표시 (오늘 마감 시각이 있을 때)')
+        for _h in _motion.HOUR_CHOICES:
+            add(urg, '끄기' if _h == 0 else f'{_h}시간 전부터', lambda h=_h: self._set_motion(menu, countdown_hours=h),
+                checked=_mcfg['countdown_hours'] == _h)
 
         sc_enabled = self._get_shortcut_enabled() if self._get_shortcut_enabled else True
         add(settings, '단축키 사용', lambda: self._toggle_shortcut(not sc_enabled), checked=sc_enabled)
