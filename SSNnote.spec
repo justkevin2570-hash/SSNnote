@@ -35,6 +35,7 @@ a = Analysis(
         'ui.motion',            # 함수 안에서 불러오는 화면 모듈도 빠짐없이 (급함 표시·메뉴 모양·받은 공문 칸)
         'ui.menu_style',
         'ui.capture_panel',
+        'ui.history_dialog',
         'PyQt5.sip',
         'PyQt5.QtCore',
         'PyQt5.QtGui',

@@ -49,10 +49,13 @@ def run(result_path: str) -> int:
             import window
             import document_editor
             import budget
+            from ui.history_dialog import HistoryDialog
             w = window.MemoWindow(db.get_first_window_id())
             e = document_editor.DocumentEditorWindow()
             b = budget.BudgetWindow()
-            for x in (w, e, b):
+            h = HistoryDialog(w, w.window_id, lambda r: None)
+            h.show_tab(1)
+            for x in (h, w, e, b):
                 x.close()
             app.processEvents()
 
@@ -109,7 +112,7 @@ def run(result_path: str) -> int:
             w.close()
             db.delete_task(tid)
 
-        check('메모 창·공문 작성 창·예산 창', windows_ok)
+        check('메모 창·지난 기록·공문 작성 창·예산 창', windows_ok)
         check('급한 업무 움직임 (왼쪽 세로선)', motion_ok)
         check('대시보드·Claude 연결·학교 정보 창', dialogs_ok)
         check('공문 작성 창의 받은 공문 칸', capture_panel_ok)

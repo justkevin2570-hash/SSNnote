@@ -9,22 +9,21 @@ from PyQt5.QtWidgets import (
     QComboBox, QScrollBar
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QSettings, QUrl, QSize
-from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextBlockFormat, QTextCursor, QFontMetrics
+from PyQt5.QtGui import QFont, QColor, QTextBlockFormat, QTextCursor, QFontMetrics
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
-                add_task_history, get_task_history, delete_task_history,
+                add_task_history, delete_task_history,
                 get_documents, add_document, update_document, delete_document,
-                get_official_documents, delete_official_document,
                 get_window_memo, set_window_memo, get_all_windows,
                 set_window_merge_group, clear_window_merge_group, get_next_merge_group_id)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
 import updater
 from ui.common import pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT, fit_to_screen, px
-from ui.dates import _next_recurrence_deadline, calc_dday
-from ui.widgets import _SelectableLabel, AddDateButton, CustomCalendarWidget, DdayLabel, PlainPasteMemoEdit
+from ui.dates import _next_recurrence_deadline
+from ui.widgets import AddDateButton, CustomCalendarWidget, DdayLabel, PlainPasteMemoEdit
 from ui.dialogs import CustomRecurrenceDialog
 from ui.chrome import EdgeHandle, MergeButton, TitleBar
-from ui.task_row import _NoteButton, TaskRow
+from ui.task_row import TaskRow
 from ui.document_row import DocumentRow
 from ui.calendar_view import MonthlyCalendarDialog, NativeCalendarDialog
 from ui import menu_style
@@ -206,19 +205,6 @@ class MemoWindow(QMainWindow):
         self._cal_popup.setWindowFlags(Qt.Popup)
         self._cal_popup.setMinimumSize(px(300), px(260))
         self._cal_popup.clicked.connect(self._on_cal_date_selected)
-        btn_history = QPushButton()
-        btn_history.setIcon(qta.icon('ph.clock-counter-clockwise-bold', color=qcolor('#000000', 150)))
-        btn_history.setIconSize(QSize(px(16), px(16)))
-        btn_history.setToolTip('지난 기록 (삭제한 업무 보기·복원)')
-        btn_history.setCursor(Qt.PointingHandCursor)
-        btn_history.setStyleSheet(f"""
-            QPushButton {{ background: transparent; border: none; border-radius: 7px; padding: 0 6px; }}
-            QPushButton:hover {{ background: {tc("rgba(0,0,0,0.08)")}; }}
-            QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.14)")}; }}
-        """)
-        self._btn_history = btn_history
-        btn_history.clicked.connect(self._show_history)
-        row1.addWidget(btn_history)
 
         self.input_recurrence = QComboBox()
         self.input_recurrence.addItems(['반복 없음', '매주', '격주', '매월', '매년', '사용자 설정...'])
@@ -318,7 +304,8 @@ class MemoWindow(QMainWindow):
         _bottom_button('달력', 'ph.calendar-blank-bold', self._show_monthly_calendar, '월간 달력 (모든 메모장의 마감 업무)')
         _bottom_button('공문 작성', 'ph.pen-nib-bold', self._open_document_editor,
                        '공문 작성 창 (AI 초안·공문 캡처)')
-        _bottom_button('저장 기록', 'ph.files-bold', self._show_official_doc_history, '공문 작성 창에서 저장한 공문')
+        _bottom_button('지난 기록', 'ph.clock-counter-clockwise-bold', self._show_history,
+                       '지난 업무(삭제한 업무 되살리기) · 작성 공문(저장한 공문)')
 
         # 기존 capture 메서드 호환용 더미 위젯 (숨김)
         self.lbl_capture_result = QLabel('')
@@ -971,106 +958,6 @@ class MemoWindow(QMainWindow):
         dlg.exec_()
         self._refresh_tasks()
 
-    def _show_official_doc_history(self):
-        from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
-                                      QListWidget, QListWidgetItem, QPushButton,
-                                      QLabel, QTextEdit, QSplitter, QMessageBox)
-        docs = get_official_documents()
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle('저장 기록')
-        dlg.setMinimumSize(560, 420)
-        dlg.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 10pt;")
-        _qs = QSettings('SSNnote', 'SSNnote')
-        geo = _qs.value('history_dlg/geometry')
-        if geo:
-            dlg.restoreGeometry(geo)
-        dlg.finished.connect(lambda: QSettings('SSNnote', 'SSNnote').setValue('history_dlg/geometry', dlg.saveGeometry()))
-
-        vlay = QVBoxLayout(dlg)
-        vlay.setContentsMargins(10, 10, 10, 10)
-
-        if not docs:
-            vlay.addWidget(QLabel('저장된 공문이 없습니다.'))
-            btn_close = QPushButton('닫기')
-            btn_close.clicked.connect(dlg.accept)
-            vlay.addWidget(btn_close)
-            dlg.exec_()
-            return
-
-        splitter = QSplitter(Qt.Horizontal)
-
-        list_widget = QListWidget()
-        list_widget.setMaximumWidth(200)
-        for doc in docs:
-            item = QListWidgetItem(doc['title'] or '(제목 없음)')
-            item.setData(Qt.UserRole, doc)
-            list_widget.addItem(item)
-        splitter.addWidget(list_widget)
-
-        right = QWidget()
-        rlay = QVBoxLayout(right)
-        rlay.setContentsMargins(6, 0, 0, 0)
-        lbl_title = QLabel()
-        lbl_title.setStyleSheet('font-weight: bold; font-size: 11pt;')
-        lbl_date = QLabel()
-        lbl_date.setStyleSheet(f'color: {tct("#888")}; font-size: 9pt;')
-        text_view = QTextEdit()
-        text_view.setReadOnly(True)
-        rlay.addWidget(lbl_title)
-        rlay.addWidget(lbl_date)
-        rlay.addWidget(text_view)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(1, 1)
-        vlay.addWidget(splitter)
-
-        def on_select():
-            item = list_widget.currentItem()
-            if not item:
-                return
-            doc = item.data(Qt.UserRole)
-            lbl_title.setText(doc['title'] or '(제목 없음)')
-            lbl_date.setText(f"저장일: {doc.get('created_at', '')}")
-            text_view.setPlainText(doc.get('content', ''))
-
-        list_widget.currentItemChanged.connect(lambda *_: on_select())
-        if list_widget.count() > 0:
-            list_widget.setCurrentRow(0)
-
-        btn_row = QHBoxLayout()
-        btn_del = QPushButton('선택 삭제')
-        btn_del.setStyleSheet(f"""
-            QPushButton {{ background: {tc("#fff0f0")}; border: 1px solid {tc("#e08080")};
-                          border-radius: 4px; padding: 4px 10px; color: {tct("#a00")}; }}
-            QPushButton:hover {{ background: {tc("#ffd8d8")}; }}
-        """)
-        def on_delete():
-            item = list_widget.currentItem()
-            if not item:
-                return
-            doc = item.data(Qt.UserRole)
-            reply = QMessageBox.question(dlg, '삭제 확인',
-                f'「{doc["title"] or "(제목 없음)"}」을(를) 삭제할까요?',
-                QMessageBox.Yes | QMessageBox.No)
-            if reply == QMessageBox.Yes:
-                delete_official_document(doc['id'])
-                list_widget.takeItem(list_widget.row(item))
-                lbl_title.clear(); lbl_date.clear(); text_view.clear()
-        btn_del.clicked.connect(on_delete)
-        btn_close = QPushButton('닫기')
-        btn_close.setStyleSheet(f"""
-            QPushButton {{ background: {tc("rgba(255,255,255,0.8)")}; border: 1px solid {tc("#aaa")};
-                          border-radius: 4px; padding: 4px 10px; }}
-            QPushButton:hover {{ background: {tc("#eee")}; }}
-        """)
-        btn_close.clicked.connect(dlg.accept)
-        btn_row.addWidget(btn_del)
-        btn_row.addStretch()
-        btn_row.addWidget(btn_close)
-        vlay.addLayout(btn_row)
-
-        dlg.exec_()
-
     def _show_monthly_calendar(self):
         dlg = getattr(self, '_calendar_dlg', None)
         if dlg is not None and dlg.isVisible():
@@ -1162,7 +1049,8 @@ class MemoWindow(QMainWindow):
             Command('✍️ 공문 작성', self._open_document_editor, '', 'document 기안 초안 회신'),
             Command('₩ 예산 관리', self._open_budget_window, '', 'budget money 돈 집행'),
             Command('📅 월간 달력', self._show_monthly_calendar, '', 'calendar 일정 캘린더'),
-            Command('📜 지난 기록', self._show_history, '', 'history 완료 삭제'),
+            Command('📜 지난 업무', lambda: self._show_history(0), '', 'history 지난 기록 삭제 되살리기 복원'),
+            Command('🗂 작성 공문', lambda: self._show_history(1), '', 'document 공문 저장 기록 지난 기록'),
             Command('📌 항상 위에 ' + ('고정 끄기' if on_top else '고정'), self.toggle_always_on_top,
                     'Ctrl+Shift+F', 'pin top 핀'),
             Command('↕️ 메모장 접기/펼치기', self.toggle_shade, 'Ctrl+Shift+R', 'shade fold collapse'),
@@ -1473,7 +1361,6 @@ class MemoWindow(QMainWindow):
         """칸 크기를 글자 크기에서 정한다 (고정 숫자 대신) — 배율·글꼴·글자 크기 설정이 달라도 안 잘리게."""
         row_h = self.input_name.sizeHint().height() + 6
         self.input_name.setFixedHeight(row_h)
-        self._btn_history.setFixedHeight(row_h)
         for w in (self.input_date, self.input_time, self.input_recurrence):
             w.setFixedHeight(row_h - 4)
         pad = 2 * 9 + 2 + 8          # 좌우 안쪽 여백(9px씩) + 테두리 + 여유
@@ -1564,303 +1451,18 @@ class MemoWindow(QMainWindow):
         if menu:
             menu.close()
 
-    def _show_history(self):
-        from collections import defaultdict
-        records = get_task_history(self.window_id)
-        current_ym = date.today().strftime('%Y-%m')
+    def _show_history(self, tab=None):
+        """지난 기록 창 (지난 업무 · 작성 공문). tab: 0 지난 업무, 1 작성 공문, None이면 마지막에 본 칸."""
+        from ui.history_dialog import HistoryDialog
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle('지난 기록')
-        dlg.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
-        dlg.setMinimumWidth(480)
-        dlg.setStyleSheet(f"font-family: 'Malgun Gothic'; font-size: 11pt; background: {tc('#fffef0')};")
-
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(6)
-
-        if not records:
-            lbl = QLabel('기록이 없습니다.')
-            lbl.setStyleSheet(f'color: {tct("#999")};')
-            layout.addWidget(lbl)
-        else:
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-            scroll.setStyleSheet('QScrollArea { border: none; }')
-            scroll.setMaximumHeight(440)
-
-            inner = QWidget()
-            inner.setStyleSheet('background: transparent;')
-            vbox = QVBoxLayout(inner)
-            vbox.setContentsMargins(0, 0, 0, 0)
-            vbox.setSpacing(4)
-
-            def refresh_folder(btn_toggle, container, year, month):
-                layout = container.layout()
-                visible = sum(
-                    1 for i in range(layout.count())
-                    if layout.itemAt(i).widget() and layout.itemAt(i).widget().isVisible()
-                    and not getattr(layout.itemAt(i).widget(), '_is_memo_panel', False)
-                )
-                if visible == 0:
-                    btn_toggle.hide()
-                    container.hide()
-                else:
-                    arrow = '▶' if container.isHidden() else '▼'
-                    btn_toggle.setText(f'{arrow}  {year}년 {int(month)}월  ({visible}건)')
-
-            def restore_task(r, row_widget, btn_toggle, container, year, month):
-                add_task(self.window_id, r['name'], r['deadline'],
-                         strikethrough=r.get('strikethrough', 0),
-                         priority=r.get('priority', 0),
-                         recurrence=r.get('recurrence', ''),
-                         notes=r.get('notes', ''),
-                         related_no=r.get('related_no', ''))
-                delete_task_history(r['id'])
-                self._refresh_tasks()
-                mw = getattr(row_widget, '_memo_widget', None)
-                if mw is not None:
-                    mw.hide()
-                row_widget.hide()
-                refresh_folder(btn_toggle, container, year, month)
-
-            def delete_history(r, row_widget, btn_toggle, container, year, month):
-                delete_task_history(r['id'])
-                mw = getattr(row_widget, '_memo_widget', None)
-                if mw is not None:
-                    mw.hide()
-                row_widget.hide()
-                refresh_folder(btn_toggle, container, year, month)
-
-            def make_row(r, btn_toggle, container, year, month):
-                name     = r['name']
-                deadline = r['deadline']
-                cleared  = r['cleared_at'][:10]
-                note     = r.get('notes', '') or ''
-                related  = r.get('related_no', '') or ''
-                has_memo = bool(note.strip() or related.strip())
-
-                overdue = False
-                if deadline:
-                    dday = calc_dday(deadline)
-                    overdue = dday.startswith('D+')
-                    line = f"{name}  ({deadline} / {dday})"
-                else:
-                    line = name
-
-                row_widget = QWidget()
-                row_widget.setStyleSheet(f'background: {tc("rgba(255,255,255,0.6)")}; border-radius: 4px;')
-                rh = QHBoxLayout(row_widget)
-                rh.setContentsMargins(20, 4, 8, 4)
-                rh.setSpacing(6)
-
-                lbl_task = QLineEdit(line)
-                lbl_task.setReadOnly(True)
-                lbl_task.setFrame(False)
-                lbl_task.setStyleSheet(f"""
-                    QLineEdit {{
-                        color: {tct("#333")};
-                        background: transparent;
-                        border: none;
-                        padding: 0;
-                        font-family: 'Malgun Gothic';
-                        font-size: 11pt;
-                    }}
-                """)
-                lbl_task.setCursorPosition(0)
-                lbl_cleared = _SelectableLabel(f'삭제: {cleared}')
-                lbl_cleared.setStyleSheet(f'color: {tct("#999")}; font-size: 9pt; background: transparent;')
-                lbl_cleared.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-
-                rh.addWidget(lbl_task, 1)
-                btn_note = None
-                if has_memo:
-                    btn_note = _NoteButton(scale=1.0, glyph_offset=0)
-                    btn_note.set_note_color(True)
-                    btn_note.setToolTip('업무 메모 (펼치기/접기)')
-                    rh.addWidget(btn_note)
-                rh.addSpacing(11)
-                rh.addWidget(lbl_cleared)
-
-                if not overdue:
-                    btn_restore = QPushButton('복원')
-                    btn_restore.setFixedHeight(22)
-                    btn_restore.setStyleSheet(f"""
-                        QPushButton {{
-                            background: {tc("#d4f0d4")}; border: 1px solid {tc("#7cc87c")};
-                            border-radius: 4px; color: {tct("#2a6e2a")};
-                            font-size: 9pt; padding: 0 8px;
-                        }}
-                        QPushButton:hover {{ background: {tc("#b6e8b6")}; }}
-                    """)
-                    btn_restore.clicked.connect(lambda _, rec=r, rw=row_widget: restore_task(rec, rw, btn_toggle, container, year, month))
-                    rh.addWidget(btn_restore)
-
-                btn_del = QPushButton('삭제')
-                btn_del.setFixedHeight(22)
-                btn_del.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {tc("#f0d4d4")}; border: 1px solid {tc("#c87c7c")};
-                        border-radius: 4px; color: {tct("#6e2a2a")};
-                        font-size: 9pt; padding: 0 8px;
-                    }}
-                    QPushButton:hover {{ background: {tc("#e8b6b6")}; }}
-                """)
-                btn_del.clicked.connect(lambda _, rec=r, rw=row_widget: delete_history(rec, rw, btn_toggle, container, year, month))
-                rh.addWidget(btn_del)
-
-                container.layout().addWidget(row_widget)
-
-                if has_memo:
-                    memo_widget = QWidget()
-                    memo_widget._is_memo_panel = True
-                    memo_widget.setStyleSheet(f'background: {tc("rgba(255,255,255,0.7)")}; border-radius: 4px;')
-                    mv = QVBoxLayout(memo_widget)
-                    mv.setContentsMargins(28, 4, 8, 4)
-                    mv.setSpacing(3)
-                    if related.strip():
-                        lbl_ref = _SelectableLabel(f'공문: {related}')
-                        lbl_ref.setStyleSheet(f'color: {tct("#7a6a00")}; font-size: 9pt; background: transparent; font-weight: bold;')
-                        lbl_ref.setWordWrap(True)
-                        mv.addWidget(lbl_ref)
-                    if note.strip():
-                        lbl_note = _SelectableLabel(note)
-                        lbl_note.setStyleSheet(f'color: {tct("#444")}; font-size: 10pt; background: transparent;')
-                        lbl_note.setWordWrap(True)
-                        mv.addWidget(lbl_note)
-                    memo_widget.hide()
-
-                    def toggle_note(_, w=memo_widget, b=btn_note):
-                        if w.isHidden():
-                            w.show()
-                            b.set_expanded(True)
-                        else:
-                            w.hide()
-                            b.set_expanded(False)
-
-                    btn_note.clicked.connect(toggle_note)
-                    row_widget._memo_widget = memo_widget
-                    container.layout().addWidget(memo_widget)
-
-                return row_widget
-
-            # 이전 달 기록: 마감일이 이번 달보다 이전인 것 (마감일 기준 년-월로 정리)
-            past_groups = defaultdict(list)
-            for r in records:
-                if r['deadline'] and r['deadline'][:7] < current_ym:
-                    past_groups[r['deadline'][:7]].append(r)
-
-            for ym in sorted(past_groups.keys()):
-                year, month = ym.split('-')
-                grp = past_groups[ym]
-                header_text_collapsed = f'▶  {year}년 {int(month)}월  ({len(grp)}건)'
-                header_text_expanded  = f'▼  {year}년 {int(month)}월  ({len(grp)}건)'
-
-                btn_toggle = QPushButton(header_text_collapsed)
-                btn_toggle.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {tc("rgba(200,190,150,0.25)")};
-                        border: 1px solid {T.BORDER_SOFT};
-                        border-radius: 4px;
-                        color: {tct("#5a4a00")};
-                        font-size: 10pt;
-                        font-weight: bold;
-                        text-align: left;
-                        padding: 5px 10px;
-                    }}
-                    QPushButton:hover {{ background: {tc("rgba(200,190,150,0.5)")}; }}
-                """)
-
-                month_container = QWidget()
-                month_container.setObjectName('monthContainer')
-                month_container.setStyleSheet(f"""
-                    QWidget#monthContainer {{
-                        background: transparent;
-                        border: 1px solid {T.BORDER_SOFT};
-                        border-radius: 4px;
-                    }}
-                """)
-                mc_vbox = QVBoxLayout(month_container)
-                mc_vbox.setContentsMargins(12, 4, 8, 4)
-                mc_vbox.setSpacing(4)
-                month_container.hide()
-
-                for r in grp:
-                    make_row(r, btn_toggle, month_container, year, month)
-
-                def toggle_month(_, container=month_container, btn=btn_toggle,
-                                 txt_exp=header_text_expanded, txt_col=header_text_collapsed):
-                    if container.isHidden():
-                        container.show()
-                        btn.setText(txt_exp)
-                    else:
-                        container.hide()
-                        btn.setText(txt_col)
-
-                btn_toggle.clicked.connect(toggle_month)
-                vbox.addWidget(btn_toggle)
-                vbox.addWidget(month_container)
-
-            # 이번 달 기록: 마감일이 없거나 이번 달 이상인 것 (기본 펼쳐진 헤더)
-            current_records = [
-                r for r in records
-                if not r['deadline'] or r['deadline'][:7] >= current_ym
-            ]
-            if current_records:
-                cur_year, cur_month = current_ym.split('-')
-                cur_txt_exp = f'▼  {cur_year}년 {int(cur_month)}월  ({len(current_records)}건)'
-                cur_txt_col = f'▶  {cur_year}년 {int(cur_month)}월  ({len(current_records)}건)'
-
-                btn_cur = QPushButton(cur_txt_exp)
-                btn_cur.setStyleSheet(f"""
-                    QPushButton {{
-                        background: {tc("rgba(200,190,150,0.25)")};
-                        border: 1px solid {T.BORDER_SOFT};
-                        border-radius: 4px;
-                        color: {tct("#5a4a00")};
-                        font-size: 10pt;
-                        font-weight: bold;
-                        text-align: left;
-                        padding: 5px 10px;
-                    }}
-                    QPushButton:hover {{ background: {tc("rgba(200,190,150,0.5)")}; }}
-                """)
-
-                cur_container = QWidget()
-                cur_container.setObjectName('monthContainer')
-                cur_container.setStyleSheet(f"""
-                    QWidget#monthContainer {{
-                        background: transparent;
-                        border: 1px solid {T.BORDER_SOFT};
-                        border-radius: 4px;
-                    }}
-                """)
-                cur_vbox = QVBoxLayout(cur_container)
-                cur_vbox.setContentsMargins(12, 4, 8, 4)
-                cur_vbox.setSpacing(4)
-
-                for r in current_records:
-                    make_row(r, btn_cur, cur_container, cur_year, cur_month)
-
-                def toggle_current(_, container=cur_container, btn=btn_cur,
-                                   txt_exp=cur_txt_exp, txt_col=cur_txt_col):
-                    if container.isHidden():
-                        container.show()
-                        btn.setText(txt_exp)
-                    else:
-                        container.hide()
-                        btn.setText(txt_col)
-
-                btn_cur.clicked.connect(toggle_current)
-                vbox.addWidget(btn_cur)
-                vbox.addWidget(cur_container)
-
-            vbox.addStretch()
-            scroll.setWidget(inner)
-            layout.addWidget(scroll)
-
-        dlg.exec_()
+        def restore(r):
+            add_task(self.window_id, r['name'], r['deadline'],
+                     strikethrough=r.get('strikethrough', 0), priority=r.get('priority', 0),
+                     recurrence=r.get('recurrence', ''), notes=r.get('notes', ''),
+                     related_no=r.get('related_no', ''))
+            delete_task_history(r['id'])
+            self._refresh_tasks()
+        HistoryDialog(self, self.window_id, restore, tab=tab).exec_()
 
     def _toggle_cal_popup(self):
         if self._cal_popup.isVisible():
