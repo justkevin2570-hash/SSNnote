@@ -126,7 +126,13 @@ jobs:
           $u = 'Microsoft\Windows\CurrentVersion\Uninstall\' + $id
           $hkcuKey = "HKCU:\Software\$u"
           $hklmKeys = @("HKLM:\SOFTWARE\WOW6432Node\$u", "HKLM:\SOFTWARE\$u")
-          function HasKey($path) { $parent = Split-Path $path; $leaf = Split-Path $path -Leaf; return [bool](Get-ChildItem $parent -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -eq $leaf }) }
+          # 설치 기록(제거 정보) 확인은 Windows의 reg 명령으로 (32비트 보기 포함)
+          function HasKey($path) {
+            $k = $path -replace '^HKCU:\\', 'HKCU\' -replace '^HKLM:\\', 'HKLM\'
+            foreach ($view in @('/reg:32', '/reg:64')) { & reg.exe query $k $view *> $null; if ($LASTEXITCODE -eq 0) { Write-Host "있음: $k $view"; return $true } }
+            $global:LASTEXITCODE = 0
+            return $false
+          }
           $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
           $runName = '서서니 메모'
           $silent = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/FORCECLOSEAPPLICATIONS')
@@ -160,7 +166,7 @@ jobs:
           $newDir = "$env:LOCALAPPDATA\Programs\SSNnote"
           if (-not (Test-Path "$newDir\SSNnote.exe")) { throw "사용자 폴더에 설치되지 않음: $newDir" }
           if (-not (Test-Path "$newDir\SSNnote_MCP.exe")) { throw '연결 프로그램이 설치되지 않음' }
-          if (-not (HasKey $hkcuKey)) { throw '사용자 설치 기록(HKCU)이 없음' }
+          if (-not (HasKey $hkcuKey)) { & reg.exe query 'HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall' /s /f SSNnote; throw '사용자 설치 기록(HKCU)이 없음' }
           if ($oldDir -ne $newDir) {
             if (Test-Path "$oldDir\SSNnote.exe") { throw "예전 위치의 프로그램이 지워지지 않음: $oldDir" }
             foreach ($k in $hklmKeys) { if (HasKey $k) { throw "예전 관리자 설치 기록이 남음: $k" } }
