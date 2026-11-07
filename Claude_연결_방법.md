@@ -31,6 +31,7 @@ Claude 구독(Pro/Max)으로 **Claude Code**나 **Claude 데스크톱 앱**에�
 - **Claude Code**: `claude mcp add --scope user ssnnote -- <서서니 노트 연결 프로그램>` 을 대신 실행합니다.
 - **Claude 데스크톱 앱**: Claude 설정 파일(`claude_desktop_config.json`)에 서서니 노트 항목을 추가합니다.
   바꾸기 전 원본은 같은 폴더에 `claude_desktop_config.json.ssnnote-backup`으로 남겨 둡니다.
+- Microsoft Store판 Claude 앱은 설정 파일을 두 곳에서 읽을 수 있어서, 두 곳 모두에 등록합니다.
 - 연결 프로그램은 설치판에서는 설치 폴더의 `SSNnote_MCP.exe`, 소스로 실행할 때는 `python mcp_server.py` 입니다.
   (소스 실행이고 구성요소가 없으면 창에 **[필요한 구성요소 설치]** 버튼이 나타납니다.)
 
@@ -73,8 +74,11 @@ Claude 데스크톱 앱 — **설정 → 개발자 → 설정 편집(Edit Config
 
 ## 문제 해결
 
+먼저 「Claude 연결」 창의 **[연결 진단]**을 눌러 보세요. 연결 프로그램을 직접 실행해 보고, Claude 앱 설정 파일과 Claude 앱이 남긴 기록(로그)을 모아 보여줍니다. 그 내용을 복사해 보내 주시면 원인을 바로 찾을 수 있습니다.
+
 | 증상 | 확인할 것 |
 |---|---|
+| `✓ 연결됨`인데 Claude가 서서니 노트를 모르고, 창에 「아직 Claude 앱이 연결 프로그램을 켠 기록이 없어요」 | Claude 앱을 트레이 아이콘 오른쪽 클릭 → 종료 후 다시 켜기. Claude 앱 **설정 → 개발자**에 ssnnote가 있는지 확인 |
 | 「Claude 연결」 창에 "설치되어 있지 않음" | Claude Code / Claude 앱을 설치한 뒤 창을 다시 열기. Claude Code는 설치 후 PC를 다시 시작해야 보일 수 있음 |
 | `✓ 연결됨`인데 Claude가 서서니 노트를 모름 | Claude 데스크톱 앱이면 트레이 아이콘까지 완전히 종료 후 다시 켜기. Claude Code는 새 대화를 시작 |
 | "등록됐지만 응답 없음" | [다시 연결]. 그래도 안 되면 설치 폴더의 `SSNnote_MCP.exe`를 명령 프롬프트에서 직접 실행해 오류가 나는지 확인 (정상이면 아무 출력 없이 대기 — Ctrl+C로 종료) |

@@ -6,7 +6,7 @@ Claude Code / Claude 데스크톱 앱을 찾아 서서니 노트 연결을 버�
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+    QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout,
 )
 
 import claude_connect as cc
@@ -152,6 +152,10 @@ class ClaudeConnectDialog(QDialog):
         root.addWidget(ex)
 
         foot = QHBoxLayout()
+        self.btn_diag = QPushButton('연결 진단')
+        self.btn_diag.setToolTip('연결이 안 될 때: 연결 프로그램을 직접 실행해 보고, Claude 앱 설정·기록을 모아 보여줍니다')
+        self.btn_diag.clicked.connect(self._diagnose)
+        foot.addWidget(self.btn_diag)
         foot.addStretch()
         btn_close = QPushButton('닫기')
         btn_close.clicked.connect(self.close)
@@ -201,7 +205,7 @@ class ClaudeConnectDialog(QDialog):
                         note='Claude 데스크톱 앱을 설치한 뒤 이 창을 다시 열어주세요.')
         elif s['registered'] and s['up_to_date']:
             r.set_state('✓ 연결됨', 'ok', connect=self._ready, disconnect=True, connect_label='다시 연결',
-                        note='Claude 앱을 완전히 종료(트레이 아이콘까지)했다가 다시 켜면 적용됩니다.')
+                        note=_usage_note())
         elif s['registered']:
             r.set_state('예전 위치로 등록됨', 'warn', connect=self._ready, disconnect=True,
                         connect_label='다시 연결', note='서서니 노트를 옮기거나 다시 설치했다면 [다시 연결]을 눌러주세요.')
@@ -209,6 +213,16 @@ class ClaudeConnectDialog(QDialog):
             r.set_state('연결 안 됨', 'off', connect=self._ready,
                         note='Claude 앱을 먼저 종료한 뒤 [연결]을 누르면 가장 확실합니다.')
         self._fit()
+
+    def _diagnose(self):
+        self.btn_diag.setEnabled(False)
+        self.btn_diag.setText('진단하는 중…')
+
+        def done(text, err):
+            self.btn_diag.setEnabled(True)
+            self.btn_diag.setText('연결 진단')
+            _DiagDialog(text or ('진단 실패: ' + err), self).show()
+        self._start(cc.diagnose, done)
 
     def _fit(self):
         """안내 줄이 생기거나 사라지면 창 높이를 맞춘다 (폭은 고정)."""
@@ -256,6 +270,52 @@ class ClaudeConnectDialog(QDialog):
             importlib.invalidate_caches()
             self.refresh()
         self._start(job, done)
+
+
+def _usage_note() -> str:
+    """Claude 앱이 실제로 연결 프로그램을 켜고 썼는지 (연결 프로그램이 DB에 남긴 기록)."""
+    try:
+        from db import get_setting
+        start, call = get_setting('mcp_last_start', ''), get_setting('mcp_last_call', '')
+    except Exception:
+        start = call = ''
+    if call:
+        return f'Claude가 마지막으로 서서니 노트를 쓴 시각: {call}'
+    if start:
+        return (f'Claude 앱이 연결 프로그램을 켰어요({start}). Claude에게 "서서니 노트에서 오늘 할 일 알려줘"처럼 '
+                '물어보세요. 처음엔 도구 사용 허용을 묻습니다.')
+    return ('아직 Claude 앱이 연결 프로그램을 켠 기록이 없어요. Claude 앱을 트레이 아이콘까지 완전히 종료(Quit)했다가 '
+            '다시 켜 주세요. 그래도 그대로면 [연결 진단]을 눌러 결과를 보내 주세요.')
+
+
+class _DiagDialog(QDialog):
+    """진단 결과 보기 + 복사."""
+
+    def __init__(self, text, parent=None):
+        super().__init__(parent, Qt.Window | Qt.WindowStaysOnTopHint)
+        self.setWindowTitle('Claude 연결 진단')
+        self.setStyleSheet(_STYLE)
+        self.setFont(pr_font(10))
+        self.resize(px(640), px(460))
+        lay = QVBoxLayout(self)
+        hint = QLabel('아래 내용을 복사해 문의할 때 붙여 넣어 주세요. (API 키 같은 비밀 정보는 들어 있지 않아요)')
+        hint.setObjectName('Hint')
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+        self.view = QPlainTextEdit(text)
+        self.view.setReadOnly(True)
+        self.view.setLineWrapMode(QPlainTextEdit.NoWrap)
+        lay.addWidget(self.view, 1)
+        row = QHBoxLayout()
+        row.addStretch()
+        b_copy = QPushButton('복사')
+        b_copy.setObjectName('Primary')
+        b_copy.clicked.connect(lambda: (QApplication.clipboard().setText(text), b_copy.setText('복사했어요')))
+        b_close = QPushButton('닫기')
+        b_close.clicked.connect(self.close)
+        row.addWidget(b_copy)
+        row.addWidget(b_close)
+        lay.addLayout(row)
 
 
 def _frozen():

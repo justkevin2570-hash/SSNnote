@@ -12,6 +12,7 @@ Claude가 서서니 노트의 업무 목록을 보고, 업무를 추가·수정�
 주의: stdio로 통신하므로 이 파일에서 print()로 표준출력을 쓰면 안 된다.
 """
 
+import os
 from datetime import date, datetime
 from typing import Literal, Optional
 
@@ -111,6 +112,16 @@ def _all_tasks():
         return [dict(r) for r in conn.execute('SELECT * FROM tasks').fetchall()]
 
 
+def _seen(key='mcp_last_call', what=''):
+    """Claude가 연결 프로그램을 켜고 쓴 기록 (서서니 노트 「Claude 연결 → 연결 진단」에서 보여줌)."""
+    if os.environ.get('SSNNOTE_MCP_SELFTEST'):
+        return
+    try:
+        db.set_setting(key, f"{datetime.now():%Y-%m-%d %H:%M:%S}" + (f' ({what})' if what else ''))
+    except Exception:
+        pass
+
+
 def _signal_app():
     """실행 중인 서서니 노트 창이 다시 그리도록 알린다."""
     db.set_setting(EXTERNAL_CHANGE_KEY, datetime.now().isoformat(timespec='microseconds'))
@@ -132,6 +143,7 @@ def today_overview() -> dict:
 
     업무 상황을 물으면 먼저 이걸 부르세요. 날짜 계산의 기준(오늘)도 여기서 확인합니다.
     """
+    _seen(what='today_overview')
     now = datetime.now()
     s = dashboard.build_summary(db.get_open_tasks(), db.get_budget_items(), now=now)
     today = now.date()
@@ -151,6 +163,7 @@ def today_overview() -> dict:
 @server.tool(title='업무 목록', annotations=_READ)
 def list_tasks(status: Literal['open', 'done', 'all'] = 'open', limit: int = 50) -> dict:
     """업무 목록을 마감일 순으로 돌려줍니다. status: open(진행 중, 기본) / done(완료 표시) / all."""
+    _seen(what='list_tasks')
     today = date.today()
     tasks = _all_tasks()
     if status == 'open':
@@ -166,6 +179,7 @@ def list_tasks(status: Literal['open', 'done', 'all'] = 'open', limit: int = 50)
 @server.tool(title='업무 찾기', annotations=_READ)
 def search_tasks(query: str, include_done: bool = False) -> dict:
     """업무 이름·메모·관련 공문번호로 찾습니다. 한글 초성 검색도 됩니다 (예: 'ㄱㅁㅎㅇ' → 교무회의)."""
+    _seen(what='search_tasks')
     today = date.today()
     scored = []
     for t in _all_tasks():
@@ -181,6 +195,7 @@ def search_tasks(query: str, include_done: bool = False) -> dict:
 @server.tool(title='공문 작성 안내', annotations=_READ)
 def official_document_guide() -> dict:
     """공문·계획서 초안을 쓰기 전에 부르세요. 학교 공문 서식 규칙."""
+    _seen(what='official_document_guide')
     return {
         'format_rules': [
             "본문 구조: '1. 관련: [관련 문서번호(날짜)]' → '2. [제목]을/를 다음과 같이 [운영/보고/제출]하고자 합니다.' → 가. 나. 다. 항목 → '붙임  [파일명] 1부.  끝.'",
@@ -203,6 +218,7 @@ def add_task(name: str, deadline: str = '', time: str = '', notes: str = '',
     deadline: 'YYYY-MM-DD' (없으면 빈 값), time: 'HH:MM' (선택), related_doc: 관련 공문번호 (선택),
     notes: 업무 메모 (요약·할 일 등, 선택). 추가 전에 이름과 마감을 사용자에게 확인받으세요.
     """
+    _seen(what='add_task')
     name = (name or '').strip()
     if not name:
         raise ToolError('업무 이름이 비어 있습니다.')
@@ -223,6 +239,7 @@ def update_task(task_id: int, name: Optional[str] = None, deadline: Optional[str
     deadline='' 이면 마감 없음으로, done=true 면 완료 표시(취소선), done=false 면 다시 진행 중.
     task_id는 list_tasks / search_tasks / today_overview 결과에서 확인합니다. 삭제는 지원하지 않습니다.
     """
+    _seen(what='update_task')
     t = db.get_task(task_id)
     if t is None:
         raise ToolError(f'업무 번호 {task_id}를 찾을 수 없습니다. list_tasks로 다시 확인하세요.')
@@ -252,6 +269,7 @@ def update_task(task_id: int, name: Optional[str] = None, deadline: Optional[str
 
 def main():
     db.init_db()   # 앱을 한 번도 안 켠 PC에서도 동작하도록
+    _seen('mcp_last_start')
     server.run('stdio')
 
 

@@ -154,3 +154,40 @@ def test_claude_code_not_installed(monkeypatch, tmp_path):
     monkeypatch.setenv('APPDATA', str(tmp_path))
     assert cc.find_claude_code() is None
     assert cc.claude_code_status()['installed'] is False
+
+
+def test_desktop_connect_writes_every_location(desk):
+    """스토어판은 일반 위치와 앱 전용 위치를 함께 볼 수 있어 두 곳 모두에 등록한다."""
+    normal = desk / 'Roaming' / 'Claude'
+    store = desk / 'Local' / 'Packages' / 'Claude_pzs8sxrjxfjjc' / 'LocalCache' / 'Roaming' / 'Claude'
+    normal.mkdir(parents=True)
+    store.mkdir(parents=True)
+    (store / 'claude_desktop_config.json').write_text('{"preferences": {"x": 1}}', encoding='utf-8')
+    st = cc.connect_desktop()
+    assert st['registered'] and st['up_to_date']
+    for d in (normal, store):
+        data = json.loads((d / 'claude_desktop_config.json').read_text(encoding='utf-8'))
+        assert data['mcpServers']['ssnnote']['command'] == 'C:\\SSNnote\\SSNnote_MCP.exe'
+    assert json.loads((store / 'claude_desktop_config.json').read_text(encoding='utf-8'))['preferences'] == {'x': 1}
+    cc.disconnect_desktop()
+    assert not cc.desktop_status()['registered']
+
+
+def test_diagnose_reports_config_and_logs(desk, monkeypatch):
+    d = desk / 'Roaming' / 'Claude'
+    (d / 'logs').mkdir(parents=True)
+    (d / 'logs' / 'mcp.log').write_text('other line\n[ssnnote] Server started and connected successfully\n',
+                                        encoding='utf-8')
+    monkeypatch.setattr(cc, 'self_test', lambda: (True, '정상 — 도구 6개'))
+    cc.connect_desktop()
+    text = cc.diagnose()
+    assert '직접 실행 시험: ✓ 정상' in text and '등록됨' in text and 'ssnnote] Server started' in text
+    assert 'other line' not in text
+
+
+def test_self_test_talks_to_real_server(tmp_path, monkeypatch):
+    pytest.importorskip('mcp')
+    monkeypatch.setenv('APPDATA', str(tmp_path))
+    ok, msg = cc.self_test()
+    assert ok, msg
+    assert 'add_task' in msg and 'today_overview' in msg

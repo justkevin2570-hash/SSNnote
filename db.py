@@ -1,7 +1,9 @@
 import sqlite3
 import os
 
-DB_DIR  = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote')
+# APPDATA가 없는 환경(일부 프로그램이 줄인 환경 변수로 실행할 때)에서도 늘 같은 DB를 쓰도록
+_APPDATA = os.environ.get('APPDATA') or os.path.join(os.path.expanduser('~'), 'AppData', 'Roaming')
+DB_DIR  = os.path.join(_APPDATA, 'SSNnote')
 DB_PATH = os.path.join(DB_DIR, 'ssnnote.db')
 
 

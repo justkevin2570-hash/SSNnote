@@ -118,6 +118,12 @@ def run(result_path: str) -> int:
         check('급한 업무 움직임 (왼쪽 세로선)', motion_ok)
         check('대시보드·Claude 연결 창', dialogs_ok)
         check('공문 작성 창의 받은 공문 칸', capture_panel_ok)
+
+        def claude_server_ok():
+            import claude_connect
+            ok, msg = claude_connect.self_test()
+            assert ok, msg
+        check('Claude 연결 프로그램 직접 실행', claude_server_ok)
     except Exception:
         ok = False
         lines.append('FAIL Qt 시작\n' + traceback.format_exc())
