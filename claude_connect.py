@@ -233,6 +233,30 @@ def disconnect_desktop(path=None):
     return desktop_status(path)
 
 
+def refresh_registrations():
+    """설치 위치가 바뀌었으면(사용자 폴더로 옮김·다시 설치) 이미 등록된 Claude 연결을 새 위치로 고친다.
+    설치판에서 위치가 바뀐 뒤 처음 켤 때 한 번만 (Claude Code 확인은 몇 초 걸려서). 등록 안 한 곳은 건드리지 않는다."""
+    if not getattr(sys, 'frozen', False):
+        return
+    try:
+        cmd, _ = server_command()
+    except ConnectError:
+        return
+    import db
+    if db.get_setting('claude_paths_for', '') == cmd:
+        return
+    for p in desktop_config_paths():
+        reg, cur, _ = _entry_state(p)
+        if reg and not cur:
+            connect_desktop(p)
+    claude = find_claude_code()
+    if claude:
+        code, out = _run([claude, 'mcp', 'get', SERVER_NAME])
+        if code == 0 and 'no mcp server' not in out.lower() and cmd.lower() not in out.lower():
+            connect_claude_code(claude)
+    db.set_setting('claude_paths_for', cmd)
+
+
 # ── 연결 진단 ─────────────────────────────────────────────────
 
 def self_test(timeout=25.0):

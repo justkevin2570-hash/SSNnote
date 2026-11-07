@@ -1,9 +1,7 @@
-# 릴리스 빌드: GitHub의 Windows 서버에서 설치 파일을 만들어 Releases에 올리고 Gist를 갱신한다.
+# 릴리스 빌드: GitHub의 Windows 서버에서 설치 파일을 만들고, 실제로 설치해 본 뒤 Releases에 올린다.
 # 실행: GitHub → Actions → "릴리스 빌드" → Run workflow → 버전 입력 (version.json·SSNnote.iss와 같아야 함)
-#
-# Gist 갱신(기존 사용자 자동 업데이트 알림)은 저장소 비밀값 GIST_TOKEN이 있을 때만 한다.
-#   GIST_TOKEN: gist 권한이 있는 GitHub 토큰 (Settings → Secrets and variables → Actions)
-#   없으면 이 단계는 건너뛰고, 로그에 Gist에 붙여 넣을 version.json 내용을 출력한다.
+# 앱은 GitHub 최신 릴리스를 보고 자동 업데이트한다 (예전의 Gist 갱신은 쓰지 않음).
+# dry_run: 릴리스를 만들지 않고 빌드·점검·설치 시험까지만.
 name: 릴리스 빌드
 
 on:
@@ -12,16 +10,15 @@ on:
       version:
         description: '버전 (예: v2.67)'
         required: true
-      update_gist:
-        description: 'Gist 갱신 (기존 사용자에게 업데이트 알림)'
+      dry_run:
+        description: '시험만 (릴리스를 만들지 않음)'
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
 
 env:
-  GIST_ID: 57ec4979c5373758f658ee957fd80386
   PYTHONUTF8: '1'
   # 입력값은 스크립트 글자에 직접 넣지 않고 환경 변수로만 넘긴다 (명령 주입 방지)
   VERSION: ${{ inputs.version }}
@@ -48,10 +45,11 @@ jobs:
           $iss = (Select-String -Path SSNnote.iss -Pattern '^AppVersion=(.+)$').Matches[0].Groups[1].Value
           if ("v$iss" -ne $want) { throw "SSNnote.iss AppVersion($iss)이 입력($want)과 다릅니다" }
           gh release view $want *> $null
-          if ($LASTEXITCODE -eq 0) { throw "릴리스 $want 가 이미 있습니다" }
+          if ($LASTEXITCODE -eq 0 -and $env:DRY_RUN -ne 'true') { throw "릴리스 $want 가 이미 있습니다" }
           exit 0   # 'release view'가 없음(1)으로 끝나도 이 단계는 성공
         env:
           GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
 
       - name: 패키지 설치
         run: |
@@ -118,35 +116,63 @@ jobs:
           name: SSNnote_Setup-${{ inputs.version }}
           path: dist/SSNnote_Setup.exe
 
+      - name: 설치 시험 (지난 판 → 새 판, 자동 업데이트처럼 화면 없이)
+        timeout-minutes: 10
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $id = '{12345678-1234-1234-1234-123456789012}_is1'
+          $u = 'Microsoft\Windows\CurrentVersion\Uninstall\' + $id
+          $hkcuKey = "HKCU:\Software\$u"
+          $hklmKeys = @("HKLM:\SOFTWARE\WOW6432Node\$u", "HKLM:\SOFTWARE\$u")
+          $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+          $runName = '서서니 메모'
+          $silent = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/FORCECLOSEAPPLICATIONS')
+          # 설치 프로그램만 기다린다 (-Wait는 설치 뒤 다시 켜진 앱까지 기다려 버림)
+          function RunSetup($exe, $argv) { $p = Start-Process $exe -ArgumentList $argv -PassThru; $null = $p.Handle; $p.WaitForExit(); return $p.ExitCode }
+          function InstallDir { foreach ($k in @($hkcuKey) + $hklmKeys) { if (Test-Path $k) { return (Get-ItemProperty $k).InstallLocation.TrimEnd('\') } }; return $null }
+
+          # 1) 지난 릴리스를 설치 (사용자가 지금 쓰는 판)
+          gh release download --repo $env:GITHUB_REPOSITORY --pattern SSNnote_Setup.exe --dir old
+          $rc = RunSetup old\SSNnote_Setup.exe ($silent + '/NORELAUNCH')
+          if ($rc -ne 0) { throw "지난 판 설치 실패 ($rc)" }
+          Start-Sleep 3; Get-Process SSNnote -ErrorAction SilentlyContinue | Stop-Process -Force
+          $oldDir = InstallDir
+          Write-Host "지난 판 위치: $oldDir"
+          if (-not $oldDir -or -not (Test-Path "$oldDir\SSNnote.exe")) { throw '지난 판이 설치되지 않음' }
+          New-ItemProperty -Path $runKey -Name $runName -Value "`"$oldDir\SSNnote.exe`"" -PropertyType String -Force | Out-Null
+
+          # 2) 새 판을 자동 업데이트와 같은 방식으로 설치 → 앱이 다시 켜져야 함
+          $rc = RunSetup dist\SSNnote_Setup.exe $silent
+          if ($rc -ne 0) { throw "새 판 설치 실패 ($rc)" }
+          $newDir = "$env:LOCALAPPDATA\Programs\SSNnote"
+          if (-not (Test-Path "$newDir\SSNnote.exe")) { throw "사용자 폴더에 설치되지 않음: $newDir" }
+          if (-not (Test-Path "$newDir\SSNnote_MCP.exe")) { throw '연결 프로그램이 설치되지 않음' }
+          if (-not (Test-Path $hkcuKey)) { throw '사용자 설치 기록(HKCU)이 없음' }
+          if ($oldDir -ne $newDir) {
+            if (Test-Path "$oldDir\SSNnote.exe") { throw "예전 위치의 프로그램이 지워지지 않음: $oldDir" }
+            foreach ($k in $hklmKeys) { if (Test-Path $k) { throw "예전 관리자 설치 기록이 남음: $k" } }
+          }
+          $run = (Get-ItemProperty $runKey).$runName
+          if ($run -ne "`"$newDir\SSNnote.exe`"") { throw "자동 시작이 새 위치를 가리키지 않음: $run" }
+          Start-Sleep 5
+          $proc = Get-Process SSNnote -ErrorAction SilentlyContinue
+          if (-not $proc) { throw '설치 뒤 앱이 다시 켜지지 않음' }
+          Write-Host "다시 켜진 앱: $($proc[0].Path)"
+
+          # 3) 앱이 켜진 채로 /NORELAUNCH 설치 (앱을 끄면서 설치하는 경우) → 앱을 닫고 설치, 다시 켜지 않음
+          $rc = RunSetup dist\SSNnote_Setup.exe ($silent + '/NORELAUNCH')
+          if ($rc -ne 0) { throw "켜진 채 설치 실패 ($rc)" }
+          Start-Sleep 3
+          if (Get-Process SSNnote -ErrorAction SilentlyContinue) { throw '/NORELAUNCH인데 앱이 켜져 있음' }
+          Write-Host '설치 시험 통과'
+
       - name: GitHub Release 생성
+        if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = (Get-Content version.json -Raw -Encoding utf8 | ConvertFrom-Json).changelog
           [IO.File]::WriteAllText("$env:RUNNER_TEMP\notes.md", $notes, [Text.UTF8Encoding]::new($false))
           gh release create $env:VERSION dist/SSNnote_Setup.exe --title $env:VERSION --notes-file "$env:RUNNER_TEMP\notes.md" --target $env:GITHUB_SHA
-
-      - name: Gist 갱신 (기존 사용자 업데이트 알림)
-        if: ${{ inputs.update_gist }}
-        env:
-          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-          SHA256: ${{ steps.sha.outputs.sha256 }}
-        run: |
-          $py = Join-Path $env:RUNNER_TEMP 'gist_update.py'
-          @'
-          import json, os, requests
-          v = json.load(open('version.json', encoding='utf-8'))
-          v['sha256'] = os.environ['SHA256']
-          content = json.dumps(v, ensure_ascii=False, indent=2) + '\n'
-          token = os.environ.get('GIST_TOKEN', '')
-          if not token:
-              print('::warning::GIST_TOKEN 비밀값이 없어 Gist는 갱신하지 않았습니다. 아래 내용을 Gist의 version.json에 붙여 넣으세요.')
-              print(content)
-              raise SystemExit(0)
-          r = requests.patch('https://api.github.com/gists/' + os.environ['GIST_ID'],
-                             headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json'},
-                             json={'files': {'version.json': {'content': content}}}, timeout=30)
-          r.raise_for_status()
-          print('Gist 갱신 완료:', v['version'], v['sha256'])
-          '@ | Set-Content -Path $py -Encoding utf8
-          python $py

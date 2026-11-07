@@ -1267,6 +1267,8 @@ class MemoWindow(QMainWindow):
         add(settings, '단축키 사용', lambda: self._toggle_shortcut(not sc_enabled), checked=sc_enabled)
         autostart_on = autostart_is_enabled()
         add(settings, '시작 시 자동실행', lambda: autostart_set(not autostart_on), checked=autostart_on)
+        auto_up = updater.auto_enabled()
+        add(settings, '자동 업데이트', lambda: updater.set_auto_enabled(not auto_up), checked=auto_up)
         settings.addSeparator()
         from db import get_setting as _gs
         from ui.theme import MODE as _mode

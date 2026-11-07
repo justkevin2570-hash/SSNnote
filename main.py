@@ -208,6 +208,22 @@ if __name__ == '__main__':
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+
+    # ── 받아 둔 업데이트가 있으면 지금 화면 없이 설치 → 설치 프로그램이 앱을 다시 켠다 ──
+    if updater.install_on_startup():
+        from PyQt5.QtWidgets import QLabel
+        _note = QLabel('  서서니 노트를 새 버전으로 업데이트하는 중…  잠시 후 다시 켜져요.  ')
+        _note.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        _note.setStyleSheet('background:#333; color:white; padding:12px; border-radius:6px; font-size:11pt;')
+        _note.adjustSize()
+        _geo = app.primaryScreen().availableGeometry()
+        _note.move(_geo.right() - _note.width() - 24, _geo.bottom() - _note.height() - 24)
+        _note.show()
+        _t_end = __import__('time').monotonic() + 2.0
+        while __import__('time').monotonic() < _t_end:
+            app.processEvents()
+            __import__('time').sleep(0.05)
+        sys.exit(0)        # 설치 프로그램은 이 프로그램이 끝나기를 기다렸다가 설치한다
     from ui.theme import apply_app_palette
     apply_app_palette(app)  # 다크 테마면 기본 팔레트도 어둡게
 
@@ -510,18 +526,37 @@ if __name__ == '__main__':
     _update_notifier = updater.UpdateNotifier()
     _banner_notifier = updater.StatusBannerNotifier()
 
-    def _on_update_status(has_update: bool):
-        msg = '새로운 업데이트가 준비되었습니다.' if has_update else '최신 버전입니다.'
+    def _show_update_banner(msg: str, ms: int = 8000):
         if _open_windows:
             min_win = min(_open_windows, key=lambda w: w.window_id)
             min_win.title_bar.status_label.setText(msg)
-        QTimer.singleShot(5000, _restore_titles)
+        QTimer.singleShot(ms, _restore_titles)
 
     def _restore_titles():
         for win in _open_windows:
             win.title_bar.status_label.setText('')
 
-    _banner_notifier.status_signal.connect(_on_update_status, Qt.QueuedConnection)
+    _banner_notifier.message_signal.connect(_show_update_banner, Qt.QueuedConnection)
+
+    # 업데이트 뒤 처음 켰으면 한 줄로 알림 (큰 창 없이)
+    _prev_version = updater.just_updated()
+    if _prev_version:
+        updater.clear_staged()
+        QTimer.singleShot(2500, lambda: _show_update_banner(f'✨ {updater.APP_VERSION}로 업데이트됐어요', 10000))
+
+    # 트레이 → 종료로 끌 때 받아 둔 업데이트 설치 (Windows 로그오프·종료 중에는 하지 않음)
+    _session_ending = [False]
+    app.commitDataRequest.connect(lambda *_: _session_ending.__setitem__(0, True))
+    app.aboutToQuit.connect(lambda: None if _session_ending[0] else updater.install_on_quit())
+
+    # 설치 위치가 바뀌었으면(사용자 폴더로 옮김 등) Claude 연결 경로도 새 위치로
+    def _refresh_claude_paths():
+        try:
+            import claude_connect
+            claude_connect.refresh_registrations()
+        except Exception as e:
+            print(f'[claude] 연결 경로 갱신 실패: {e}')
+    threading.Thread(target=_refresh_claude_paths, daemon=True).start()
 
     threading.Thread(
         target=updater.check_for_update_on_startup,
