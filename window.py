@@ -786,7 +786,7 @@ class MemoWindow(QMainWindow):
         t = QLabel('급함 표시 직접 설정')
         t.setFont(_ui_font(13, QFont.Bold))
         lay.addWidget(t)
-        sub = QLabel('언제부터 D-day 표시가 숨쉬듯 움직일지 정해요. 색 표시는 그대로예요.')
+        sub = QLabel('언제부터 급한 업무 왼쪽 세로선이 숨쉬듯 움직일지 정해요. D-day 색 표시는 그대로예요.')
         sub.setFont(_ui_font(9))
         sub.setStyleSheet(f'color: {P.MUTED};')
         sub.setWordWrap(True)

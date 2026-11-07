@@ -798,9 +798,29 @@ class TaskRow(QWidget):
             else:
                 lbl.set_tone(getattr(self, '_tone0', 'later'))
                 lbl.set_texts(getattr(self, '_dday_text0', lbl.text()))
-            lbl.set_motion(breathe=u['breathe'], beat=u['overdue'] and cfg['enabled'])
+            lbl.set_motion(0.0, False)          # D-day 표시는 움직이지 않음 (움직임은 왼쪽 세로선 하나로)
         self._apply_star_motion(u, cfg)
+        self._apply_line_motion(u, cfg)
         self.update()
+
+    def _line_style(self, u, cfg):
+        """왼쪽 세로선: (색, 숨쉬기 주기) 또는 None. 기한 지남 빨강 · ★ 금색 · 그 밖 주황."""
+        if not cfg['enabled']:
+            return None
+        if u.get('overdue'):
+            return '#E5484D', 2.5
+        if u.get('breathe') or u.get('side_line'):
+            color = '#E2A400' if self.task.get('priority') else '#F76B15'
+            return color, (u.get('breathe') or 4.0)
+        return None
+
+    def _apply_line_motion(self, u, cfg):
+        from . import motion
+        self._line = self._line_style(u, cfg)
+        if self._line:
+            motion.clock().register(self, lambda t: self.update(0, 0, 8, self.height()))   # 세로선 자리만 다시 그림
+        else:
+            motion.clock().unregister(self)
 
     def _apply_star_motion(self, u, cfg):
         from . import motion
@@ -842,17 +862,23 @@ class TaskRow(QWidget):
         p = QPainter(self)
         self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
         u = getattr(self, '_urg', {}) or {}
-        if u.get('side_line') or u.get('countdown'):
+        line = getattr(self, '_line', None)
+        if line or u.get('countdown'):
             p.setRenderHint(QPainter.Antialiasing)
-            line_h = max(self.name_edit._fixed_height, 31)
-            if u.get('side_line'):
-                c = QColor(tc('#E2A400') if u['side_line'] == 'gold' else tc('#F76B15'))
+            # 업무 이름 줄의 실제 높이 (붙임파일 목록이 펼쳐져 있으면 그 위까지)
+            line_h = min(max(self.name_edit._fixed_height, 28), self.height() - self._attach_area_height())
+            if line:
+                # 급한 업무 왼쪽 세로선: 숨쉬듯 진해졌다 옅어짐 (급할수록 빠르게)
+                from . import motion
+                color, period = line
+                c = QColor(tc(color))
+                c.setAlphaF(0.35 + 0.65 * motion.breath(motion.clock().now(), period))
                 p.setPen(Qt.NoPen)
                 p.setBrush(c)
-                p.drawRoundedRect(QRectF(1, 5, 3, line_h - 10), 1.5, 1.5)
+                p.drawRoundedRect(QRectF(1, 4, 4, line_h - 8), 2, 2)
             if u.get('countdown'):
                 # 마감까지 남은 시간 막대: 줄 아래 얇게, 차오를수록 진하게
-                y = line_h - 3
+                y = line_h - 2.5
                 left, right = 30.0, self.width() - 10.0
                 p.setPen(Qt.NoPen)
                 p.setBrush(QColor(0, 0, 0, 18))

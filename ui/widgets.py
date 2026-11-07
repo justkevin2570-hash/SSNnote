@@ -160,10 +160,13 @@ class DdayLabel(QLabel):
     def _dot_space(self):
         return 12 if self._beat else 0
 
+    def _pad(self):
+        return self.PAD if (self._breathe or self._beat) else 1
+
     def sizeHint(self):
         fm = QFontMetrics(self.font())
-        return QSize(fm.horizontalAdvance(self.text()) + 16 + 2 * self.PAD + self._dot_space(),
-                     max(fm.height() + 4, 22) + 2 * self.PAD)
+        return QSize(fm.horizontalAdvance(self.text()) + 16 + 2 * self._pad() + self._dot_space(),
+                     max(fm.height() + 4, 22) + 2 * self._pad())
 
     minimumSizeHint = sizeHint
 
@@ -181,9 +184,9 @@ class DdayLabel(QLabel):
         h = max(fm.height() + 2, 20)
         w = fm.horizontalAdvance(self.text()) + 14
         if self._align_left:
-            x = self.PAD + self._dot_space()
+            x = self._pad() + self._dot_space()
         else:                              # 기본은 오른쪽 정렬 (줄마다 같은 끝에)
-            x = self.width() - w - self.PAD
+            x = self.width() - w - self._pad()
         y = (self.height() - h) / 2.0
         pill = QRectF(x, y, w, h)
         t = clock().now()

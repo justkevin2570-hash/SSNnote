@@ -75,41 +75,42 @@ def run(result_path: str) -> int:
             e.close()
 
         def motion_ok():
-            """급함 표시가 실제로 움직이는지: 오늘 마감 업무의 D-day 표시가 시간이 흐르며 다시 그려져야 한다."""
+            """급함 표시가 실제로 움직이는지: 오늘 마감 업무의 왼쪽 세로선이 시간이 흐르며 다시 그려져야 한다."""
             import time
             from datetime import date
             import db
             import window
             from ui import motion
-            from ui.widgets import DdayLabel
+            from ui.task_row import TaskRow
             wid = db.get_first_window_id()
             tid = db.add_task(wid, '점검용 오늘 업무', date.today().isoformat())
             w = window.MemoWindow(wid)
             w.show()
             row = next(r for r in w._task_rows() if r.task['id'] == tid)
-            assert row._urg.get('breathe'), f'오늘 업무가 숨쉬지 않음: {row._urg}'
+            assert row._urg.get('breathe') and row._line, f'오늘 업무에 세로선이 없음: {row._urg}'
+            assert not row._dday_lbl._breathe, 'D-day 표시는 움직이지 않아야 함'
             count = {'n': 0}
-            orig = DdayLabel.paintEvent
+            orig = TaskRow.paintEvent
 
             def counting(self, e):
-                if self is row._dday_lbl:
+                if self is row:
                     count['n'] += 1
                 orig(self, e)
-            DdayLabel.paintEvent = counting
+            TaskRow.paintEvent = counting
             try:
                 end = time.time() + 0.8
                 while time.time() < end:
                     app.processEvents()
                     time.sleep(0.01)
             finally:
-                DdayLabel.paintEvent = orig
+                TaskRow.paintEvent = orig
             assert motion.clock()._timer.isActive(), '움직임 시계가 멈춰 있음'
-            assert count['n'] >= 5, f'D-day 표시가 다시 그려지지 않음 ({count["n"]}번)'
+            assert count['n'] >= 5, f'세로선이 다시 그려지지 않음 ({count["n"]}번)'
             w.close()
             db.delete_task(tid)
 
         check('메모 창·공문 작성 창·예산 창', windows_ok)
-        check('급한 업무 움직임 (숨쉬기)', motion_ok)
+        check('급한 업무 움직임 (왼쪽 세로선)', motion_ok)
         check('대시보드·Claude 연결·학교 정보 창', dialogs_ok)
         check('공문 작성 창의 받은 공문 칸', capture_panel_ok)
     except Exception:
