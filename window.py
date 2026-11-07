@@ -931,7 +931,6 @@ class MemoWindow(QMainWindow):
         ed = DocumentEditorWindow._instance
         if ed is None or not (ed.isVisible() or ed._capturing):
             ed = DocumentEditorWindow(parent=None)
-        ed.register_task_callback = self._register_captured_task
         self._doc_editor = ed
         return ed
 
@@ -1106,7 +1105,7 @@ class MemoWindow(QMainWindow):
         dlg.raise_()
         dlg.activateWindow()
 
-    # ── 공문 캡처 (공문 작성 창의 「받은 공문」 칸에서 분석 → 업무 등록 / 회신 공문) ──
+    # ── 공문 캡처 (공문 작성 창의 「받은 공문」 칸에서 분석 → 제목·관련 번호·요약) ──
     def _start_ai_capture(self):
         try:
             ed = self._ensure_doc_editor()
@@ -1123,13 +1122,6 @@ class MemoWindow(QMainWindow):
             if not getattr(win, '_memo_mode', True):
                 return win
         return self
-
-    def _register_captured_task(self, name, deadline, notes, related_no):
-        target = self._task_list_window()
-        add_task(target.window_id, name, deadline, notes=notes, related_no=related_no)
-        target._refresh_tasks()
-        target.show()
-        target.raise_()
 
     def _open_profile_dialog(self):
         from ui.profile_dialog import ProfileDialog

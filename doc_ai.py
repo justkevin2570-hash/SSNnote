@@ -1,10 +1,10 @@
-"""doc_ai.py — 캡처한 공문을 AI로 분석하고, 회신 공문 프롬프트를 만든다.
+"""doc_ai.py — 캡처한 공문을 AI로 분석해 요약을 만든다.
 
 흐름
   1) 캡처 이미지 → (개인정보 보호 모드) PC의 Windows OCR로 글자 추출 → 개인정보 가리기 → AI에 글자만 전송
                  → (보호 모드 꺼짐 / 로컬 AI) 이미지를 그대로 AI에 전송
   2) AI 응답(JSON) → normalize_analysis()로 날짜·목록 정리
-  3) 결과 창에서 업무 등록 / 회신 공문 작성 / 요약 복사
+  3) 제목·공문번호 → 공문 작성 칸(제목·관련 번호), 요약·기한·할 일 → 받은 공문 칸의 요약 (요약 복사)
 
 UI 없는 순수 로직(build_*, normalize_*, parse_*)은 tests/에서 검증한다.
 """
@@ -206,97 +206,36 @@ def related_line(a: dict) -> str:
     return format_doc_number(a.get('doc_number', ''), a.get('doc_date', ''))
 
 
-def task_deadline(a: dict) -> str:
-    """업무 마감 문자열 (db.tasks.deadline 형식: 'YYYY-MM-DD' 또는 'YYYY-MM-DD HH:MM')."""
-    if not a.get('deadline'):
-        return ''
-    return f"{a['deadline']} {a['deadline_time']}".strip() if a.get('deadline_time') else a['deadline']
-
-
-def task_notes(a: dict) -> str:
-    """업무 메모 칸에 넣을 정리본."""
-    parts = []
-    if a.get('summary'):
-        parts.append('요약\n' + '\n'.join(f'- {s}' for s in a['summary']))
-    if a.get('todos'):
-        parts.append('할 일\n' + '\n'.join(f'☐ {t}' for t in a['todos']))
-    return '\n\n'.join(parts)
-
-
-def summary_text(a: dict) -> str:
-    """클립보드용 요약 (메신저·회의 공유용)."""
-    head = a.get('title', '')
-    rel = related_line(a)
-    if rel:
-        head += f" ({rel})"
-    lines = [head] if head else []
+def summary_body(a: dict) -> str:
+    """받은 공문 칸의 요약 칸에 보일 글: 핵심 요약 · 기한 · 할 일."""
+    lines = [f'· {x}' for x in a.get('summary', [])]
     if a.get('deadline'):
-        lines.append(f"기한: {format_korean_date(a['deadline'])} {a.get('deadline_time', '')}".rstrip())
-    body = task_notes(a)
-    if body:
-        lines.append(body)
-    return '\n'.join(lines).strip()
-
-
-REPLY_SYSTEM = (
-    "당신은 한국 학교 행정 공문 작성 전문가입니다. "
-    "받은 공문에 대한 학교의 회신(제출·보고) 공문 본문을 작성합니다. "
-    "공식 공문 문체(개조식, '~함', '~바람', '~하고자 합니다')를 쓰고, "
-    "날짜는 '2026. 3. 12.' 형식, 마지막은 '끝.'으로 맺습니다. "
-    "공문에 없는 수치·명단은 지어내지 말고 '○○'로 비워 둡니다. 마크다운 금지."
-)
-
-
-def build_reply_prompt(a: dict, profile_text: str = '', instruction: str = '') -> str:
-    """회신 공문 본문 생성 프롬프트 (AiStreamThread structured 모드용: {"body": ...})."""
-    rel = related_line(a)
-    info = [f"받은 공문 제목: {a.get('title', '')}"]
-    if rel:
-        info.append(f'관련 문서: {rel}')
-    if a.get('deadline'):
-        info.append(f"제출 기한: {format_korean_date(a['deadline'])} {a.get('deadline_time', '')}".rstrip())
-    if a.get('summary'):
-        info.append('받은 공문 요약:\n' + '\n'.join(f'- {s}' for s in a['summary']))
+        lines.append(f"· 기한: {format_korean_date(a['deadline'])} {a.get('deadline_time', '')}".rstrip())
     if a.get('todos'):
-        info.append('요구 사항:\n' + '\n'.join(f'- {t}' for t in a['todos']))
-    parts = ['\n'.join(info)]
-    if profile_text:
-        parts.append(profile_text.strip())
-    if instruction.strip():
-        parts.append(f'추가 요청: {instruction.strip()}')
-    parts.append(
-        '본문 형식:\n'
-        f"1. 관련: {rel or '[관련 문서]'}\n"
-        '2. 위와 관련하여 [무엇]을 다음과 같이 [제출/보고]합니다.\n'
-        '  가. ...\n'
-        '붙임  [회신 붙임 파일명] 1부.  끝.\n\n'
-        '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
-    )
-    return '\n\n'.join(parts)
+        if lines:
+            lines.append('')
+        lines.append('할 일')
+        lines += [f'☐ {t}' for t in a['todos']]
+    return '\n'.join(lines)
 
 
-def context_block(a: dict) -> str:
+def summary_text(title: str, rel: str, body: str) -> str:
+    """클립보드용 요약 (메신저·회의 공유용): '제목 (관련 번호)' + 요약 칸 글."""
+    head = (title or '').strip()
+    rel = (rel or '').strip()
+    if rel:
+        head = f'{head} ({rel})' if head else rel
+    return '\n'.join(x for x in (head, (body or '').strip()) if x).strip()
+
+
+def context_block(title: str, rel: str, body: str) -> str:
     """AI 대화·자동 초안에 함께 보낼 '받은 공문' 정리 (공문 작성 창 왼쪽 칸)."""
-    lines = [f"받은 공문 제목: {a.get('title', '')}"]
-    rel = related_line(a)
+    lines = [f'받은 공문 제목: {title}'] if title else []
     if rel:
         lines.append(f'받은 공문 번호: {rel}')
-    if a.get('deadline'):
-        lines.append(f"기한: {format_korean_date(a['deadline'])} {a.get('deadline_time', '')}".rstrip())
-    if a.get('summary'):
-        lines.append('요약:\n' + '\n'.join(f'- {s}' for s in a['summary']))
-    if a.get('todos'):
-        lines.append('할 일:\n' + '\n'.join(f'- {t}' for t in a['todos']))
+    if body.strip():
+        lines.append('요약:\n' + body.strip())
     return '[참고: 받은 공문]\n' + '\n'.join(lines) + '\n'
-
-
-def reply_title(a: dict) -> str:
-    """회신 공문 제목 초안: 받은 제목 끝에 '제출'을 붙인다 (이미 제출/보고/회신이면 그대로)."""
-    t = a.get('title', '').strip()
-    if not t or re.search(r'(제출|보고|회신|결과)$', t):
-        return t
-    t = re.sub(r'\s*(안내|알림|요청|협조\s*요청|조사)$', '', t)
-    return f'{t} 제출'
 
 
 # ── 분석 실행 (백그라운드 스레드) ─────────────────────────────────

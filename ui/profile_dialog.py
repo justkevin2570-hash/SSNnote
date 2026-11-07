@@ -46,7 +46,7 @@ class ProfileDialog(QDialog):
         title = QLabel('🏫 학교 정보')
         title.setObjectName('Title')
         root.addWidget(title)
-        hint = QLabel('공문 초안·회신 공문을 만들 때 자동으로 들어갑니다. 비워 둔 칸은 쓰지 않습니다.')
+        hint = QLabel('공문 초안을 만들 때 자동으로 들어갑니다. 비워 둔 칸은 쓰지 않습니다.')
         hint.setObjectName('Hint')
         hint.setWordWrap(True)
         root.addWidget(hint)

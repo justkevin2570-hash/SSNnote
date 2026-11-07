@@ -75,6 +75,9 @@ def run(result_path: str) -> int:
             e.panel._pixmaps = [QPixmap(10, 10), QPixmap(10, 20)]
             assert e.panel._combined_pixmap().height() == 46, '캡처 이어 붙이기 실패'
             assert e._received_context(), '받은 공문 칸 내용이 AI에 전달되지 않음'
+            assert 'b' in e.panel.summary(), '요약 칸에 할 일이 안 보임'
+            e.ref_input.setText('중등교육과-1(2026. 1. 1.)')
+            e._copy_ref()
             e.close()
 
         def motion_ok():

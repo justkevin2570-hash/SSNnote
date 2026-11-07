@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 
 from doc_ai import (normalize_date, normalize_time, normalize_analysis, parse_json_object,
-                    related_line, task_deadline, task_notes, reply_title, build_reply_prompt,
+                    related_line, summary_body, context_block,
                     build_analyze_prompt, summary_text)
 
 TODAY = date(2026, 11, 5)
@@ -67,28 +67,22 @@ A = {'title': '2026. 방과후학교 운영 실태 조사', 'doc_number': '교�
      'summary': ['운영 현황 조사'], 'todos': ['조사표 작성'], 'needs_reply': True}
 
 
-def test_task_helpers():
+def test_summary_helpers():
     assert related_line(A) == '교육과정과-12345(2026. 11. 3.)'
     assert related_line({**A, 'doc_date': ''}) == '교육과정과-12345'
-    assert task_deadline(A) == '2026-11-14 17:00'
-    assert task_deadline({**A, 'deadline_time': ''}) == '2026-11-14'
-    assert task_deadline({**A, 'deadline': ''}) == ''
-    notes = task_notes(A)
-    assert '☐ 조사표 작성' in notes and '- 운영 현황 조사' in notes and '발신' not in notes and '붙임' not in notes
-    s = summary_text(A)
-    assert s.startswith('2026. 방과후학교 운영 실태 조사 (교육과정과-12345(2026. 11. 3.))') and '기한: 2026. 11. 14. 17:00' in s
-
-
-def test_reply_title():
-    assert reply_title(A) == '2026. 방과후학교 운영 실태 제출'
-    assert reply_title({'title': '연수 참가 신청 안내'}) == '연수 참가 신청 제출'
-    assert reply_title({'title': '학교폭력 실태 결과 보고'}) == '학교폭력 실태 결과 보고'
-    assert reply_title({'title': ''}) == ''
+    body = summary_body(A)
+    assert '· 운영 현황 조사' in body and '☐ 조사표 작성' in body and '할 일' in body
+    assert '기한: 2026. 11. 14.' in body and '17:00' in body
+    assert summary_body({'summary': [], 'todos': []}) == ''
+    s = summary_text('2026. 방과후학교 운영 실태 조사', '교육과정과-12345(2026. 11. 3.)', body)
+    assert s.startswith('2026. 방과후학교 운영 실태 조사 (교육과정과-12345(2026. 11. 3.))\n· 운영 현황 조사')
+    assert summary_text('', '', '') == ''
+    assert summary_text('', '번호-1', '') == '번호-1'
 
 
 def test_prompts_contain_context():
-    p = build_reply_prompt(A, profile_text='- 학교명: 서서니고', instruction='인원은 3명')
-    assert '교육과정과-12345(2026. 11. 3.)' in p and '서서니고' in p and '인원은 3명' in p and '"body"' in p
+    c = context_block('제목', '교육과정과-12345(2026. 11. 3.)', '· 요약')
+    assert c.startswith('[참고: 받은 공문]') and '교육과정과-12345' in c and '· 요약' in c
     q = build_analyze_prompt('본문', today=TODAY)
     assert '[공문 내용]\n본문' in q and '2026-11-05' in q
     assert '이미지' in build_analyze_prompt('', today=TODAY)

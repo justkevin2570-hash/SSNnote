@@ -578,10 +578,7 @@ class DocumentEditorWindow(QMainWindow):
         self.panel = CapturePanel()
         self.panel.setMinimumWidth(260)
         self.panel.hide()
-        self.panel.register_requested.connect(self._register_from_panel)
-        self.panel.reply_requested.connect(self.start_reply)
-        self.panel.use_title.connect(lambda t: t and self.title_input.setText(t))
-        self.panel.use_ref.connect(lambda t: t and self.ref_input.setText(t))
+        self.panel.header_source = lambda: (self.title_input.text().strip(), self.ref_input.text().strip())
         self.panel.collapse_requested.connect(lambda: self._show_panel(False))
         self.panel.message.connect(self.statusBar().showMessage)
         self.panel.analyzed.connect(self._fill_from_capture)
@@ -594,7 +591,6 @@ class DocumentEditorWindow(QMainWindow):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         root.addWidget(self.splitter, 1)
-        self.register_task_callback = None   # 메모 창이 넣어 줌: (name, deadline, notes, related_no)
 
         # ── 입력 카드: 제목 · 관련 번호 · 붙임 · 자동 초안 ──
         card = QFrame()
@@ -708,6 +704,10 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_copy_title.setIcon(qta.icon('fa5.copy', color=C.MUTED))
         self.btn_copy_title.setMinimumHeight(_input_h)
         self.btn_copy_title.clicked.connect(self._copy_title)
+        self.btn_copy_ref = QPushButton("관련번호 복사")
+        self.btn_copy_ref.setIcon(qta.icon('fa5.copy', color=C.MUTED))
+        self.btn_copy_ref.setMinimumHeight(_input_h)
+        self.btn_copy_ref.clicked.connect(self._copy_ref)
         self.btn_copy = QPushButton("본문 복사")
         self.btn_copy.setIcon(qta.icon('fa5.copy', color=C.MUTED))
         self.btn_copy.setMinimumHeight(_input_h)
@@ -718,6 +718,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_save_exit.setMinimumWidth(130)
         self.btn_save_exit.clicked.connect(self.save_and_close)
         ctrl_row.addWidget(self.btn_copy_title)
+        ctrl_row.addWidget(self.btn_copy_ref)
         ctrl_row.addWidget(self.btn_copy)
         ctrl_row.addStretch()
         ctrl_row.addWidget(self.btn_save_exit)
@@ -784,26 +785,6 @@ class DocumentEditorWindow(QMainWindow):
             '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
         )
         self._start_ai(prompt, system=system, structured=True)
-
-    # ── 회신 공문 (받은 공문 칸 → 회신 공문 쓰기) ──
-    def start_reply(self, analysis: dict, instruction: str = ''):
-        """캡처·분석한 공문에 대한 회신 공문: 제목·관련 칸을 채우고 AI 초안을 만든다."""
-        import doc_ai
-        title = doc_ai.reply_title(analysis)
-        ref = doc_ai.related_line(analysis)
-        self.title_input.setText(title)
-        self.ref_input.setText(ref)
-        if load_ai_mode() == 'none':
-            self.editor.setPlainText(_get_template(title, 'submit', ref, self.spin_attach.value()))
-            self._apply_editor_line_height()
-            self.statusBar().showMessage('회신 공문 뼈대 삽입 완료 — AI를 켜면 본문까지 작성합니다.')
-            return
-        if self.ai_thread and self.ai_thread.isRunning():
-            self.statusBar().showMessage('AI가 작업 중입니다. 끝난 뒤 다시 시도하세요.')
-            return
-        prompt = doc_ai.build_reply_prompt(analysis, _profile_block(), instruction)
-        self._start_ai(prompt, system=doc_ai.REPLY_SYSTEM, structured=True)
-        self.statusBar().showMessage('AI가 회신 공문을 작성 중...')
 
     # ── AI 입력창 Enter 키 → 전송 ──
     def eventFilter(self, obj, event):
@@ -963,6 +944,16 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage('제목이 클립보드에 복사되었습니다.')
         QTimer.singleShot(1500, lambda: self.statusBar().showMessage(''))
 
+    def _copy_ref(self):
+        """관련 번호(받은 공문 번호)를 클립보드에 복사."""
+        ref = self.ref_input.text().strip()
+        if not ref:
+            self.statusBar().showMessage('복사할 관련 번호가 없습니다.')
+            return
+        QApplication.clipboard().setText(ref)
+        self.statusBar().showMessage('관련 번호가 클립보드에 복사되었습니다.')
+        QTimer.singleShot(1500, lambda: self.statusBar().showMessage(''))
+
     def _copy_body(self):
         """본문 텍스트를 클립보드에 복사."""
         content = self.editor.toPlainText().strip()
@@ -1006,10 +997,12 @@ class DocumentEditorWindow(QMainWindow):
              '아래 칸에 "장소를 시청각실로 바꿔줘"처럼 적고 Enter. 줄바꿈은 Shift+Enter. '
              '결과가 마음에 안 들면 Ctrl+Z 한 번으로 이전 내용으로 돌아갑니다.'),
             ('fa5s.crop-alt', '공문 캡처',
-             'Ctrl+Shift+X나 [공문 캡처]로 받은 공문을 잘라 오면 왼쪽 칸에 공문번호·기한·요약·할 일이 나옵니다. '
+             'Ctrl+Shift+X나 [공문 캡처]로 받은 공문을 잘라 오면 제목·공문번호는 오른쪽 제목·관련 번호 칸에, '
+             '요약(핵심 내용·기한·할 일)은 왼쪽 칸에 나옵니다. '
              '번호가 안 잡혔으면 그 부분만 한 번 더 캡처하세요 — 같은 공문에 합쳐서 다시 읽습니다. '
-             '다른 공문은 왼쪽 [새 공문]. 업무로 등록하거나 회신 공문을 쓰고, AI 대화도 그 공문을 참고합니다.'),
-            ('fa5s.stop-circle', '취소', 'AI가 쓰는 중에 Esc를 누르면 멈추고 원래 내용으로 되돌립니다.'),
+             '다른 공문은 왼쪽 [새 공문]. AI 대화·자동 초안도 그 공문을 참고합니다.'),
+            ('fa5s.stop-circle', '취소·닫기', 'AI가 쓰는 중에 Esc를 누르면 멈추고 원래 내용으로 되돌립니다. '
+             '그 밖에는 Esc로 창을 닫습니다.'),
             ('fa5s.shield-alt', '개인정보 보호',
              '보호 모드가 켜져 있으면 AI로 보내기 전에 주민번호·전화번호·이름 등을 가립니다.'),
         ]
@@ -1421,30 +1414,8 @@ class DocumentEditorWindow(QMainWindow):
                 setattr(self, key, value)
 
     def _received_context(self) -> str:
-        """AI 대화·자동 초안에 함께 보낼 받은 공문 정리 (칸의 [참고] 체크가 켜져 있을 때)."""
-        if not self.panel.use_as_context():
-            return ''
-        import doc_ai
-        return doc_ai.context_block(self.panel.collect())
-
-    def _register_from_panel(self, a: dict):
-        import doc_ai
-        args = (a['title'], doc_ai.task_deadline(a), doc_ai.task_notes(a), doc_ai.related_line(a))
-        try:
-            if self.register_task_callback:
-                self.register_task_callback(*args)
-            else:
-                import db
-                wid = db.get_first_window_id() or db.create_window()
-                db.add_task(wid, args[0], args[1], notes=args[2], related_no=args[3])
-                db.set_setting('external_change', __import__('datetime').datetime.now().isoformat())
-        except Exception as e:
-            QMessageBox.warning(self, '업무 등록 실패', str(e))
-            return
-        if not self.editor.toPlainText().strip():
-            self.close()          # 공문 본문을 쓰지 않고 업무만 등록했으면 창을 닫는다
-            return
-        self.statusBar().showMessage(f'업무로 등록했습니다: {a["title"]}')
+        """AI 대화·자동 초안에 함께 보낼 받은 공문 정리 (받은 공문 칸에 내용이 있을 때)."""
+        return self.panel.context() if self.panel.use_as_context() else ''
 
     def _ocr_fallback(self, pixmap, target='auto'):
         """Windows OCR로 캡처한 글자를 읽어 제목·관련 번호 칸에 넣는다. winrt 없으면 안내."""
