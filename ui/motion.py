@@ -34,6 +34,8 @@ PRESET_ORDER = ('default', 'early', 'relaxed')
 DAY_CHOICES = (0, 1, 3, 7, 14)          # 직접 설정에서 고를 수 있는 '며칠 전'
 HOUR_CHOICES = (0, 1, 3, 6)              # 남은 시간 표시 시작 (0 = 끄기)
 
+BREATH_STEPS = ((3, 3.0), (5, 6.0))     # (며칠 안, 숨쉬기 주기 초)
+
 _cache = None
 
 
@@ -129,11 +131,12 @@ def urgency(task: dict, now: datetime = None, cfg: dict = None) -> dict:
     if not cfg['enabled']:
         return out
 
-    start = cfg['star_days'] if starred else cfg['normal_days']
-    if days_left <= start:
-        # 당일 4초, 하루 전 5초 … 멀수록 느리게(최대 8초)
-        out['breathe'] = 4.0 if days_left == 0 else min(8.0, 4.0 + days_left)
-        out['star_glow'] = starred
+    # 박자는 두 가지: 3일 안(당일~D-3) 3초, 5일 안(D-4·D-5) 6초. 더 급한 건 남은 시간 막대가 알려줌
+    for limit, period in BREATH_STEPS:
+        if days_left <= limit:
+            out['breathe'] = period
+            out['star_glow'] = starred
+            break
     if dt is not None and days_left == 0:
         remaining = (dt - now).total_seconds()
         out['remaining'] = remaining
@@ -141,11 +144,6 @@ def urgency(task: dict, now: datetime = None, cfg: dict = None) -> dict:
         if window and remaining <= window:
             out['countdown'] = True
             out['progress'] = max(0.0, min(1.0, 1 - remaining / window))
-            if starred:
-                out['side_line'] = 'gold'
-        if remaining <= 3600:          # 마지막 한 시간: 빠르게 숨쉬고 왼쪽 세로선
-            out['breathe'] = 2.0
-            out['side_line'] = 'gold' if starred else 'orange'
     return out
 
 

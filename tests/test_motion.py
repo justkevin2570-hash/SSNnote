@@ -23,24 +23,24 @@ def test_no_deadline_or_far_away_is_still():
     assert u('', priority=1)['breathe'] == 0
 
 
-def test_today_breathes_and_starred_starts_earlier():
-    assert u('2026-11-07')['breathe'] == 4.0
-    assert u('2026-11-09')['breathe'] == 0                             # 보통 업무는 당일부터
-    s = u('2026-11-09', priority=1)                                    # ★는 3일 전부터, 멀수록 느리게
-    assert s['breathe'] == 6.0 and s['star_glow']
-    assert u('2026-11-10', priority=1)['breathe'] == 7.0
-    assert u('2026-11-11', priority=1)['breathe'] == 0
+def test_two_speeds_by_days_left():
+    """3일 안(당일~D-3) 3초, 5일 안(D-4·D-5) 6초, 그 뒤엔 가만히 — ★도 같은 박자(별도 함께)."""
+    assert u('2026-11-07')['breathe'] == 3.0
+    assert u('2026-11-10')['breathe'] == 3.0
+    assert u('2026-11-11')['breathe'] == 6.0 and u('2026-11-12')['breathe'] == 6.0
+    assert u('2026-11-13')['breathe'] == 0
+    s = u('2026-11-09', priority=1)
+    assert s['breathe'] == 3.0 and s['star_glow']
+    assert not u('2026-11-09')['star_glow']
 
 
-def test_countdown_progress_and_last_hour():
+def test_countdown_progress_no_extra_speedup():
     a = u('2026-11-07 16:30')                                          # 2시간 30분 남음
-    assert a['countdown'] and abs(a['progress'] - (1 - 2.5 / 3)) < 1e-6 and a['side_line'] == ''
+    assert a['countdown'] and abs(a['progress'] - (1 - 2.5 / 3)) < 1e-6
     assert motion.remaining_text(a['remaining']) == '2시간 30분'
-    b = u('2026-11-07 14:40')                                          # 40분 남음
-    assert b['breathe'] == 2.0 and b['side_line'] == 'orange'
+    b = u('2026-11-07 14:40')                                          # 40분 남음: 박자는 그대로, 막대가 알려줌
+    assert b['breathe'] == 3.0 and b['countdown']
     assert motion.remaining_text(b['remaining']) == '40분'
-    c = u('2026-11-07 16:30', priority=1)
-    assert c['side_line'] == 'gold'                                    # ★는 남은 시간 표시부터 금색 선
     assert not u('2026-11-07 18:00')['countdown']                      # 4시간 전엔 아직
 
 
@@ -51,7 +51,7 @@ def test_overdue_and_done():
 
 
 def test_presets_and_off():
-    assert u('2026-11-10', cfg=EARLY)['breathe'] == 7.0                # 미리미리: 보통도 3일 전부터
+    assert u('2026-11-07 16:30', cfg=EARLY)['countdown'] == u('2026-11-07 16:30')['countdown']
     off = u('2026-11-07 14:30', cfg=OFF)
     assert off['breathe'] == 0 and not off['countdown']
     assert u('2026-11-06', cfg=OFF)['overdue']                         # 기한 지남 판정은 그대로(박동만 꺼짐)

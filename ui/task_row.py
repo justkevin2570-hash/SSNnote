@@ -809,15 +809,10 @@ class TaskRow(QWidget):
         self.update()
 
     def _line_style(self, u, cfg):
-        """왼쪽 세로선: (색, 숨쉬기 주기) 또는 None. 기한 지남 빨강 · ★ 금색 · 그 밖 주황."""
-        if not cfg['enabled']:
+        """왼쪽 세로선: (색, 숨쉬기 주기) 또는 None. ★ 금색 · 그 밖 주황 (기한 지남은 선 없음 — 색 표시로)."""
+        if not cfg['enabled'] or u.get('overdue') or not u.get('breathe'):
             return None
-        if u.get('overdue'):
-            return '#E5484D', 2.5
-        if u.get('breathe') or u.get('side_line'):
-            color = '#E2A400' if self.task.get('priority') else '#F76B15'
-            return color, (u.get('breathe') or 4.0)
-        return None
+        return ('#C98A00' if self.task.get('priority') else '#EA580C'), u['breathe']
 
     def _apply_line_motion(self, u, cfg):
         from . import motion
@@ -847,11 +842,11 @@ class TaskRow(QWidget):
         if starred and u.get('star_glow'):
             eff = QGraphicsOpacityEffect(self.btn_star)
             self.btn_star.setGraphicsEffect(eff)
-            period = u['breathe'] or 4.0
+            period = u['breathe'] or 3.0
 
-            def glow(t, eff=eff, period=period):
+            def glow(t, eff=eff, period=period):      # 세로선과 같은 박자로 0%까지 옅어졌다 돌아옴
                 try:
-                    eff.setOpacity(0.55 + 0.45 * (1 - motion.breath(t, period)))
+                    eff.setOpacity(motion.breath(t, period))
                 except RuntimeError:
                     pass
             motion.clock().register(self.btn_star, glow)
@@ -877,7 +872,7 @@ class TaskRow(QWidget):
                 from . import motion
                 color, period = line
                 c = QColor(tc(color))
-                c.setAlphaF(0.35 + 0.65 * motion.breath(motion.clock().now(), period))
+                c.setAlphaF(motion.breath(motion.clock().now(), period))     # 0%까지 옅어졌다 돌아옴
                 p.setPen(Qt.NoPen)
                 p.setBrush(c)
                 p.drawRoundedRect(QRectF(1, 4, 4, line_h - 8), 2, 2)
