@@ -62,7 +62,7 @@ const
   APP_MUTEX = 'Global\SSNnote_SingleInstance_9f3a2c';
   RUN_KEY = 'Software\Microsoft\Windows\CurrentVersion\Run';
   RUN_NAME = '서서니 메모';
-  OLD_UNINSTALL_KEY = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{12345678-1234-1234-1234-123456789012}_is1';
+  OLD_UNINSTALL_KEY = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{12345678-1234-1234-1234-123456789012}}_is1';  // AppId={{...}} 는 앞의 두 겹만 한 겹이 되어 끝은 두 겹 그대로
 
 var
   HadAutostart: Boolean;

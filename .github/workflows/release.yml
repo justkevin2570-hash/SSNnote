@@ -122,7 +122,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $id = '{12345678-1234-1234-1234-123456789012}_is1'
+          $id = '{12345678-1234-1234-1234-123456789012}}_is1'   # AppId={{…}} → 앞의 {{만 {로 바뀜
           $u = 'Microsoft\Windows\CurrentVersion\Uninstall\' + $id
           $hkcuKey = "HKCU:\Software\$u"
           $hklmKeys = @("HKLM:\SOFTWARE\WOW6432Node\$u", "HKLM:\SOFTWARE\$u")
