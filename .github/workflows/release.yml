@@ -126,12 +126,23 @@ jobs:
           $u = 'Microsoft\Windows\CurrentVersion\Uninstall\' + $id
           $hkcuKey = "HKCU:\Software\$u"
           $hklmKeys = @("HKLM:\SOFTWARE\WOW6432Node\$u", "HKLM:\SOFTWARE\$u")
+          function HasKey($path) { $parent = Split-Path $path; $leaf = Split-Path $path -Leaf; return [bool](Get-ChildItem $parent -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -eq $leaf }) }
           $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
           $runName = '서서니 메모'
           $silent = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/FORCECLOSEAPPLICATIONS')
           # 설치 프로그램만 기다린다 (-Wait는 설치 뒤 다시 켜진 앱까지 기다려 버림)
           function RunSetup($exe, $argv) { $p = Start-Process $exe -ArgumentList $argv -PassThru; $null = $p.Handle; $p.WaitForExit(); return $p.ExitCode }
-          function InstallDir { foreach ($k in @($hkcuKey) + $hklmKeys) { if (Test-Path $k) { return (Get-ItemProperty $k).InstallLocation.TrimEnd('\') } }; return $null }
+          function InstallDir {
+            foreach ($root in @('HKCU:\Software', 'HKLM:\SOFTWARE\WOW6432Node', 'HKLM:\SOFTWARE')) {
+              $k = Get-ChildItem "$root\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
+                   Where-Object { $_.PSChildName -eq $id } | Select-Object -First 1
+              if ($k) { $loc = (Get-ItemProperty $k.PSPath).InstallLocation; Write-Host "설치 기록: $($k.Name) → $loc"; if ($loc) { return $loc.TrimEnd('\') } }
+            }
+            foreach ($d in @("${env:ProgramFiles(x86)}\SSNnote", "$env:ProgramFiles\SSNnote", "$env:LOCALAPPDATA\Programs\SSNnote")) {
+              if (Test-Path "$d\SSNnote.exe") { Write-Host "설치 폴더 발견: $d"; return $d }
+            }
+            return $null
+          }
 
           # 1) 지난 릴리스를 설치 (사용자가 지금 쓰는 판)
           gh release download --repo $env:GITHUB_REPOSITORY --pattern SSNnote_Setup.exe --dir old
@@ -149,10 +160,10 @@ jobs:
           $newDir = "$env:LOCALAPPDATA\Programs\SSNnote"
           if (-not (Test-Path "$newDir\SSNnote.exe")) { throw "사용자 폴더에 설치되지 않음: $newDir" }
           if (-not (Test-Path "$newDir\SSNnote_MCP.exe")) { throw '연결 프로그램이 설치되지 않음' }
-          if (-not (Test-Path $hkcuKey)) { throw '사용자 설치 기록(HKCU)이 없음' }
+          if (-not (HasKey $hkcuKey)) { throw '사용자 설치 기록(HKCU)이 없음' }
           if ($oldDir -ne $newDir) {
             if (Test-Path "$oldDir\SSNnote.exe") { throw "예전 위치의 프로그램이 지워지지 않음: $oldDir" }
-            foreach ($k in $hklmKeys) { if (Test-Path $k) { throw "예전 관리자 설치 기록이 남음: $k" } }
+            foreach ($k in $hklmKeys) { if (HasKey $k) { throw "예전 관리자 설치 기록이 남음: $k" } }
           }
           $run = (Get-ItemProperty $runKey).$runName
           if ($run -ne "`"$newDir\SSNnote.exe`"") { throw "자동 시작이 새 위치를 가리키지 않음: $run" }
