@@ -31,7 +31,8 @@ Claude 구독(Pro/Max)으로 **Claude Code**나 **Claude 데스크톱 앱**에�
 - **Claude Code**: `claude mcp add --scope user ssnnote -- <서서니 노트 연결 프로그램>` 을 대신 실행합니다.
 - **Claude 데스크톱 앱**: Claude 설정 파일(`claude_desktop_config.json`)에 서서니 노트 항목을 추가합니다.
   바꾸기 전 원본은 같은 폴더에 `claude_desktop_config.json.ssnnote-backup`으로 남겨 둡니다.
-- Microsoft Store판 Claude 앱은 설정 파일을 두 곳에서 읽을 수 있어서, 두 곳 모두에 등록합니다.
+- Microsoft Store판 Claude 앱은 버전에 따라 설정 파일 위치가 다릅니다(`%LOCALAPPDATA%\Claude-Data\claude_...`, 예전에는 `%LOCALAPPDATA%\Packages\Claude_...\LocalCache\Roaming\Claude`). 있는 곳 모두에 등록하고, 연결해 둔 경우 서서니 노트를 켤 때마다 빠진 곳이 없게 맞춥니다.
+- Claude 앱이 실제로 읽는 위치는 Claude 앱 **설정 → 개발자 → 구성 편집**이 여는 폴더입니다.
 - 연결 프로그램은 설치판에서는 설치 폴더의 `SSNnote_MCP.exe`, 소스로 실행할 때는 `python mcp_server.py` 입니다.
   (소스 실행이고 구성요소가 없으면 창에 **[필요한 구성요소 설치]** 버튼이 나타납니다.)
 

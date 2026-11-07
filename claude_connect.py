@@ -124,9 +124,16 @@ def disconnect_claude_code(claude=None):
 # ── Claude 데스크톱 앱 ────────────────────────────────────────
 
 def desktop_config_dirs():
-    """Claude 데스크톱 앱 설정 폴더 후보 중 실제로 있는 것 (일반 설치 → 스토어 설치 순)."""
+    """Claude 데스크톱 앱 설정 폴더 후보 중 실제로 있는 것.
+
+    - 요즘 스토어판: %LOCALAPPDATA%\\Claude-Data\\claude_<게시자ID>   (설정 → 개발자 → 구성 편집이 여는 곳)
+    - 일반 설치:     %APPDATA%\\Claude
+    - 예전 스토어판: %LOCALAPPDATA%\\Packages\\Claude_*\\LocalCache\\Roaming\\Claude
+    """
     dirs = []
     appdata, local = os.environ.get('APPDATA', ''), os.environ.get('LOCALAPPDATA', '')
+    if local:
+        dirs += sorted(glob.glob(os.path.join(local, 'Claude-Data', '*')))
     if appdata:
         dirs.append(os.path.join(appdata, 'Claude'))
     if local:
@@ -234,21 +241,26 @@ def disconnect_desktop(path=None):
 
 
 def refresh_registrations():
-    """설치 위치가 바뀌었으면(사용자 폴더로 옮김·다시 설치) 이미 등록된 Claude 연결을 새 위치로 고친다.
-    설치판에서 위치가 바뀐 뒤 처음 켤 때 한 번만 (Claude Code 확인은 몇 초 걸려서). 등록 안 한 곳은 건드리지 않는다."""
+    """앱을 켤 때: 사용자가 Claude 데스크톱 연결을 해 둔 경우(어느 한 설정 파일에라도 등록됨),
+    Claude 앱이 읽을 수 있는 모든 설정 위치에 지금 위치로 등록돼 있게 맞춘다 (설치 위치가 바뀌었거나,
+    Claude 앱이 새 설정 위치를 쓰기 시작한 경우). 연결한 적 없으면 건드리지 않는다.
+    Claude Code는 확인이 몇 초 걸려서 설치 위치가 바뀐 뒤 처음 켤 때 한 번만."""
     if not getattr(sys, 'frozen', False):
         return
     try:
         cmd, _ = server_command()
     except ConnectError:
         return
+    paths = desktop_config_paths()
+    states = {p: _entry_state(p) for p in paths}
+    if any(reg for reg, _, _ in states.values()) and not all(reg and cur for reg, cur, _ in states.values()):
+        try:
+            connect_desktop()
+        except ConnectError as e:
+            print(f'[claude] 데스크톱 연결 맞추기 실패: {e}')
     import db
     if db.get_setting('claude_paths_for', '') == cmd:
         return
-    for p in desktop_config_paths():
-        reg, cur, _ = _entry_state(p)
-        if reg and not cur:
-            connect_desktop(p)
     claude = find_claude_code()
     if claude:
         code, out = _run([claude, 'mcp', 'get', SERVER_NAME])
@@ -380,7 +392,8 @@ def diagnose() -> str:
     if not paths:
         lines.append('  (Claude 데스크톱 앱 폴더를 찾지 못함 — 설치되어 있지 않거나 한 번도 실행하지 않음)')
     for p in paths:
-        kind = '스토어 설치' if os.sep + 'Packages' + os.sep in p else '일반 설치'
+        kind = ('스토어 설치' if os.sep + 'Claude-Data' + os.sep in p
+                else '예전 스토어 설치 위치' if os.sep + 'Packages' + os.sep in p else '일반 설치')
         if not os.path.exists(p):
             lines.append(f'  - {p} ({kind}): 파일 없음')
             continue

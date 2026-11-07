@@ -191,3 +191,34 @@ def test_self_test_talks_to_real_server(tmp_path, monkeypatch):
     ok, msg = cc.self_test()
     assert ok, msg
     assert 'add_task' in msg and 'today_overview' in msg
+
+
+def test_desktop_new_store_location_claude_data(desk):
+    """요즘 스토어판 Claude는 %LOCALAPPDATA%\\Claude-Data\\claude_<ID> 의 설정을 읽는다 (구성 편집이 여는 곳)."""
+    new = desk / 'Local' / 'Claude-Data' / 'claude_pzs8sxrjxfjjc'
+    old = desk / 'Local' / 'Packages' / 'Claude_pzs8sxrjxfjjc' / 'LocalCache' / 'Roaming' / 'Claude'
+    new.mkdir(parents=True)
+    old.mkdir(parents=True)
+    cc.connect_desktop()
+    for d in (new, old):
+        assert json.loads((d / 'claude_desktop_config.json').read_text(encoding='utf-8'))['mcpServers']['ssnnote']
+
+
+def test_refresh_adds_missing_location_only_if_user_connected(desk, monkeypatch, tmp_path):
+    import db
+    monkeypatch.setattr(db, 'DB_DIR', str(tmp_path / 'db'))
+    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 'db' / 'ssnnote.db'))
+    db.init_db()
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(cc, 'find_claude_code', lambda: None)
+    old = desk / 'Local' / 'Packages' / 'Claude_pzs8sxrjxfjjc' / 'LocalCache' / 'Roaming' / 'Claude'
+    old.mkdir(parents=True)
+    new = desk / 'Local' / 'Claude-Data' / 'claude_pzs8sxrjxfjjc'
+    new.mkdir(parents=True)
+    cc.refresh_registrations()                       # 연결한 적 없음 → 아무것도 안 씀
+    assert not (new / 'claude_desktop_config.json').exists()
+    cc.connect_desktop(str(old / 'claude_desktop_config.json'))      # v2.83: 예전 위치에만 등록돼 있던 상태
+    (new / 'claude_desktop_config.json').write_text('{"preferences": {"a": 1}}', encoding='utf-8')
+    cc.refresh_registrations()                       # 앱을 켜면 Claude 앱이 실제로 읽는 위치에도 등록
+    data = json.loads((new / 'claude_desktop_config.json').read_text(encoding='utf-8'))
+    assert data['mcpServers']['ssnnote']['command'] == 'C:\\SSNnote\\SSNnote_MCP.exe' and data['preferences'] == {'a': 1}
