@@ -101,7 +101,7 @@ class DdayLabel(QLabel):
     }
     _GLOW = {'overdue': '#E5484D', 'today': '#F76B15', 'soon': '#F76B15', 'week': '#B07000',
              'later': '#8A8A8A', 'error': '#8A8A8A'}
-    PAD = 4          # 숨쉬기 빛이 번질 자리
+    PAD = 5          # 숨쉬기 빛이 번질 자리
 
     def __init__(self, dday_text, date_text, *args, tone='later', align_left=False, **kwargs):
         super().__init__(dday_text, *args, **kwargs)
@@ -189,9 +189,12 @@ class DdayLabel(QLabel):
         t = clock().now()
         if self._breathe and not self._hover:
             a = breath(t, self._breathe)
-            glow = QColor(tc(self._GLOW[self._tone]))
-            for i, spread in enumerate((3.5, 2.0)):        # 바깥은 옅게, 안쪽은 조금 진하게
-                glow.setAlphaF((0.16 if i == 0 else 0.22) * a)
+            # 표시가 살짝 부풀었다 돌아오고(최대 6%), 둘레에 같은 색 빛이 번진다
+            k = 0.06 * a
+            pill = pill.adjusted(-w * k / 2, -h * k / 2, w * k / 2, h * k / 2)
+            glow = QColor(tc(self._GLOW[self._tone] if self._tone not in ('later', 'error') else '#E2A400'))
+            for spread, alpha in ((self.PAD + 1.0, 0.22), (self.PAD * 0.6, 0.38)):   # 바깥은 옅게, 안쪽은 진하게
+                glow.setAlphaF(alpha * a)
                 p.setPen(Qt.NoPen)
                 p.setBrush(glow)
                 r = pill.adjusted(-spread * a, -spread * a, spread * a, spread * a)
@@ -199,7 +202,7 @@ class DdayLabel(QLabel):
         if bg is not None:
             p.setPen(Qt.NoPen)
             p.setBrush(bg)
-            p.drawRoundedRect(pill, h / 2.0, h / 2.0)
+            p.drawRoundedRect(pill, pill.height() / 2.0, pill.height() / 2.0)
         if self._beat:
             hb = heartbeat(t)
             red = QColor(tc('#E5484D'))

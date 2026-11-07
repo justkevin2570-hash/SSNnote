@@ -74,7 +74,42 @@ def run(result_path: str) -> int:
             assert e._received_context(), '받은 공문 칸 내용이 AI에 전달되지 않음'
             e.close()
 
+        def motion_ok():
+            """급함 표시가 실제로 움직이는지: 오늘 마감 업무의 D-day 표시가 시간이 흐르며 다시 그려져야 한다."""
+            import time
+            from datetime import date
+            import db
+            import window
+            from ui import motion
+            from ui.widgets import DdayLabel
+            wid = db.get_first_window_id()
+            tid = db.add_task(wid, '점검용 오늘 업무', date.today().isoformat())
+            w = window.MemoWindow(wid)
+            w.show()
+            row = next(r for r in w._task_rows() if r.task['id'] == tid)
+            assert row._urg.get('breathe'), f'오늘 업무가 숨쉬지 않음: {row._urg}'
+            count = {'n': 0}
+            orig = DdayLabel.paintEvent
+
+            def counting(self, e):
+                if self is row._dday_lbl:
+                    count['n'] += 1
+                orig(self, e)
+            DdayLabel.paintEvent = counting
+            try:
+                end = time.time() + 0.8
+                while time.time() < end:
+                    app.processEvents()
+                    time.sleep(0.01)
+            finally:
+                DdayLabel.paintEvent = orig
+            assert motion.clock()._timer.isActive(), '움직임 시계가 멈춰 있음'
+            assert count['n'] >= 5, f'D-day 표시가 다시 그려지지 않음 ({count["n"]}번)'
+            w.close()
+            db.delete_task(tid)
+
         check('메모 창·공문 작성 창·예산 창', windows_ok)
+        check('급한 업무 움직임 (숨쉬기)', motion_ok)
         check('대시보드·Claude 연결·학교 정보 창', dialogs_ok)
         check('공문 작성 창의 받은 공문 칸', capture_panel_ok)
     except Exception:

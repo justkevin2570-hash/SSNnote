@@ -212,7 +212,19 @@ def style_menu(menu: QMenu) -> QMenu:
     return menu
 
 
+def _clean_parent(parent):
+    """메뉴의 부모는 스타일시트가 없는 창이어야 한다. 부모(또는 그 위)에 스타일시트가 있으면 Qt가
+    QSS 스타일로 덮어써서 이 모양(그림자·둥근 바탕·옅은 단축키)이 통째로 무시된다 (업무 ⋮ 메뉴에서 겪음)."""
+    w = parent
+    while w is not None:
+        if w.styleSheet():
+            return None
+        w = w.parentWidget()
+    return parent
+
+
 def make_menu(parent=None, title='') -> QMenu:
+    parent = _clean_parent(parent)
     return style_menu(QMenu(title, parent) if title else QMenu(parent))
 
 

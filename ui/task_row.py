@@ -971,17 +971,86 @@ class TaskRow(QWidget):
             self.on_update()
 
     def _open_task_menu(self, btn, task, on_delete):
+        """업무 ⋮ 메뉴: 업무 이름·마감 → 반복(한 줄 칩) → 완료 표시 · 삭제."""
+        from PyQt5.QtWidgets import QWidgetAction
         from . import menu_style as ms
         menu = ms.make_menu(self)
-        sub_recur = ms.add_submenu(menu, '반복 설정', icon='ph.repeat')
-        cur_recur = self.task.get('recurrence', '')
-        for _label, _val in [('없음', ''), ('매주', 'weekly'), ('격주', 'biweekly'), ('매월', 'monthly'), ('매년', 'yearly')]:
-            ms.add_action(sub_recur, _label, lambda v=_val: self._set_recurrence(v), checked=cur_recur == _val)
-        ms.add_action(sub_recur, '사용자 설정…', self._open_custom_recurrence, checked=cur_recur.startswith('custom:'))
+        menu.setMinimumWidth(px(250) + 2 * ms.SHADOW)
 
+        # ── 머리: 업무 이름 + 마감 ──
+        head = QWidget()
+        head.setStyleSheet('background: transparent;')
+        hl = QVBoxLayout(head)
+        hl.setContentsMargins(12, 6, 12, 6)
+        hl.setSpacing(1)
+        name = QLabel()
+        nf = QFont(menu.font())
+        nf.setWeight(QFont.DemiBold)
+        name.setFont(nf)
+        name.setStyleSheet(f'color: {ms.TEXT.name()};')
+        name.setText(QFontMetrics(nf).elidedText(task.get('name', ''), Qt.ElideRight, px(230)))
+        name.setToolTip(task.get('name', ''))
+        hl.addWidget(name)
+        sub = QLabel(self._menu_subtitle())
+        sf = QFont(menu.font())
+        sf.setPointSizeF(max(8.0, sf.pointSizeF() - 1.5))
+        sub.setFont(sf)
+        sub.setStyleSheet(f'color: {ms.MUTED.name()};')
+        hl.addWidget(sub)
+        wa = QWidgetAction(menu)
+        wa.setDefaultWidget(head)
+        menu.addAction(wa)
         menu.addSeparator()
-        act_strike = ms.add_action(menu, '완료 표시 해제' if self._strikethrough else '완료 표시 (가운데 선)',
-                                   None, icon='ph.text-strikethrough', shortcut='C')
+
+        # ── 반복: 한 줄 칩 ──
+        cur = self.task.get('recurrence', '')
+        rep = QWidget()
+        rep.setStyleSheet('background: transparent;')
+        rl = QVBoxLayout(rep)
+        rl.setContentsMargins(12, 4, 12, 8)
+        rl.setSpacing(6)
+        cap = QLabel('반복')
+        cap.setFont(sf)
+        cap.setStyleSheet(f'color: {ms.MUTED.name()};')
+        rl.addWidget(cap)
+        chips = QHBoxLayout()
+        chips.setSpacing(4)
+        sel_bg = ms.TEXT.name()
+        sel_fg = ms.BG.name()
+        idle = f"""
+            QPushButton {{ background: transparent; color: {ms.TEXT.name()}; border: 1px solid {ms.SEP.name(QColor.HexArgb)};
+                          border-radius: 7px; padding: 3px 8px; }}
+            QPushButton:hover {{ background: {ms.HOVER.name(QColor.HexArgb)}; }}"""
+        chosen = f"""
+            QPushButton {{ background: {sel_bg}; color: {sel_fg}; border: 1px solid {sel_bg};
+                          border-radius: 7px; padding: 3px 8px; font-weight: 600; }}"""
+        options = [('없음', ''), ('매주', 'weekly'), ('격주', 'biweekly'), ('매월', 'monthly'), ('매년', 'yearly')]
+        for label, val in options:
+            b = QPushButton(label)
+            b.setFont(sf)
+            b.setCursor(Qt.PointingHandCursor)
+            b.setStyleSheet(chosen if cur == val else idle)
+            b.clicked.connect(lambda _, v=val: (menu.close(), self._set_recurrence(v)))
+            chips.addWidget(b)
+        custom = cur.startswith('custom:')
+        b = QPushButton('직접…')
+        b.setFont(sf)
+        b.setCursor(Qt.PointingHandCursor)
+        b.setToolTip('예: 매월 둘째 주 화요일')
+        b.setStyleSheet(chosen if custom else idle)
+        b.clicked.connect(lambda: (menu.close(), self._open_custom_recurrence()))
+        chips.addWidget(b)
+        chips.addStretch()
+        rl.addLayout(chips)
+        wr = QWidgetAction(menu)
+        wr.setDefaultWidget(rep)
+        menu.addAction(wr)
+        menu.addSeparator()
+
+        # ── 완료 표시 · 삭제 ──
+        act_strike = ms.add_action(menu, '완료 표시 해제' if self._strikethrough else '완료 표시',
+                                   None, icon='ph.arrow-counter-clockwise' if self._strikethrough else 'ph.check-circle',
+                                   shortcut='C')
         act_delete = ms.add_action(menu, '삭제', None, icon='ph.trash', shortcut='Del')
         act_strike.triggered.connect(self._toggle_strikethrough)
         act_delete.triggered.connect(lambda: on_delete(task))
@@ -1000,6 +1069,27 @@ class TaskRow(QWidget):
 
         pos = btn.mapToGlobal(btn.rect().bottomLeft())
         menu.exec_(pos)
+
+    def _menu_subtitle(self) -> str:
+        """⋮ 메뉴 머리의 작은 글: '11월 10일 (화) 17:00 · D-3 · 매주'."""
+        parts = []
+        dl = self.task.get('deadline') or ''
+        if dl:
+            try:
+                d = date.fromisoformat(dl[:10])
+                parts.append(f"{d.month}월 {d.day}일 ({'월화수목금토일'[d.weekday()]})" + (f' {dl[11:16]}' if len(dl) > 10 else ''))
+                parts.append(calc_dday(dl))
+            except ValueError:
+                pass
+        else:
+            parts.append('마감일 없음')
+        rec = self.task.get('recurrence', '')
+        names = {'weekly': '매주', 'biweekly': '격주', 'monthly': '매월', 'yearly': '매년'}
+        if rec:
+            parts.append(names.get(rec, '직접 정한 반복'))
+        if self._strikethrough:
+            parts.append('완료')
+        return ' · '.join(parts)
 
     def _toggle_strikethrough(self):
         """완료 표시: 가운데 선이 왼쪽에서 오른쪽으로 그어진 뒤 적용 (움직임 끔이면 바로)."""
