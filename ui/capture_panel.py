@@ -426,7 +426,7 @@ class CapturePanel(QFrame):
             import winrt  # noqa: F401  (Windows OCR)
         except ImportError:
             self._fail('Windows OCR을 쓸 수 없어 글자를 읽지 못했습니다.\n'
-                       '메뉴 → 🛡️ 개인정보 보호 모드를 끄면 이미지로 분석합니다.', gen)
+                       '메뉴 → 설정 → 개인정보 보호 모드를 끄면 이미지로 분석합니다.', gen)
             return
         from capture import run_ocr
         i = todo[0]

@@ -992,7 +992,7 @@ class MemoWindow(QMainWindow):
                                        on_toggle_hotkey=self._on_toggle_hotkey,
                                        on_shortcut_change=self._on_shortcut_change,
                                        get_shortcut_enabled=self._get_shortcut_enabled)
-        # 순서·이름은 「…」 메뉴와 맞춘다 (자주 쓰는 기능 → 창 → 이 메모장 → 설정 → 도움말)
+        # 순서·이름은 「…」 메뉴와 맞춘다 (자주 쓰는 기능 → 창 → 배경색·글자 크기 → 설정 → 도움말)
         return [
             Command('📋 오늘 한눈에 보기', self._open_dashboard, '', 'dashboard today 대시보드 마감'),
             Command('📸 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷 ai 공문 분석 요약'),
@@ -1167,7 +1167,7 @@ class MemoWindow(QMainWindow):
         return color_widget
 
     def show_menu(self, btn):
-        """「…」 메뉴: 자주 쓰는 기능 → 이 메모장 → 설정 → 도움말 → (삭제)."""
+        """「…」 메뉴: 자주 쓰는 기능 → 배경색·글자 크기 → 설정 → 도움말 → (삭제)."""
         menu = menu_style.make_menu(self)
         add = self._menu_add
 
@@ -1182,8 +1182,8 @@ class MemoWindow(QMainWindow):
             icon='ph.note-blank')
         menu.addSeparator()
 
-        # ── 이 메모장 (이 창에만 적용) ──
-        memo = self._submenu(menu, '이 메모장', icon='ph.palette')
+        # ── 배경색·글자 크기 (이 메모장에만 적용) ──
+        memo = self._submenu(menu, '배경색·글자 크기', icon='ph.palette')
         self._menu_header(memo, '배경색')
         wa = QWidgetAction(memo)
         wa.setDefaultWidget(self._color_swatches(menu))

@@ -98,8 +98,9 @@ class DdayLabel(QLabel):
         'error':   (None, 'rgba(0,0,0,0.35)'),
     }
 
-    def __init__(self, dday_text, date_text, *args, tone='later', **kwargs):
+    def __init__(self, dday_text, date_text, *args, tone='later', align_left=False, **kwargs):
         super().__init__(dday_text, *args, **kwargs)
+        self._align_left = align_left      # 목록 왼쪽에 둘 때(대시보드)는 왼쪽 정렬
         self._dday_text = dday_text
         self._date_text = date_text
         self.setCursor(Qt.PointingHandCursor)
@@ -145,7 +146,7 @@ class DdayLabel(QLabel):
         fm = QFontMetrics(self.font())
         h = max(fm.height() + 2, 20)
         w = fm.horizontalAdvance(self.text()) + 14
-        x = self.width() - w            # 오른쪽 정렬 (D-day 칸이 줄마다 같은 끝에 맞도록)
+        x = 0 if self._align_left else self.width() - w   # 기본은 오른쪽 정렬 (줄마다 같은 끝에)
         y = (self.height() - h) / 2.0
         if bg is not None:
             p.setPen(Qt.NoPen)
