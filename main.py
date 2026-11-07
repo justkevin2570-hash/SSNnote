@@ -275,11 +275,9 @@ if __name__ == '__main__':
     tray = QSystemTrayIcon(_app_icon, app)
     tray.setToolTip('서서니 노트')
 
-    menu = QMenu()
-
-    act_quit = QAction('종료')
-    act_quit.triggered.connect(app.quit)
-    menu.addAction(act_quit)
+    from ui import menu_style
+    menu = menu_style.make_menu()
+    menu_style.add_action(menu, '종료', app.quit, icon='ph.power')
     def _restore_all_windows():
         _all = get_all_windows()
         _first_id = min((w['id'] for w in _all), default=None)

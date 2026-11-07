@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QApplication,
     QMenu, QAction, QMessageBox, QDialog, QCalendarWidget, QPlainTextEdit, QSizePolicy, QGraphicsOpacityEffect, QTimeEdit,
-    QCheckBox
+    QCheckBox, QFrame
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QPoint, QPointF, QSize, pyqtSignal, QMimeData
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QTextCursor
@@ -19,7 +19,7 @@ from db import (update_task,
                 get_task_related_no, set_task_related_no,
                 get_task_attachments, set_task_attachments)
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
-from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, themed_pixmap
+from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, themed_pixmap, px
 from .dates import calc_dday
 from .widgets import AddDateButton, CustomCalendarWidget, DdayLabel, RotatedMenuButton
 from .dialogs import CustomRecurrenceDialog
@@ -881,44 +881,18 @@ class TaskRow(QWidget):
             self.on_update()
 
     def _open_task_menu(self, btn, task, on_delete):
-        menu = QMenu(self)
-        menu.setStyleSheet(f"""
-            QMenu {{
-                background: {T.INPUT_BG};
-                border: 1px solid {T.ACCENT};
-                border-radius: 6px;
-                padding: 4px 0;
-                font-family: 'Malgun Gothic';
-                font-size: 10pt;
-                color: {tct("#333")};
-                min-width: 120px;
-            }}
-            QMenu::item {{ padding: 6px 16px 6px 12px; }}
-            QMenu::item:selected {{ background: {tc("rgba(212,184,0,0.3)")}; }}
-        """)
-        sub_recur = QMenu('반복 설정', self)
-        sub_recur.setFont(mi_font(10))
-        sub_recur.setStyleSheet(menu.styleSheet().replace('min-width: 120px', 'min-width: 0px').replace(
-            'QMenu::item { padding: 6px 16px 6px 12px; }',
-            'QMenu::item { padding: 6px 16px 6px 16px; text-align: center; }'
-        ))
+        from . import menu_style as ms
+        menu = ms.make_menu(self)
+        sub_recur = ms.add_submenu(menu, '반복 설정', icon='ph.repeat')
         cur_recur = self.task.get('recurrence', '')
         for _label, _val in [('없음', ''), ('매주', 'weekly'), ('격주', 'biweekly'), ('매월', 'monthly'), ('매년', 'yearly')]:
-            _act = QAction((MI.CHECK + ' ' if cur_recur == _val else '    ') + _label, self)
-            _act.triggered.connect(lambda _, v=_val: self._set_recurrence(v))
-            sub_recur.addAction(_act)
-        _is_custom = cur_recur.startswith('custom:')
-        _act_custom = QAction((MI.CHECK + ' ' if _is_custom else '    ') + '사용자 설정...', self)
-        _act_custom.triggered.connect(self._open_custom_recurrence)
-        sub_recur.addAction(_act_custom)
-        menu.addMenu(sub_recur)
+            ms.add_action(sub_recur, _label, lambda v=_val: self._set_recurrence(v), checked=cur_recur == _val)
+        ms.add_action(sub_recur, '사용자 설정…', self._open_custom_recurrence, checked=cur_recur.startswith('custom:'))
 
         menu.addSeparator()
-        act_strike = QAction('가운데 선(C)', self)
-        act_delete = QAction('삭제(Delete/D)', self)
-        menu.addAction(act_strike)
-        menu.addAction(act_delete)
-
+        act_strike = ms.add_action(menu, '완료 표시 해제' if self._strikethrough else '완료 표시 (가운데 선)',
+                                   None, icon='ph.text-strikethrough', shortcut='C')
+        act_delete = ms.add_action(menu, '삭제', None, icon='ph.trash', shortcut='Del')
         act_strike.triggered.connect(self._toggle_strikethrough)
         act_delete.triggered.connect(lambda: on_delete(task))
 
@@ -1282,91 +1256,56 @@ class TaskRow(QWidget):
 
     def _show_date_picker(self):
         if not hasattr(self, '_date_picker_popup'):
+            from .calendar_view import P, _primary_button
             self._date_picker_popup = QWidget()
-            self._date_picker_popup.setWindowFlags(Qt.Popup)
-            self._date_picker_popup.setStyleSheet(f'background: {tc("white")}; border: 1px solid {T.ACCENT}; border-radius: 6px;')
-            
-            layout = QVBoxLayout(self._date_picker_popup)
-            layout.setContentsMargins(8, 8, 8, 8)
-            layout.setSpacing(6)
-            
+            self._date_picker_popup.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+            self._date_picker_popup.setAttribute(Qt.WA_TranslucentBackground)
+            _outer = QVBoxLayout(self._date_picker_popup)
+            _outer.setContentsMargins(0, 0, 0, 0)
+            _card = QFrame()
+            _card.setObjectName('PickerCard')
+            _card.setStyleSheet(f"QFrame#PickerCard {{ background: {P.BG}; border: 1px solid {P.LINE}; border-radius: 12px; }}")
+            _outer.addWidget(_card)
+
+            layout = QVBoxLayout(_card)
+            layout.setContentsMargins(10, 8, 10, 10)
+            layout.setSpacing(8)
+
             self._cal_popup = CustomCalendarWidget()
-            self._cal_popup.setStyleSheet(f"""
-                QCalendarWidget {{ background-color: {tc("white")}; }}
-                QCalendarWidget QAbstractItemView {{
-                    background-color: {tc("white")}; color: black;
-                    font-family: 'Malgun Gothic'; font-size: 10pt;
-                    selection-background-color: {T.ACCENT}; selection-color: {tc("white")};
-                }}
-                QCalendarWidget QWidget {{ background-color: {tc("white")}; }}
-                QCalendarWidget QToolButton {{
-                    background-color: {tc("white")}; color: black;
-                    font-family: 'Malgun Gothic'; font-size: 10pt;
-                    padding: 2px 4px; min-width: 40px;
-                }}
-                QCalendarWidget QWidget#qt_calendar_navigationbar {{ background-color: {tc("white")}; }}
-                QCalendarWidget QSpinBox {{ background-color: {tc("white")}; color: black; }}
-            """)
-            fmt_sat = QTextCharFormat()
-            fmt_sat.setForeground(QColor(T.SATURDAY))
-            self._cal_popup.setWeekdayTextFormat(Qt.Saturday, fmt_sat)
-            fmt_sun = QTextCharFormat()
-            fmt_sun.setForeground(QColor(T.SUNDAY))
-            self._cal_popup.setWeekdayTextFormat(Qt.Sunday, fmt_sun)
-            self._cal_popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+            self._cal_popup.setMinimumSize(px(260), px(220))
             layout.addWidget(self._cal_popup)
-            
+
             time_row = QHBoxLayout()
             time_row.setSpacing(6)
             
-            self._time_checkbox = QCheckBox('시간 설정')
+            self._time_checkbox = QCheckBox('시간')
             self._time_checkbox.setFont(pr_font(10))
-            self._time_checkbox.setStyleSheet(f'color: {tct("#333")}; background: transparent;')
+            self._time_checkbox.setStyleSheet(f'color: {P.TEXT2}; background: transparent;')
             self._time_checkbox.stateChanged.connect(self._on_time_checkbox_changed)
             time_row.addWidget(self._time_checkbox)
-            
+
             self._picker_time_edit = QTimeEdit(QTime(9, 0))
             self._picker_time_edit.setDisplayFormat('HH:mm')
-            self._picker_time_edit.setFixedWidth(68)
             self._picker_time_edit.setFont(pr_font(11))
+            self._picker_time_edit.setFixedWidth(QFontMetrics(self._picker_time_edit.font()).horizontalAdvance('00:00') + 28)
             self._picker_time_edit.setEnabled(False)
             self._picker_time_edit.setStyleSheet(f"""
                 QTimeEdit {{
-                    background: {tc("rgba(255,255,255,0.5)")};
-                    border: 1px solid {T.ACCENT};
-                    border-radius: 4px;
-                    padding: 2px 6px;
-                    color: {tct("#333")};
-                    qproperty-alignment: AlignCenter;
+                    background: {P.CHIP}; border: 1px solid transparent; border-radius: 7px;
+                    padding: 3px 8px; color: {P.TEXT}; qproperty-alignment: AlignCenter;
                 }}
-                QTimeEdit:disabled {{
-                    background: {tc("rgba(255,255,255,0.2)")};
-                    border: 1px solid {tc("#ddd")};
-                    color: {tct("#bbb")};
-                }}
+                QTimeEdit:focus {{ background: {P.BG}; border: 1px solid {P.TEXT2}; }}
+                QTimeEdit:disabled {{ background: transparent; color: {P.FAINT}; }}
                 QTimeEdit::up-button {{ width: 0px; }}
                 QTimeEdit::down-button {{ width: 0px; }}
             """)
             time_row.addWidget(self._picker_time_edit)
             time_row.addStretch()
-            
-            self._confirm_btn = QPushButton('확인')
-            self._confirm_btn.setFont(pr_font(10))
-            self._confirm_btn.setFixedSize(60, 28)
-            self._confirm_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: {T.ACCENT};
-                    color: {tct("white")};
-                    border: none;
-                    border-radius: 4px;
-                    font-weight: bold;
-                }}
-                QPushButton:hover {{ background: {tc("#c0a800")}; }}
-                QPushButton:pressed {{ background: {tc("#b09800")}; }}
-            """)
+
+            self._confirm_btn = _primary_button('확인')
             self._confirm_btn.clicked.connect(self._on_confirm_date_time)
             time_row.addWidget(self._confirm_btn)
-            
+
             layout.addLayout(time_row)
 
         anchor = self.sender() if isinstance(self.sender(), QWidget) else getattr(self, '_add_date_btn', None)

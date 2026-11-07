@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QFrame, QCalendarWidget, QTextEdit, QListWidget, QAbstractItemView, QListWidgetItem
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QTimer, QPoint, QRectF, QSize, pyqtSignal
-from PyQt5.QtGui import QFontMetrics, QColor, QPainter, QTextCharFormat, QTextCursor, QKeySequence
+from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QTextCursor, QKeySequence
 from .common import pr_font
 from .theme import T, tc, tct, qcolor
 
@@ -269,16 +269,87 @@ class _FixedDotBar(QWidget):
 
 
 class CustomCalendarWidget(QCalendarWidget):
+    """작은 날짜 고르기 달력 (미니멀): 날짜를 직접 그린다.
+    오늘은 빨간 동그라미, 고른 날은 진한 동그라미, 일요일 빨강·토요일 파랑, 다른 달 날짜는 숨김."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        style_mini_calendar(self)
+
     def paintCell(self, painter, rect, date):
-        if date.month() != self.monthShown():
-            return
-        super().paintCell(painter, rect, date)
-        if date == QDate.currentDate():
-            painter.save()
-            painter.setPen(QColor(T.ACCENT))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawRect(rect.adjusted(1, 1, -2, -2))
+        from .calendar_view import P, _ui_font
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(rect, QColor(P.BG))
+        if date.month() != self.monthShown():          # 앞뒤 달 날짜는 아주 옅게
+            painter.setFont(_ui_font(9.5))
+            painter.setPen(QColor(P.FAINT))
+            painter.drawText(rect, Qt.AlignCenter, str(date.day()))
             painter.restore()
+            return
+        today = date == QDate.currentDate()
+        selected = date == self.selectedDate()
+        d = min(rect.width(), rect.height()) - 6
+        circle = QRectF(rect.center().x() - d / 2 + 0.5, rect.center().y() - d / 2 + 0.5, d, d)
+        f = _ui_font(9.5, QFont.DemiBold if (today or selected) else QFont.Normal)
+        if today or selected:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(P.TODAY if today else P.PRIMARY))
+            painter.drawEllipse(circle)
+            color = QColor('#FFFFFF') if (today or P.PRIMARY_TEXT == '#FFFFFF') else QColor(P.PRIMARY_TEXT)
+        elif date.dayOfWeek() == 7:
+            color = QColor(P.SUN)
+        elif date.dayOfWeek() == 6:
+            color = QColor(P.SAT)
+        else:
+            color = QColor(P.TEXT)
+        painter.setFont(f)
+        painter.setPen(color)
+        painter.drawText(rect, Qt.AlignCenter, str(date.day()))
+        painter.restore()
+
+
+def style_mini_calendar(cal):
+    """QCalendarWidget을 미니멀하게: 흰 바탕, 격자 없음, 요일은 작은 회색 글자, 얇은 꺾쇠 화살표."""
+    from .calendar_view import P, _ui_font
+    from .common import icon_png
+    cal.setGridVisible(False)
+    cal.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+    cal.setHorizontalHeaderFormat(QCalendarWidget.ShortDayNames)
+    from PyQt5.QtCore import QLocale
+    cal.setLocale(QLocale(QLocale.Korean, QLocale.SouthKorea))
+    cal.setFirstDayOfWeek(Qt.Sunday)
+    hdr = QTextCharFormat()
+    hdr.setForeground(QColor(P.MUTED))
+    hdr.setFont(_ui_font(8.5, QFont.DemiBold))
+    cal.setHeaderTextFormat(hdr)
+    for day, color in ((Qt.Saturday, P.SAT), (Qt.Sunday, P.SUN)):
+        f = QTextCharFormat()
+        f.setForeground(QColor(color))
+        f.setFont(_ui_font(8.5, QFont.DemiBold))
+        cal.setWeekdayTextFormat(day, f)
+    cal.setStyleSheet(f"""
+        QCalendarWidget {{ background: {P.BG}; }}
+        QCalendarWidget QWidget {{ background: {P.BG}; alternate-background-color: {P.BG}; }}
+        QCalendarWidget QAbstractItemView {{
+            background: {P.BG}; color: {P.TEXT}; selection-background-color: transparent;
+            selection-color: {P.TEXT}; outline: 0; border: none;
+        }}
+        QCalendarWidget QWidget#qt_calendar_navigationbar {{
+            background: {P.BG}; border-bottom: 1px solid {P.LINE}; padding: 4px 2px;
+        }}
+        QCalendarWidget QToolButton {{
+            background: transparent; color: {P.TEXT}; border: none; border-radius: 6px;
+            font-family: 'Pretendard GOV', 'Pretendard', 'Malgun Gothic'; font-size: 10pt; font-weight: 600;
+            padding: 4px 6px;
+        }}
+        QCalendarWidget QToolButton:hover {{ background: {P.CHIP}; }}
+        QCalendarWidget QToolButton::menu-indicator {{ image: none; width: 0; }}
+        QCalendarWidget QToolButton#qt_calendar_prevmonth {{ qproperty-icon: url({icon_png('ph.caret-left', P.TEXT2, 16)}); }}
+        QCalendarWidget QToolButton#qt_calendar_nextmonth {{ qproperty-icon: url({icon_png('ph.caret-right', P.TEXT2, 16)}); }}
+        QCalendarWidget QSpinBox {{ background: {P.BG}; color: {P.TEXT}; border: 1px solid {P.LINE}; border-radius: 5px; }}
+        QCalendarWidget QMenu {{ background: {P.BG}; color: {P.TEXT}; border: 1px solid {P.LINE}; }}
+    """)
 
 
 class TimePickerPopup(QFrame):

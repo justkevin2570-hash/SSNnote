@@ -3,12 +3,12 @@ from datetime import date, timedelta
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QApplication,
-    QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QMenu, QAction, QWidgetAction,
+    QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
     QPlainTextEdit, QTextEdit, QTimeEdit,
     QComboBox, QScrollBar
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QPointF, QSettings, QUrl, QSize
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QSettings, QUrl, QSize
 from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextBlockFormat, QTextCursor, QFontMetrics
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, get_task_history, delete_task_history,
@@ -27,6 +27,7 @@ from ui.chrome import EdgeHandle, MergeButton, TitleBar
 from ui.task_row import _NoteButton, TaskRow
 from ui.document_row import DocumentRow
 from ui.calendar_view import MonthlyCalendarDialog, NativeCalendarDialog
+from ui import menu_style
 from ui.theme import T, PALETTE, tc, tct, note_color, qcolor, DARK, accent_for_note, set_current_accent, rgba
 import qtawesome as qta
 
@@ -203,44 +204,7 @@ class MemoWindow(QMainWindow):
         _top_panel.installEventFilter(self)
         self._cal_popup = CustomCalendarWidget()
         self._cal_popup.setWindowFlags(Qt.Popup)
-        self._cal_popup.setStyleSheet(f"""
-            QCalendarWidget {{
-                background-color: {tc("white")};
-            }}
-            QCalendarWidget QAbstractItemView {{
-                background-color: {tc("white")};
-                color: black;
-                font-family: 'Malgun Gothic';
-                font-size: 10pt;
-                selection-background-color: {T.ACCENT};
-                selection-color: {tc("white")};
-            }}
-            QCalendarWidget QWidget {{
-                background-color: {tc("white")};
-            }}
-            QCalendarWidget QToolButton {{
-                background-color: {tc("white")};
-                color: black;
-                font-family: 'Malgun Gothic';
-                font-size: 10pt;
-                padding: 2px 4px;
-                min-width: 40px;
-            }}
-            QCalendarWidget QWidget#qt_calendar_navigationbar {{
-                background-color: {tc("white")};
-            }}
-            QCalendarWidget QSpinBox {{
-                background-color: {tc("white")};
-                color: black;
-            }}
-        """)
-        fmt_sat = QTextCharFormat()
-        fmt_sat.setForeground(QColor(T.SATURDAY))
-        self._cal_popup.setWeekdayTextFormat(Qt.Saturday, fmt_sat)
-        fmt_sun = QTextCharFormat()
-        fmt_sun.setForeground(QColor(T.SUNDAY))
-        self._cal_popup.setWeekdayTextFormat(Qt.Sunday, fmt_sun)
-        self._cal_popup.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        self._cal_popup.setMinimumSize(px(300), px(260))
         self._cal_popup.clicked.connect(self._on_cal_date_selected)
         btn_history = QPushButton()
         btn_history.setIcon(qta.icon('ph.clock-counter-clockwise-bold', color=qcolor('#000000', 150)))
@@ -1163,119 +1127,78 @@ class MemoWindow(QMainWindow):
         from school_profile import privacy_enabled, set_privacy_enabled
         set_privacy_enabled(not privacy_enabled())
 
-    def _make_menu_style(self):
-        return f"""
-            QMenu {{
-                background: {T.INPUT_BG};
-                border: 1px solid {T.ACCENT};
-                border-radius: 6px;
-                padding: 4px 0;
-                font-family: 'Malgun Gothic';
-                font-size: 11pt;
-                color: {tct("#333")};
-                min-width: 176px;
-            }}
-            QMenu::item {{ padding: 7px 16px 7px 4px; }}
-            QMenu::item:selected {{ background: {tc("rgba(212,184,0,0.3)")}; }}
-            QMenu::item:disabled {{ color: {T.TEXT_WARM_MUTED}; font-size: 9pt; padding: 6px 16px 2px 10px; }}
-            QMenu::item:disabled:selected {{ background: transparent; }}
-        """
-
-    @staticmethod
-    def _menu_check_icon(checked, size=16):
-        """메뉴용 체크 표시 — 켜짐은 ✓, 꺼짐은 같은 크기의 빈 칸 (글자 줄이 맞도록)."""
-        from PyQt5.QtGui import QPixmap, QPainter, QPen, QIcon
-        px = QPixmap(size, size)
-        px.fill(Qt.transparent)
-        if checked:
-            p = QPainter(px)
-            p.setRenderHint(QPainter.Antialiasing)
-            pen = QPen(QColor(T.TEXT_ON_NOTE), 2.2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
-            p.setPen(pen)
-            p.drawPolyline(QPointF(size * 0.18, size * 0.52), QPointF(size * 0.42, size * 0.76),
-                           QPointF(size * 0.84, size * 0.26))
-            p.end()
-        return QIcon(px)
-
-    def _menu_add(self, menu, text, on_trigger, checked=None, shortcut=''):
-        """메뉴 항목 추가. checked가 True/False면 체크 항목, shortcut은 오른쪽 끝에 표시."""
-        act = QAction(text + (f'\t{shortcut}' if shortcut else ''), menu)
-        if checked is not None:
-            act.setIcon(self._menu_check_icon(checked))
-        act.triggered.connect(lambda *_: on_trigger())
-        menu.addAction(act)
-        return act
+    # ── 「…」 메뉴 (ui/menu_style.py: 흰 바탕·선 아이콘·옅은 단축키) ─────────
+    def _menu_add(self, menu, text, on_trigger, checked=None, shortcut='', icon=None):
+        """메뉴 항목 추가. checked가 True/False면 체크 항목, shortcut은 오른쪽 끝에 옅게."""
+        return menu_style.add_action(menu, text, on_trigger, icon=icon, shortcut=shortcut, checked=checked)
 
     @staticmethod
     def _menu_header(menu, text):
-        """누를 수 없는 작은 머리글 (스타일시트를 쓴 메뉴에서는 addSection 글자가 안 보여서 대신 사용)."""
-        act = QAction(text, menu)
-        act.setEnabled(False)
-        menu.addAction(act)
-        return act
+        return menu_style.add_header(menu, text)
 
-    def _submenu(self, parent, title, min_width=None):
-        sub = QMenu(title, parent)
-        style = self._make_menu_style()
+    def _submenu(self, parent, title, min_width=None, icon=None):
+        sub = menu_style.add_submenu(parent, title, icon=icon)
         if min_width:
-            style = style.replace('min-width: 176px', f'min-width: {min_width}px')
-        sub.setStyleSheet(style)
-        sub.setToolTipsVisible(True)
-        parent.addMenu(sub)
+            sub.setMinimumWidth(min_width + 2 * menu_style.SHADOW)
         return sub
 
-    def show_menu(self, btn):
-        """「…」 메뉴: 자주 쓰는 기능 → 이 메모장 → 설정 → 도움말 → (삭제)."""
-        menu = QMenu(self)
-        menu.setStyleSheet(self._make_menu_style())
-        add = self._menu_add
-
-        # ── 자주 쓰는 기능 ──
-        add(menu, '📋 오늘 한눈에 보기', self._open_dashboard)
-        add(menu, '📸 공문 캡처', self._start_ai_capture, shortcut='Ctrl+Shift+X')
-        add(menu, '🔍 빠른 찾기', self._open_command_palette, shortcut='Ctrl+K')
-        add(menu, '🆕 새 메모장', lambda: self.on_new(offset_from=self, memo_mode=True,
-                                                    on_toggle_hotkey=self._on_toggle_hotkey,
-                                                    on_shortcut_change=self._on_shortcut_change,
-                                                    get_shortcut_enabled=self._get_shortcut_enabled))
-        menu.addSeparator()
-
-        # ── 이 메모장 (이 창에만 적용) ──
-        memo = self._submenu(menu, '🎨 이 메모장')
+    def _color_swatches(self, menu):
+        """배경색 고르기: 동그란 색 견본, 지금 색은 바깥 고리로 표시."""
         color_widget = QWidget()
         color_widget.setStyleSheet('background: transparent;')
         grid = QGridLayout(color_widget)
-        grid.setContentsMargins(10, 8, 10, 8)
-        grid.setSpacing(6)
+        grid.setContentsMargins(12, 4, 12, 8)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+        current = (self._bg_color or '').upper()
         for i, color in enumerate(PALETTE):
-            border = f'2px solid {tc("#333")}' if color == '#FFFFFF' else f'1px solid {tc("rgba(0,0,0,0.15)")}'
             cb = QPushButton()
-            cb.setFixedSize(26, 26)
-            cb.setToolTip('배경색')
+            cb.setFixedSize(24, 24)
+            cb.setCursor(Qt.PointingHandCursor)
+            cb.setToolTip('이 색으로')
+            ring = (f'2px solid {menu_style.TEXT.name()}' if color.upper() == current
+                    else f'1px solid {tc("rgba(0,0,0,0.12)")}')
             cb.setStyleSheet(f"""
-                QPushButton {{
-                    background: {note_color(color)};
-                    border-radius: 13px;
-                    border: {border};
-                }}
-                QPushButton:hover {{ border: 2px solid {tc("rgba(0,0,0,0.5)")}; }}
+                QPushButton {{ background: {note_color(color)}; border-radius: 12px; border: {ring}; }}
+                QPushButton:hover {{ border: 2px solid {tc("rgba(0,0,0,0.35)")}; }}
             """)
             cb.clicked.connect(lambda _, c=color: (self._apply_color(c), self.save_state(), menu.close()))
             grid.addWidget(cb, i // 6, i % 6)
+        return color_widget
+
+    def show_menu(self, btn):
+        """「…」 메뉴: 자주 쓰는 기능 → 이 메모장 → 설정 → 도움말 → (삭제)."""
+        menu = menu_style.make_menu(self)
+        add = self._menu_add
+
+        # ── 자주 쓰는 기능 ──
+        add(menu, '오늘 한눈에 보기', self._open_dashboard, icon='ph.squares-four')
+        add(menu, '공문 캡처', self._start_ai_capture, shortcut='Ctrl+Shift+X', icon='ph.crop')
+        add(menu, '빠른 찾기', self._open_command_palette, shortcut='Ctrl+K', icon='ph.magnifying-glass')
+        add(menu, '새 메모장', lambda: self.on_new(offset_from=self, memo_mode=True,
+                                                on_toggle_hotkey=self._on_toggle_hotkey,
+                                                on_shortcut_change=self._on_shortcut_change,
+                                                get_shortcut_enabled=self._get_shortcut_enabled),
+            icon='ph.note-blank')
+        menu.addSeparator()
+
+        # ── 이 메모장 (이 창에만 적용) ──
+        memo = self._submenu(menu, '이 메모장', icon='ph.palette')
         self._menu_header(memo, '배경색')
         wa = QWidgetAction(memo)
-        wa.setDefaultWidget(color_widget)
+        wa.setDefaultWidget(self._color_swatches(menu))
         memo.addAction(wa)
-        size_menu = self._submenu(memo, '글자 크기', 110)
+        memo.addSeparator()
+        size_menu = self._submenu(memo, '글자 크기', 110, icon='ph.text-aa')
         for label, val in [('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2)]:
             add(size_menu, label, lambda v=val: self._set_scale(v, menu), checked=abs(self._scale - val) < 0.01)
-        gap_menu = self._submenu(memo, '줄 간격', 110)
+        gap_menu = self._submenu(memo, '줄 간격', 110, icon='ph.rows')
         for label, val in [('0px', 0), ('5px', 5), ('10px', 10), ('15px', 15)]:
             add(gap_menu, label, lambda v=val: self._set_row_gap(v, menu), checked=self._row_gap == val)
 
         # ── 설정 (앱 전체에 적용) ──
-        settings = self._submenu(menu, '⚙️ 설정', 230)
-        alarm = self._submenu(settings, '마감 알림', 230)
+        settings = self._submenu(menu, '설정', 230, icon='ph.gear-six')
+        alarm = self._submenu(settings, '마감 알림', 230, icon='ph.bell')
         self._menu_header(alarm, 'D-day 5일 이내 알림')
         current_min = self._get_alarm_interval() if self._get_alarm_interval else 180
         alarm_options = [('사용 안 함', 0), ('30분마다 (잡도리 모드)', 30),
@@ -1301,20 +1224,20 @@ class MemoWindow(QMainWindow):
         from school_profile import privacy_enabled
         add(settings, '다크 모드 (다시 켜면 적용)', self._toggle_theme, checked=_gs('theme', _mode) == 'dark')
         add(settings, '개인정보 보호 모드', self._toggle_privacy_mode, checked=privacy_enabled())
-        add(settings, '학교 정보 설정…', self._open_profile_dialog)
-        add(settings, 'AI 연결 (API 키)…', self._open_ai_settings)
-        add(settings, 'Claude 연결…', self._open_claude_connect)
+        add(settings, '학교 정보 설정…', self._open_profile_dialog, icon='ph.buildings')
+        add(settings, 'AI 연결 (API 키)…', self._open_ai_settings, icon='ph.key')
+        add(settings, 'Claude 연결…', self._open_claude_connect, icon='ph.link')
 
         # ── 도움말 ──
-        help_menu = self._submenu(menu, '💡 도움말', 150)
-        add(help_menu, '사용 설명서', self.show_help)
-        add(help_menu, '업데이트 확인', lambda: updater.check_for_update_manual(self))
+        help_menu = self._submenu(menu, '도움말', 150, icon='ph.question')
+        add(help_menu, '사용 설명서', self.show_help, icon='ph.book-open')
+        add(help_menu, '업데이트 확인', lambda: updater.check_for_update_manual(self), icon='ph.arrow-clockwise')
 
         # ── 메모장 삭제 (첫 메모장 제외) ──
         _all_ids = [w['id'] for w in get_all_windows()]
         if not _all_ids or self.window_id != min(_all_ids):
             menu.addSeparator()
-            add(menu, '🗑️ 메모장 삭제', self.delete_memo)
+            add(menu, '메모장 삭제', self.delete_memo, icon='ph.trash')
 
         self._last_menu = menu  # 테스트·디버그용 참조
         pos = btn.mapToGlobal(btn.rect().bottomLeft())

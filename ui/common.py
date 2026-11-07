@@ -226,3 +226,18 @@ def ui_scale() -> float:
 def px(n) -> int:
     """픽셀 값을 글꼴 배율에 맞춰 늘린다: px(440) → 125%에서 550."""
     return int(round(n * ui_scale()))
+
+
+def icon_png(name: str, color: str, size: int = 16) -> str:
+    """qtawesome 아이콘을 임시 PNG로 (QSS의 image: url(...)용). 실패하면 ''."""
+    try:
+        import os
+        import tempfile
+        import qtawesome as qta
+        safe = name.replace('.', '_') + '_' + color.strip('#')
+        path = os.path.join(tempfile.gettempdir(), f'ssnnote_{safe}_{size}.png')
+        if not os.path.exists(path):
+            qta.icon(name, color=color).pixmap(size, size).save(path)
+        return path.replace('\\', '/')
+    except Exception:
+        return ''
