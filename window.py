@@ -2272,6 +2272,7 @@ class MemoWindow(QMainWindow):
         self.input_time.setFont(QFont('Malgun Gothic', int(11 * s)))
         self.input_recurrence.setFont(QFont('Malgun Gothic', int(10 * s)))
         self._size_inputs()
+        self.title_bar.set_icon_scale(s)
         self.memo_editor.setFont(pr_font(int(12 * s)))
 
     def _set_scale(self, scale, menu=None):

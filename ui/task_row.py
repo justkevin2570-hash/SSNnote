@@ -170,7 +170,7 @@ class _AutoHeightEdit(QPlainTextEdit):
 class _NoteButton(QPushButton):
     """업무 메모 펼치기/접기 토글 버튼.
 
-    메모가 있으면 메모 아이콘(줄 세 개), 펼쳐져 있으면 위쪽 꺾쇠. 메모가 없으면 평소엔 보이지 않고
+    메모가 있으면 메모장 아이콘, 펼쳐져 있으면 위쪽 꺾쇠. 메모가 없으면 평소엔 보이지 않고
     업무 줄에 마우스를 올렸을 때만 옅은 연필 아이콘(메모 쓰기)으로 보인다.
     """
 
@@ -184,8 +184,8 @@ class _NoteButton(QPushButton):
         self._row_hover    = True     # 업무 줄에서는 TaskRow가 켜고 끈다 (그 밖의 곳에서는 늘 보임)
         self._glyph_offset = glyph_offset
         self.setFlat(True)
-        sz = int(22 * scale)
-        self._icon_px = max(12, int(15 * scale))
+        sz = int(24 * scale)
+        self._icon_px = max(14, int(18 * scale))
         self.setFixedSize(sz, sz)
         self.setCursor(Qt.PointingHandCursor)
         self.setStyleSheet('QPushButton { border: none; background: transparent; padding: 0; }')
@@ -218,9 +218,9 @@ class _NoteButton(QPushButton):
         if self._expanded:
             name, alpha = 'ph.caret-up-bold', 200
         elif self._has_note:
-            name, alpha = 'ph.text-align-left-bold', (120 if self._overdue else 175)
+            name, alpha = 'ph.notepad-bold', (140 if self._overdue else 215)
         elif self._row_hover or self._hovered:
-            name, alpha = 'ph.note-pencil', 90
+            name, alpha = 'ph.note-pencil', 110
         else:
             return
         if self._hovered:
@@ -573,8 +573,12 @@ class TaskRow(QWidget):
                 QPushButton:pressed {{ padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }}
             """)
         self.btn_star.clicked.connect(self._toggle_priority)
-        layout.addWidget(self.btn_star, 0, Qt.AlignVCenter)
-        layout.setAlignment(self.btn_star, Qt.AlignVCenter)
+        # 업무 줄의 아이콘·표시는 모두 '업무 이름 첫 줄'의 세로 가운데에 맞춘다
+        # (이름이 두 줄로 넘어가도 첫 줄 옆에 나란히). 첫 줄 높이 = 이름 칸 한 줄 높이.
+        _nf = pr_font(12)
+        _nf.setPointSizeF(12 * scale)
+        self._line1_h = max(28, QFontMetrics(_nf).height() + 4)
+        layout.addWidget(self._line_box(self.btn_star), 0, Qt.AlignTop)
 
         deadline = task['deadline']
         overdue = False
@@ -720,9 +724,9 @@ class TaskRow(QWidget):
         name_note_layout = QHBoxLayout()
         name_note_layout.setContentsMargins(0, 0, 0, 0)
         name_note_layout.setSpacing(0)
-        name_note_layout.addWidget(self.name_edit, 0, Qt.AlignVCenter)
-        name_note_layout.addWidget(self.btn_note, 0, Qt.AlignTop)
-        name_note_layout.addWidget(self.btn_attach, 0, Qt.AlignVCenter)
+        name_note_layout.addWidget(self.name_edit, 0, Qt.AlignTop)
+        name_note_layout.addWidget(self._line_box(self.btn_note), 0, Qt.AlignTop)
+        name_note_layout.addWidget(self._line_box(self.btn_attach), 0, Qt.AlignTop)
         layout.addLayout(name_note_layout)
         layout.addStretch(1)
         if task.get('recurrence', ''):
@@ -743,13 +747,14 @@ class TaskRow(QWidget):
                 icon_dday_layout.addWidget(self._add_date_btn, 0, Qt.AlignVCenter)
             icon_dday_widget = QWidget()
             icon_dday_widget.setLayout(icon_dday_layout)
-            layout.addWidget(icon_dday_widget, 0, Qt.AlignVCenter)
+            layout.addWidget(self._line_box(icon_dday_widget), 0, Qt.AlignTop)
         else:
             if dday_lbl:
-                layout.addWidget(dday_lbl, 0, Qt.AlignVCenter)
+                layout.addWidget(self._line_box(dday_lbl), 0, Qt.AlignTop)
             elif hasattr(self, '_add_date_btn'):
-                layout.addWidget(self._add_date_btn, 0, Qt.AlignVCenter)
-        layout.addWidget(btn_menu, 0, Qt.AlignVCenter)
+                layout.addWidget(self._line_box(self._add_date_btn), 0, Qt.AlignTop)
+        btn_menu.setFixedHeight(min(btn_menu.sizeHint().height(), self._line1_h))
+        layout.addWidget(self._line_box(btn_menu), 0, Qt.AlignTop)
 
         # 메모 에디터 (▼ 클릭 시 행 높이 불변, 행 아래 예약 공간 위에 오버레이로 펼침)
         self.note_editor = _InlineNoteEdit(scale=self._scale)
@@ -888,6 +893,18 @@ class TaskRow(QWidget):
                 p.setBrush(bar)
                 p.drawRoundedRect(QRectF(left, y, max(3.0, (right - left) * u['progress']), 2.5), 1.25, 1.25)
         p.end()
+
+    def _line_box(self, w):
+        """w를 업무 이름 첫 줄 높이의 칸에 넣어 세로 가운데에 놓는다."""
+        box = QWidget()
+        box.setStyleSheet('background: transparent;')
+        box.setFixedHeight(self._line1_h)
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        lay.addWidget(w, 0, Qt.AlignVCenter | Qt.AlignHCenter)
+        w._line_box_parent = box      # 칸은 늘 보이고, 안의 위젯이 숨으면 폭이 0이 됨
+        return box
 
     def _set_row_highlight(self, on: bool):
         self._hovered = on

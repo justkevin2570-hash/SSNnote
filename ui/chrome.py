@@ -377,7 +377,7 @@ class TitleBar(QWidget):
     """메모 창 제목 줄: 이름 · 오늘 날짜 | 예산 · 메모 모드 · 메뉴 · 항상 위 · 닫기.
     아이콘은 모두 같은 얇은 선 아이콘(같은 크기·같은 색)이고, 켜진 버튼(메모 모드·항상 위)만 바탕을 칠한다."""
 
-    _ICON_PX = 17
+    _ICON_PX = 20
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -451,17 +451,27 @@ class TitleBar(QWidget):
     @staticmethod
     def _icon_color(active=False):
         from .theme import qcolor
-        return qcolor('#000000', 215 if active else 140)
+        return qcolor('#000000', 225 if active else 165)
 
     def _icon_button(self, icon_name, tip):
         b = QPushButton()
         b._icon_name = icon_name
         b.setIcon(qta.icon(icon_name, color=self._icon_color()))
         b.setIconSize(QSize(px(self._ICON_PX), px(self._ICON_PX)))   # 글꼴 배율만큼 아이콘도
-        b.setFixedSize(px(28), min(px(26), TITLE_BAR_HEIGHT - 4))
+        b.setFixedSize(px(32), min(px(30), TITLE_BAR_HEIGHT - 4))
         b.setToolTip(tip)
         b.setCursor(Qt.PointingHandCursor)
         return b
+
+    def set_icon_scale(self, scale: float):
+        """「글자 크기」(기본·크게·더 크게)에 맞춰 제목 줄 아이콘도 키운다 (제목 줄 높이 안에서)."""
+        size = min(px(round(self._ICON_PX * scale)), TITLE_BAR_HEIGHT - 12)
+        for b in (self.btn_budget, self.btn_mode, self.btn_menu, self.btn_pin, self.btn_close):
+            b.setIconSize(QSize(size, size))
+            b.setFixedSize(max(px(32), size + 12), min(max(px(30), size + 10), TITLE_BAR_HEIGHT - 4))
+        f = self.label.font()
+        f.setPointSizeF(10 * scale)
+        self.label.setFont(f)
 
     def set_active(self, button, on: bool, icon_name=None):
         """켜진 상태(메모 모드·항상 위)는 진한 아이콘 + 옅은 바탕."""

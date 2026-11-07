@@ -11,7 +11,7 @@ def _base_path():
     # 이 파일은 ui/ 안에 있으므로 프로젝트 루트(assets/가 있는 곳)는 한 단계 위
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-TITLE_BAR_HEIGHT = 33
+TITLE_BAR_HEIGHT = 38
 TITLE_COLOR      = '#f7c948'
 SNAP_THRESHOLD   = 12  # 완전히 붙는 거리(px)
 SNAP_ZONE        = 30  # 당기기 시작하는 거리(px)
