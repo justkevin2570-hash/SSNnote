@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QLineEdit, QApplication,
     QFrame, QCalendarWidget, QTextEdit, QListWidget, QAbstractItemView, QListWidgetItem
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QTimer, QPoint, QRectF, QSize, pyqtSignal
+from PyQt5.QtCore import Qt, QDate, QTime, QTimer, QPoint, QPointF, QRectF, QSize, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QTextCursor, QKeySequence
 from .common import pr_font
 from .theme import T, tc, tct, qcolor
@@ -85,6 +85,8 @@ class DdayLabel(QLabel):
 
     tone: 'overdue'(지남, 빨강) · 'today'(오늘, 주황) · 'soon'(1~3일, 옅은 주황) ·
           'week'(4~7일, 옅은 호박색) · 'later'(그 뒤, 회색 글자만) · 'error'
+    움직임(ui/motion.py): set_motion(breathe=주기초, beat=기한 지남 박동) — 둘레가 숨쉬듯 빛나거나
+    왼쪽 빨간 점이 심장 박동처럼 뛴다.
     """
     clicked = pyqtSignal()
 
@@ -97,12 +99,18 @@ class DdayLabel(QLabel):
         'later':   (None, 'rgba(0,0,0,0.55)'),
         'error':   (None, 'rgba(0,0,0,0.35)'),
     }
+    _GLOW = {'overdue': '#E5484D', 'today': '#F76B15', 'soon': '#F76B15', 'week': '#B07000',
+             'later': '#8A8A8A', 'error': '#8A8A8A'}
+    PAD = 4          # 숨쉬기 빛이 번질 자리
 
     def __init__(self, dday_text, date_text, *args, tone='later', align_left=False, **kwargs):
         super().__init__(dday_text, *args, **kwargs)
         self._align_left = align_left      # 목록 왼쪽에 둘 때(대시보드)는 왼쪽 정렬
         self._dday_text = dday_text
         self._date_text = date_text
+        self._hover = False
+        self._breathe = 0.0
+        self._beat = False
         self.setCursor(Qt.PointingHandCursor)
         self.set_tone(tone)
 
@@ -110,6 +118,27 @@ class DdayLabel(QLabel):
         self._tone = tone if tone in self._TONES else 'later'
         self.updateGeometry()
         self.update()
+
+    def set_texts(self, dday_text, date_text=None):
+        """남은 시간처럼 바뀌는 글자 (마우스를 올린 동안은 날짜를 그대로 보여줌)."""
+        self._dday_text = dday_text
+        if date_text is not None:
+            self._date_text = date_text
+        if not self._hover:
+            self.setText(dday_text)
+            self.updateGeometry()
+
+    def set_motion(self, breathe: float = 0.0, beat: bool = False):
+        from .motion import clock
+        changed = (breathe, beat) != (self._breathe, self._beat)
+        self._breathe, self._beat = breathe, beat
+        if breathe or beat:
+            clock().register(self, lambda t: self.update())
+        else:
+            clock().unregister(self)
+        if changed:
+            self.updateGeometry()
+            self.update()
 
     def _colors(self):
         bg, fg = self._TONES[self._tone]
@@ -128,9 +157,13 @@ class DdayLabel(QLabel):
             return QColor((tc if is_bg else tct)(c))
         return q(bg, True), q(fg, False)
 
+    def _dot_space(self):
+        return 12 if self._beat else 0
+
     def sizeHint(self):
         fm = QFontMetrics(self.font())
-        return QSize(fm.horizontalAdvance(self.text()) + 16, max(fm.height() + 4, 22))
+        return QSize(fm.horizontalAdvance(self.text()) + 16 + 2 * self.PAD + self._dot_space(),
+                     max(fm.height() + 4, 22) + 2 * self.PAD)
 
     minimumSizeHint = sizeHint
 
@@ -140,29 +173,57 @@ class DdayLabel(QLabel):
         super().mousePressEvent(event)
 
     def paintEvent(self, event):
+        from .motion import breath, clock, heartbeat
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         bg, fg = self._colors()
         fm = QFontMetrics(self.font())
         h = max(fm.height() + 2, 20)
         w = fm.horizontalAdvance(self.text()) + 14
-        x = 0 if self._align_left else self.width() - w   # 기본은 오른쪽 정렬 (줄마다 같은 끝에)
+        if self._align_left:
+            x = self.PAD + self._dot_space()
+        else:                              # 기본은 오른쪽 정렬 (줄마다 같은 끝에)
+            x = self.width() - w - self.PAD
         y = (self.height() - h) / 2.0
+        pill = QRectF(x, y, w, h)
+        t = clock().now()
+        if self._breathe and not self._hover:
+            a = breath(t, self._breathe)
+            glow = QColor(tc(self._GLOW[self._tone]))
+            for i, spread in enumerate((3.5, 2.0)):        # 바깥은 옅게, 안쪽은 조금 진하게
+                glow.setAlphaF((0.16 if i == 0 else 0.22) * a)
+                p.setPen(Qt.NoPen)
+                p.setBrush(glow)
+                r = pill.adjusted(-spread * a, -spread * a, spread * a, spread * a)
+                p.drawRoundedRect(r, r.height() / 2.0, r.height() / 2.0)
         if bg is not None:
             p.setPen(Qt.NoPen)
             p.setBrush(bg)
-            p.drawRoundedRect(QRectF(x, y, w, h), h / 2.0, h / 2.0)
+            p.drawRoundedRect(pill, h / 2.0, h / 2.0)
+        if self._beat:
+            hb = heartbeat(t)
+            red = QColor(tc('#E5484D'))
+            cx, cy = x - 7, y + h / 2.0
+            red.setAlphaF(0.25 * hb)
+            p.setPen(Qt.NoPen)
+            p.setBrush(red)
+            p.drawEllipse(QPointF(cx, cy), 3 + 3 * hb, 3 + 3 * hb)
+            red.setAlphaF(1.0)
+            p.setBrush(red)
+            p.drawEllipse(QPointF(cx, cy), 2.6 + 0.8 * hb, 2.6 + 0.8 * hb)
         p.setFont(self.font())
         p.setPen(fg)
-        p.drawText(QRectF(x, y, w, h), Qt.AlignCenter, self.text())
+        p.drawText(pill, Qt.AlignCenter, self.text())
         p.end()
 
     def enterEvent(self, event):
+        self._hover = True
         self.setText(self._date_text)
         self.updateGeometry()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
+        self._hover = False
         self.setText(self._dday_text)
         self.updateGeometry()
         super().leaveEvent(event)

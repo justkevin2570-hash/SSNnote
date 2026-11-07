@@ -311,6 +311,68 @@ class MergeButton(QWidget):
         self._visible = False
 
 
+class UrgentBadge(QWidget):
+    """제목 줄의 급한 업무 배지: '지남 1 · 오늘 2'. 기한 지난 업무가 있으면 빨강, 아니면 주황.
+    천천히 숨쉬듯 빛나서 메모 창을 접어 두거나 멀리서 봐도 '급한 게 있다'를 알 수 있다."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._text = ''
+        self._color = '#F76B15'
+        self._breathe = 0.0
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        f = QFont('Pretendard GOV', 9)
+        f.setFamilies(['Pretendard GOV', 'Pretendard', 'Malgun Gothic'])
+        f.setWeight(QFont.DemiBold)
+        self.setFont(f)
+        self.hide()
+
+    def set_counts(self, overdue: int, today: int, animate: bool):
+        from .motion import clock
+        parts = ([f'지남 {overdue}'] if overdue else []) + ([f'오늘 {today}'] if today else [])
+        self._text = ' · '.join(parts)
+        self._color = '#E5484D' if overdue else '#F76B15'
+        self._breathe = (2.5 if overdue else 4.0) if (animate and parts) else 0.0
+        self.setVisible(bool(parts))
+        self.setToolTip('기한이 지났거나 오늘 마감인 업무' if parts else '')
+        if self._breathe:
+            clock().register(self, lambda t: self.update())
+        else:
+            clock().unregister(self)
+        self.updateGeometry()
+        self.update()
+
+    def sizeHint(self):
+        from PyQt5.QtGui import QFontMetrics
+        fm = QFontMetrics(self.font())
+        return QSize(fm.horizontalAdvance(self._text) + 18 + 8, max(fm.height() + 4, 18) + 8)
+
+    def paintEvent(self, _):
+        from PyQt5.QtGui import QFontMetrics
+        from .motion import breath, clock
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        fm = QFontMetrics(self.font())
+        h = max(fm.height() + 2, 18)
+        w = fm.horizontalAdvance(self._text) + 16
+        r = QRectF((self.width() - w) / 2.0, (self.height() - h) / 2.0, w, h)
+        col = QColor(tc(self._color))
+        if self._breathe:
+            a = breath(clock().now(), self._breathe)
+            glow = QColor(col)
+            glow.setAlphaF(0.22 * a)
+            p.setPen(Qt.NoPen)
+            p.setBrush(glow)
+            g = r.adjusted(-3 * a, -3 * a, 3 * a, 3 * a)
+            p.drawRoundedRect(g, g.height() / 2, g.height() / 2)
+        p.setPen(Qt.NoPen)
+        p.setBrush(col)
+        p.drawRoundedRect(r, h / 2, h / 2)
+        p.setPen(QColor('#FFFFFF'))
+        p.drawText(r, Qt.AlignCenter, self._text)
+        p.end()
+
+
 class TitleBar(QWidget):
     """메모 창 제목 줄: 이름 · 오늘 날짜 | 예산 · 메모 모드 · 메뉴 · 항상 위 · 닫기.
     아이콘은 모두 같은 얇은 선 아이콘(같은 크기·같은 색)이고, 켜진 버튼(메모 모드·항상 위)만 바탕을 칠한다."""
@@ -358,6 +420,9 @@ class TitleBar(QWidget):
 
         layout.addWidget(self.label)
         layout.addWidget(self.date_label)
+        self.badge = UrgentBadge(self)
+        layout.addSpacing(4)
+        layout.addWidget(self.badge, 0, Qt.AlignVCenter)
         layout.addStretch()
         layout.addWidget(self.btn_budget, 0, Qt.AlignVCenter)
         layout.addWidget(self.btn_mode, 0, Qt.AlignVCenter)

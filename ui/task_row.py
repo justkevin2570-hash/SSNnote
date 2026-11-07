@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMenu, QAction, QMessageBox, QDialog, QCalendarWidget, QPlainTextEdit, QSizePolicy, QGraphicsOpacityEffect, QTimeEdit,
     QCheckBox, QFrame
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QPoint, QPointF, QSize, pyqtSignal, QMimeData
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QPoint, QPointF, QRectF, QSize, pyqtSignal, QMimeData
 from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QTextCursor
 from db import (update_task,
                 set_task_priority, set_task_recurrence, get_task_notes, set_task_notes,
@@ -657,6 +657,8 @@ class TaskRow(QWidget):
             dday_font.setWeight(QFont.DemiBold if tone in ('overdue', 'today', 'soon') else QFont.Normal)
             dday_lbl.setFont(dday_font)
             dday_lbl.setToolTip('마감일 바꾸기')
+            self._dday_text0 = suffix
+            self._tone0 = tone
         else:
             dday_lbl = None
             self._add_date_btn = AddDateButton()
@@ -672,6 +674,7 @@ class TaskRow(QWidget):
         btn_menu.clicked.connect(lambda: self._open_task_menu(btn_menu, task, on_delete))
         btn_menu.hovered.connect(self._set_row_highlight)
 
+        self._dday_lbl = dday_lbl
         _has_note = bool(task.get('notes', '') or task.get('related_no', ''))
         self._overdue = overdue
         self.btn_note = _NoteButton(scale=scale)
@@ -772,6 +775,93 @@ class TaskRow(QWidget):
             self.btn_note.set_expanded(True)
             self.note_editor.setPlainText(get_task_notes(self.task['id']))
             self.note_editor.ref_edit.setText(get_task_related_no(self.task['id']))
+        self._urg = {}
+        self.apply_urgency()
+
+    # ── 급함 표시 (ui/motion.py) ─────────────────────────────────
+    def apply_urgency(self, now=None):
+        """마감까지 남은 정도에 맞춰 D-day 숨쉬기·남은 시간·박동·별 반짝임·세로선을 정한다.
+        메모 창이 30초마다 다시 부른다 (줄을 새로 만들지 않고 그 자리에서 바꿈)."""
+        from . import motion
+        cfg = motion.load()
+        u = motion.urgency(self.task, now, cfg)
+        self._urg = u
+        lbl = self._dday_lbl
+        if lbl is not None:
+            if u['countdown'] and u['remaining'] is not None:
+                lbl.set_tone('today')
+                lbl.set_texts(motion.remaining_text(u['remaining']))
+                lbl.setToolTip('마감까지 남은 시간 — 눌러서 마감일 바꾸기')
+            elif u['overdue'] and not self._overdue:          # 오늘 마감 시각이 지남
+                lbl.set_tone('overdue')
+                lbl.set_texts('마감 지남')
+            else:
+                lbl.set_tone(getattr(self, '_tone0', 'later'))
+                lbl.set_texts(getattr(self, '_dday_text0', lbl.text()))
+            lbl.set_motion(breathe=u['breathe'], beat=u['overdue'] and cfg['enabled'])
+        self._apply_star_motion(u, cfg)
+        self.update()
+
+    def _apply_star_motion(self, u, cfg):
+        from . import motion
+        starred = bool(self.task.get('priority'))
+        if starred and self._overdue:
+            # 중요한데 놓친 업무: 빨간 테두리 별 (누를 수는 없음)
+            import qtawesome as qta
+            self.btn_star.setGraphicsEffect(None)
+            self.btn_star.setText('')
+            red = qta.icon('ph.star-bold', color=tc('#E5484D'))
+            ic = QIcon()
+            sz = int(self._star_sz * 0.8)
+            for mode in (QIcon.Normal, QIcon.Disabled):      # 누를 수 없어도(기한 지남) 회색이 아닌 빨강
+                ic.addPixmap(red.pixmap(sz, sz), mode)
+            self.btn_star.setIcon(ic)
+            self.btn_star.setIconSize(QSize(int(self._star_sz * 0.8), int(self._star_sz * 0.8)))
+            self.btn_star.setToolTip('중요한 업무인데 기한이 지났어요')
+            return
+        if starred and u.get('star_glow'):
+            eff = QGraphicsOpacityEffect(self.btn_star)
+            self.btn_star.setGraphicsEffect(eff)
+            period = u['breathe'] or 4.0
+
+            def glow(t, eff=eff, period=period):
+                try:
+                    eff.setOpacity(0.55 + 0.45 * (1 - motion.breath(t, period)))
+                except RuntimeError:
+                    pass
+            motion.clock().register(self.btn_star, glow)
+        else:
+            motion.clock().unregister(self.btn_star)
+            if not self._overdue:
+                self.btn_star.setGraphicsEffect(None)
+
+    def paintEvent(self, e):
+        from PyQt5.QtWidgets import QStyleOption, QStyle
+        opt = QStyleOption()
+        opt.initFrom(self)
+        p = QPainter(self)
+        self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
+        u = getattr(self, '_urg', {}) or {}
+        if u.get('side_line') or u.get('countdown'):
+            p.setRenderHint(QPainter.Antialiasing)
+            line_h = max(self.name_edit._fixed_height, 31)
+            if u.get('side_line'):
+                c = QColor(tc('#E2A400') if u['side_line'] == 'gold' else tc('#F76B15'))
+                p.setPen(Qt.NoPen)
+                p.setBrush(c)
+                p.drawRoundedRect(QRectF(1, 5, 3, line_h - 10), 1.5, 1.5)
+            if u.get('countdown'):
+                # 마감까지 남은 시간 막대: 줄 아래 얇게, 차오를수록 진하게
+                y = line_h - 3
+                left, right = 30.0, self.width() - 10.0
+                p.setPen(Qt.NoPen)
+                p.setBrush(QColor(0, 0, 0, 18))
+                p.drawRoundedRect(QRectF(left, y, right - left, 2.5), 1.25, 1.25)
+                bar = QColor(tc('#F76B15'))
+                bar.setAlphaF(0.55 + 0.45 * u['progress'])
+                p.setBrush(bar)
+                p.drawRoundedRect(QRectF(left, y, max(3.0, (right - left) * u['progress']), 2.5), 1.25, 1.25)
+        p.end()
 
     def _set_row_highlight(self, on: bool):
         self._hovered = on
@@ -912,7 +1002,57 @@ class TaskRow(QWidget):
         menu.exec_(pos)
 
     def _toggle_strikethrough(self):
+        """완료 표시: 가운데 선이 왼쪽에서 오른쪽으로 그어진 뒤 적용 (움직임 끔이면 바로)."""
+        from . import motion
+        if not self._strikethrough and motion.load()['enabled'] and self.isVisible():
+            self._animate_strike(self._apply_strikethrough)
+        else:
+            self._apply_strikethrough()
+
+    def _animate_strike(self, then):
+        from PyQt5.QtCore import QVariantAnimation, QEasingCurve
+        ed = self.name_edit
+        overlay = QWidget(ed)
+        overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
+        overlay.setGeometry(ed.rect())
+        fm = QFontMetrics(ed.font())
+        text_w = min(ed.width() - 4, fm.horizontalAdvance(ed.toPlainText().split('\n')[0]) + 2)
+        y = 2 + fm.ascent() - fm.xHeight() / 2.0 + 1
+        state = {'v': 0.0}
+
+        def paint(_e, ov=overlay):
+            pp = QPainter(ov)
+            pp.setRenderHint(QPainter.Antialiasing)
+            pen = pp.pen()
+            pen.setColor(QColor(tct('#333333')))
+            pen.setWidthF(1.6)
+            pp.setPen(pen)
+            pp.drawLine(QPointF(1, y), QPointF(1 + text_w * state['v'], y))
+            pp.end()
+        overlay.paintEvent = paint
+        overlay.show()
+        anim = QVariantAnimation(self)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setDuration(280)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+
+        def step(v):
+            state['v'] = v
+            overlay.update()
+
+        def done():
+            overlay.hide()
+            overlay.deleteLater()
+            then()
+        anim.valueChanged.connect(step)
+        anim.finished.connect(done)
+        self._strike_anim = anim
+        anim.start()
+
+    def _apply_strikethrough(self):
         self._strikethrough = not self._strikethrough
+        self.task['strikethrough'] = int(self._strikethrough)
         font = self.name_edit.font()
         font.setStrikeOut(self._strikethrough)
         self.name_edit.setFont(font)
@@ -921,6 +1061,7 @@ class TaskRow(QWidget):
                     strikethrough=int(self._strikethrough),
                     priority=self.task.get('priority', 0),
                     recurrence=self.task.get('recurrence', ''))
+        self.apply_urgency()          # 완료하면 숨쉬기·박동이 멈춤
 
     def _toggle_note(self):
         if self._expanded:
@@ -1395,6 +1536,47 @@ class TaskRow(QWidget):
                 QPushButton:pressed {{ padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }}
             """)
         set_task_priority(self.task['id'], new)
+        from . import motion
+        if motion.load()['enabled'] and self.isVisible():
+            self._pop_star(lambda: self._update_with_slide())
+        else:
+            self.on_update()
+
+    def _pop_star(self, then):
+        """별이 톡 커졌다 돌아온다 (0.22초)."""
+        import math
+        from PyQt5.QtCore import QVariantAnimation, QEasingCurve
+        base = self.btn_star.iconSize() if not self.btn_star.icon().isNull() else QSize(self._star_sz, self._star_sz)
+        font0 = self.btn_star.font()
+        anim = QVariantAnimation(self)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setDuration(220)
+        anim.setEasingCurve(QEasingCurve.OutQuad)
+
+        def step(v):
+            k = 1 + 0.35 * math.sin(math.pi * v)
+            try:
+                self.btn_star.setIconSize(QSize(int(base.width() * k), int(base.height() * k)))
+                if self.btn_star.icon().isNull():
+                    f = QFont(font0)
+                    f.setPointSizeF(max(1.0, font0.pointSizeF() * k))
+                    self.btn_star.setFont(f)
+            except RuntimeError:
+                pass
+        anim.valueChanged.connect(step)
+        anim.finished.connect(then)
+        self._star_anim = anim
+        anim.start()
+
+    def _update_with_slide(self):
+        """목록을 다시 그리면서, 이 업무가 옛 자리에서 새 자리로 미끄러져 가는 모습을 보여준다."""
+        win = self.window()
+        lst = self.parentWidget()
+        try:
+            win._pending_slide = (self.task['id'], self.grab(), self.mapTo(lst, QPoint(0, 0)))
+        except Exception:
+            win._pending_slide = None
         self.on_update()
 
     def _set_recurrence(self, recurrence):
