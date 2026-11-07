@@ -965,7 +965,8 @@ class MemoWindow(QMainWindow):
             dlg.raise_()
             dlg.activateWindow()
             return
-        dlg = NativeCalendarDialog(self._open_windows, self)
+        # 메모 창(항상 위)에 딸린 창이면 Windows가 달력도 항상 위에 둔다 → 주인 없는 보통 창으로 연다
+        dlg = NativeCalendarDialog(self._open_windows, None)
         settings = QSettings('SSNnote', 'SSNnote')
         geo = settings.value('calendar_dlg/geometry')
         if geo:

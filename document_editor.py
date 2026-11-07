@@ -511,7 +511,6 @@ class DocumentEditorWindow(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle("공문 작성")
-        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
         self._restore_window_state()  # 저장된 위치/크기 복원, 없으면 기본값
 
         _input_h = 36
@@ -976,7 +975,10 @@ class DocumentEditorWindow(QMainWindow):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
-            self._cancel_ai()
+            if self.ai_thread and self.ai_thread.isRunning():
+                self._cancel_ai()          # AI가 쓰는 중이면 먼저 멈추기만
+            elif self._confirm_discard():
+                self.close()
         elif event.key() == Qt.Key_X and event.modifiers() == (Qt.ControlModifier | Qt.ShiftModifier):
             self._start_capture()
         else:
@@ -1267,6 +1269,18 @@ class DocumentEditorWindow(QMainWindow):
             pass
 
         return True
+
+    def _confirm_discard(self) -> bool:
+        """Esc로 닫을 때: 본문에 쓴 내용이 있으면 한 번 묻는다 (Esc를 한 번 더 누르면 취소)."""
+        if not self.editor.toPlainText().strip():
+            return True
+        box = QMessageBox(QMessageBox.Question, '공문 작성 닫기',
+                          '작성 중인 본문이 있습니다. 저장하지 않고 닫을까요?', parent=self)
+        b_close = box.addButton('닫기', QMessageBox.AcceptRole)
+        box.addButton('계속 쓰기', QMessageBox.RejectRole)
+        box.setDefaultButton(b_close)
+        box.exec_()
+        return box.clickedButton() is b_close
 
     def save_and_close(self):
         self.save_document()

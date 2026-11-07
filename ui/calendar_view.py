@@ -1146,7 +1146,9 @@ class DayDetailDialog(QDialog):
 class NativeCalendarDialog(QDialog):
     def __init__(self, open_windows, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint | Qt.WindowMinMaxButtonsHint)
+        # 주인 없이 열면 작업 표시줄에 따로 뜨는 보통 창 (다른 창 뒤로 갈 수 있음)
+        self.setWindowFlags((Qt.Dialog if parent is not None else Qt.Window)
+                            | Qt.WindowCloseButtonHint | Qt.WindowMinMaxButtonsHint)
         self.setWindowTitle('달력')
         self._open_windows = open_windows
         self._current_date = date.today()
