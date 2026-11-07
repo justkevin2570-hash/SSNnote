@@ -1,7 +1,7 @@
 """mcp_server.py — 서서니 노트 MCP 서버 (Claude Code · Claude 데스크톱 앱 연결용).
 
 Claude가 서서니 노트의 업무 목록을 보고, 업무를 추가·수정·완료 표시하고,
-학교 정보와 공문 서식을 참고해 공문 초안을 쓸 수 있게 한다.
+공문 서식을 참고해 공문 초안을 쓸 수 있게 한다.
 사용자는 자기 Claude 구독으로 Claude 앱을 쓰고, 이 서버는 PC 안의 서서니 노트 DB만 다룬다
 (API 키 불필요, 데이터는 PC 밖으로 나가지 않음 — Claude에게 보여주는 내용만 대화에 들어감).
 
@@ -23,7 +23,7 @@ import dashboard
 import db
 from korean_search import best_score
 from privacy import looks_masked
-from school_profile import mask_for_ai, privacy_enabled, prompt_block
+from school_profile import mask_for_ai, privacy_enabled
 
 EXTERNAL_CHANGE_KEY = 'external_change'
 
@@ -35,7 +35,7 @@ server = MCPServer(
         '업무 질문에는 today_overview / list_tasks / search_tasks로 실제 목록을 먼저 확인하세요. '
         '업무를 추가·수정하기 전에 이름과 마감일을 사용자에게 한 줄로 확인받고, '
         '날짜는 today_overview의 오늘 날짜를 기준으로 YYYY-MM-DD로 바꿔 넣으세요. '
-        '공문·계획서 초안을 쓸 때는 official_document_guide의 서식과 학교 정보를 따르세요.'
+        '공문·계획서 초안을 쓸 때는 official_document_guide의 서식을 따르세요.'
     ),
 )
 
@@ -180,7 +180,7 @@ def search_tasks(query: str, include_done: bool = False) -> dict:
 
 @server.tool(title='공문 작성 안내', annotations=_READ)
 def official_document_guide() -> dict:
-    """공문·계획서 초안을 쓰기 전에 부르세요. 학교 공문 서식 규칙과 저장된 학교 정보(학교명·부서·담당자 등)."""
+    """공문·계획서 초안을 쓰기 전에 부르세요. 학교 공문 서식 규칙."""
     return {
         'format_rules': [
             "본문 구조: '1. 관련: [관련 문서번호(날짜)]' → '2. [제목]을/를 다음과 같이 [운영/보고/제출]하고자 합니다.' → 가. 나. 다. 항목 → '붙임  [파일명] 1부.  끝.'",
@@ -190,7 +190,6 @@ def official_document_guide() -> dict:
             "마지막은 반드시 '끝.'으로 맺음. 붙임이 없으면 본문 끝에 '끝.'.",
             '마크다운(**, ##) 쓰지 않음. 공문에 없는 수치·명단은 지어내지 말고 ○○로 비워 둠.',
         ],
-        'school_profile': prompt_block() or '(학교 정보 없음 — 서서니 노트 메뉴 → 🏫 학교 정보 설정에서 입력)',
     }
 
 

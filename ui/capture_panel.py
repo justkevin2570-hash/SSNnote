@@ -1,7 +1,7 @@
 """ui/capture_panel.py — 공문 작성 창 왼쪽의 「받은 공문」 칸.
 
 캡처한 공문을 AI로 읽어, 제목·공문번호는 오른쪽 공문 작성 칸(제목·관련 번호)에 넣고(analyzed 시그널),
-이 칸에는 요약(핵심 내용·기한·할 일)만 보여준다. [요약 복사]는 '제목 (관련 번호)' + 요약을 복사한다.
+이 칸에는 요약(핵심 내용·기한)만 보여준다. [요약 복사]는 '제목 (관련 번호)' + 요약을 복사한다.
 모양(QSS)은 공문 작성 창에서 물려받는다.
 
 이어서 캡처: 제목·본문과 공문번호가 한 화면에 안 잡히면 두 번 캡처한다. [새 공문]을 누르기 전까지
@@ -130,7 +130,7 @@ class CapturePanel(QFrame):
         lb.setObjectName('FieldLabel')
         root.addWidget(lb)
         self.ed_summary = QPlainTextEdit()
-        self.ed_summary.setPlaceholderText('공문을 캡처하면 핵심 내용·기한·할 일이 여기에 정리됩니다.\n'
+        self.ed_summary.setPlaceholderText('공문을 캡처하면 핵심 내용·기한이 여기에 정리됩니다.\n'
                                            '(Ctrl+Shift+X 또는 [공문 캡처])')
         self.ed_summary.textChanged.connect(self._on_summary_edited)
         root.addWidget(self.ed_summary, 1)

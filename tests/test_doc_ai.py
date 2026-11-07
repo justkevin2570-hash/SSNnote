@@ -53,7 +53,7 @@ def test_normalize_analysis_fills_and_cleans():
     assert a['doc_date'] == '2026-11-03' and a['deadline'] == '2026-11-14' and a['deadline_time'] == '17:00'
     assert a['doc_number'] == '교육과정과-12345(2026. 11. 3.)'          # 기관명 빼고 날짜까지
     assert a['summary'] == ['운영 현황 조사', '강사 계약 현황 포함']
-    assert a['todos'][:2] == ['조사표 작성', '공문으로 제출'] and len(a['todos']) == 5
+    assert 'todos' not in a                                             # 할 일은 받지 않음
     assert 'attachments' not in a and 'sender' not in a and a['needs_reply'] is True
 
 
@@ -64,16 +64,16 @@ def test_normalize_analysis_garbage():
 
 A = {'title': '2026. 방과후학교 운영 실태 조사', 'doc_number': '교육과정과-12345', 'doc_date': '2026-11-03',
      'deadline': '2026-11-14', 'deadline_time': '17:00',
-     'summary': ['운영 현황 조사'], 'todos': ['조사표 작성'], 'needs_reply': True}
+     'summary': ['운영 현황 조사'], 'needs_reply': True}
 
 
 def test_summary_helpers():
     assert related_line(A) == '교육과정과-12345(2026. 11. 3.)'
     assert related_line({**A, 'doc_date': ''}) == '교육과정과-12345'
     body = summary_body(A)
-    assert '· 운영 현황 조사' in body and '☐ 조사표 작성' in body and '할 일' in body
+    assert '· 운영 현황 조사' in body and '할 일' not in body
     assert '기한: 2026. 11. 14.' in body and '17:00' in body
-    assert summary_body({'summary': [], 'todos': []}) == ''
+    assert summary_body({'summary': []}) == ''
     s = summary_text('2026. 방과후학교 운영 실태 조사', '교육과정과-12345(2026. 11. 3.)', body)
     assert s.startswith('2026. 방과후학교 운영 실태 조사 (교육과정과-12345(2026. 11. 3.))\n· 운영 현황 조사')
     assert summary_text('', '', '') == ''

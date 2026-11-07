@@ -4,7 +4,7 @@
   1) 캡처 이미지 → (개인정보 보호 모드) PC의 Windows OCR로 글자 추출 → 개인정보 가리기 → AI에 글자만 전송
                  → (보호 모드 꺼짐 / 로컬 AI) 이미지를 그대로 AI에 전송
   2) AI 응답(JSON) → normalize_analysis()로 날짜·목록 정리
-  3) 제목·공문번호 → 공문 작성 칸(제목·관련 번호), 요약·기한·할 일 → 받은 공문 칸의 요약 (요약 복사)
+  3) 제목·공문번호 → 공문 작성 칸(제목·관련 번호), 요약·기한 → 받은 공문 칸의 요약 (요약 복사)
 
 UI 없는 순수 로직(build_*, normalize_*, parse_*)은 tests/에서 검증한다.
 """
@@ -17,7 +17,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 ANALYZE_SYSTEM = (
     "당신은 한국 학교 행정 공문 분석 전문가입니다. "
-    "공문을 읽고 학교 담당 교사가 해야 할 일을 정확하게 정리합니다. "
+    "공문을 읽고 핵심 내용을 정확하게 정리합니다. "
     "공문에 없는 내용은 지어내지 말고 빈 값으로 둡니다. 반드시 JSON만 출력합니다."
 )
 
@@ -28,7 +28,6 @@ _ANALYZE_FORMAT = """{
   "deadline": "학교가 제출·회신·완료해야 하는 기한 YYYY-MM-DD. 없으면 빈 문자열",
   "deadline_time": "기한 시각 HH:MM (예: 17:00). 없으면 빈 문자열",
   "summary": ["핵심 내용 한 줄", "최대 3줄"],
-  "todos": ["학교(담당자)가 해야 할 일. 동사로 끝나게. 최대 5개"],
   "needs_reply": true
 }"""
 
@@ -148,7 +147,6 @@ def normalize_analysis(data: dict, today: date = None) -> dict:
         'deadline': normalize_date(text('deadline'), today),
         'deadline_time': normalize_time(text('deadline_time')),
         'summary': _str_list(data.get('summary'), 3),
-        'todos': _str_list(data.get('todos'), 5),
         'needs_reply': bool(needs),
     }
 
@@ -207,15 +205,10 @@ def related_line(a: dict) -> str:
 
 
 def summary_body(a: dict) -> str:
-    """받은 공문 칸의 요약 칸에 보일 글: 핵심 요약 · 기한 · 할 일."""
+    """받은 공문 칸의 요약 칸에 보일 글: 핵심 요약 · 기한."""
     lines = [f'· {x}' for x in a.get('summary', [])]
     if a.get('deadline'):
         lines.append(f"· 기한: {format_korean_date(a['deadline'])} {a.get('deadline_time', '')}".rstrip())
-    if a.get('todos'):
-        if lines:
-            lines.append('')
-        lines.append('할 일')
-        lines += [f'☐ {t}' for t in a['todos']]
     return '\n'.join(lines)
 
 

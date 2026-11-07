@@ -1057,7 +1057,6 @@ class MemoWindow(QMainWindow):
             Command('🌙 다크 모드 켜기/끄기', self._toggle_theme, '', 'dark light theme 테마 어둡게 밝게 설정'),
             Command('🛡️ 개인정보 보호 모드 ' + ('끄기' if privacy_enabled() else '켜기'),
                     self._toggle_privacy_mode, '', 'privacy 보안 마스킹 설정'),
-            Command('🏫 학교 정보 설정', self._open_profile_dialog, '', 'profile school 프로필 담당자 설정'),
             Command('🔑 AI 연결 (API 키)', self._open_ai_settings, '', 'ai api key opencode 오픈코드 claude 클로드 chatgpt 챗지피티 openai 설정'),
             Command('🤖 Claude 연결', self._open_claude_connect, '', 'claude mcp ai 연결 클로드 설정'),
             Command('💡 사용 설명서', self.show_help, '', 'help 도움말'),
@@ -1122,10 +1121,6 @@ class MemoWindow(QMainWindow):
             if not getattr(win, '_memo_mode', True):
                 return win
         return self
-
-    def _open_profile_dialog(self):
-        from ui.profile_dialog import ProfileDialog
-        ProfileDialog(self).exec_()
 
     def _open_ai_settings(self):
         """AI 공문 캡처·공문 초안에 쓸 AI(OpenCode, Claude API 등) 설정 — 공문 작성 창의 AI 설정을 연다."""
@@ -1278,7 +1273,6 @@ class MemoWindow(QMainWindow):
         from school_profile import privacy_enabled
         add(settings, '다크 모드 (다시 켜면 적용)', self._toggle_theme, checked=_gs('theme', _mode) == 'dark')
         add(settings, '개인정보 보호 모드', self._toggle_privacy_mode, checked=privacy_enabled())
-        add(settings, '학교 정보 설정…', self._open_profile_dialog, icon='ph.buildings')
         add(settings, 'AI 연결 (API 키)…', self._open_ai_settings, icon='ph.key')
         add(settings, 'Claude 연결…', self._open_claude_connect, icon='ph.link')
 

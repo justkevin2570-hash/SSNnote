@@ -383,15 +383,6 @@ def _correct_document_format(body: str) -> str:
     return body
 
 
-def _profile_block() -> str:
-    try:
-        from school_profile import prompt_block
-        block = prompt_block()
-        return block + "\n" if block else ''
-    except Exception:
-        return ''
-
-
 class PlainPasteDocEdit(QTextEdit):
     def insertFromMimeData(self, source):
         if not source.hasText():
@@ -781,7 +772,6 @@ class DocumentEditorWindow(QMainWindow):
             f"제목: {title}\n{ref_line}\n"
             f"{rag_context}\n"
             f"{self._received_context()}"
-            f"{_profile_block()}"
             '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
         )
         self._start_ai(prompt, system=system, structured=True)
@@ -998,7 +988,7 @@ class DocumentEditorWindow(QMainWindow):
              '결과가 마음에 안 들면 Ctrl+Z 한 번으로 이전 내용으로 돌아갑니다.'),
             ('fa5s.crop-alt', '공문 캡처',
              'Ctrl+Shift+X나 [공문 캡처]로 받은 공문을 잘라 오면 제목·공문번호는 오른쪽 제목·관련 번호 칸에, '
-             '요약(핵심 내용·기한·할 일)은 왼쪽 칸에 나옵니다. '
+             '요약(핵심 내용·기한)은 왼쪽 칸에 나옵니다. '
              '번호가 안 잡혔으면 그 부분만 한 번 더 캡처하세요 — 같은 공문에 합쳐서 다시 읽습니다. '
              '다른 공문은 왼쪽 [새 공문]. AI 대화·자동 초안도 그 공문을 참고합니다.'),
             ('fa5s.stop-circle', '취소·닫기', 'AI가 쓰는 중에 Esc를 누르면 멈추고 원래 내용으로 되돌립니다. '

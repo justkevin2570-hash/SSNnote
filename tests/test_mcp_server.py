@@ -73,12 +73,10 @@ def test_update_missing_task(srv):
         m.update_task(99999, done=True)
 
 
-def test_document_guide_includes_profile(srv):
+def test_document_guide_format_rules(srv):
     m, _ = srv
-    import school_profile
-    school_profile.save_profile({'school': '서서니고', 'name': '홍길동'})
     g = m.official_document_guide()
-    assert '서서니고' in g['school_profile'] and any('끝.' in r for r in g['format_rules'])
+    assert 'school_profile' not in g and any('끝.' in r for r in g['format_rules'])
 
 
 def test_privacy_mode_masks_views_and_blocks_masked_overwrite(srv):
