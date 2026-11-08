@@ -1,5 +1,6 @@
 """ui/chrome.py — 메모 창 외곽 요소: 가장자리 핸들, 병합 버튼, 제목 표시줄, 스냅 가이드, 긴급 알림 토스트."""
 import os
+import math
 import ctypes
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
@@ -11,7 +12,7 @@ from PyQt5.QtGui import QFont, QColor, QPainter, QPixmap, QCursor
 import qtawesome as qta
 from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR, px
 from .dates import calc_dday
-from .theme import T, tc, tct
+from .theme import T, tc, tct, qcolor
 
 class EdgeHandle(QWidget):
     EDGE  = 6   # 가장자리 감지 두께(px)
@@ -600,152 +601,357 @@ class TitleBar(QWidget):
             self.parent.toggle_shade()
 
 
+# ── 마감 임박 알림 (유주) ─────────────────────────────────────────
+
+def toast_level(task) -> tuple:
+    """알림 줄 하나의 급한 정도와 표시 글자. ('now' | 'soon' | 'later', '2시간 후' 등)
+
+    now   = 몇 시간 안 · 오늘 마감 / soon = D-1·D-2 / later = 그 밖 (D-3~5)
+    """
+    notice = task.get('notice') or ''
+    dday = calc_dday(task.get('deadline', ''))
+    label = notice.replace(' 마감', '') if notice else dday
+    if notice or '시간' in dday or '분' in dday or dday == 'D-day':
+        return 'now', label
+    if dday.startswith('D-'):
+        try:
+            return ('soon' if int(dday[2:]) <= 2 else 'later'), label
+        except ValueError:
+            pass
+    return 'later', label
+
+
+# 급한 정도별 유주 표정 (assets/popup_images/yuju_N.png)
+_YUJU_FOR_LEVEL = {'now': (4,), 'soon': (5,), 'later': (1, 2, 3, 6)}
+_YUJU_LINE = {
+    'now': '곧 마감이에요! 지금 한번 볼까요?',
+    'soon': '마감이 얼마 남지 않았어요.',
+    'later': '이번 주 마감, 미리 챙겨 둬요.',
+}
+_LEVEL_COLORS = {          # (글자, 바탕) — 라이트 기준, 다크는 tc()로 변환
+    'now':   ('#D6452F', '#FDEBE7'),
+    'soon':  ('#C2600C', '#FEF0E1'),
+    'later': ('#8C6D00', '#FAF2D3'),
+}
+_LEVEL_RANK = {'now': 0, 'soon': 1, 'later': 2}
+
+
+def _ease_out_cubic(x):
+    return 1 - (1 - x) ** 3
+
+
+def _ease_in_cubic(x):
+    return x ** 3
+
+
+def _ease_out_back(x, s=1.9):
+    x -= 1
+    return 1 + (s + 1) * x ** 3 + s * x ** 2
+
+
 class UrgentToast(QWidget):
-    """마감 임박 태스크를 우하단에 10초간 표시하는 토스트 팝업."""
+    """마감 임박 업무를 화면 오른쪽 아래에 잠시 보여주는 알림. 유주가 카드 위로 고개를 내민다.
+
+    움직임: 카드가 아래에서 살며시 올라오고, 유주가 카드 뒤에서 통 튀어 오른 뒤 가볍게 숨쉬듯 흔들린다.
+    마우스를 올리면 멈춰 기다리고(아래 시간 막대도 멈춤), 클릭하거나 ×를 누르면 내려가며 사라진다.
+    급함 표시 설정에서 움직임을 끄면 흔들림 없이 나타나고 사라지기만 한다.
+    """
+
+    SHOW_SECONDS = 10.0
+    MAX_ROWS = 4
 
     def __init__(self, tasks):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
-
-        self.setStyleSheet(f"""
-            QWidget#toast {{
-                background: {tc("#fff0e6")};
-            }}
-            QLabel {{ background: transparent; border: none; }}
-        """)
-        self.setObjectName('toast')
-
-        # 팝업 이미지 로드 (assets/popup_images/ 폴더에서 랜덤 선택)
-        import random as _random
-        _base = _base_path()
-        _popup_dir = os.path.join(_base, 'assets', 'popup_images')
-        _exts = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
-        _candidates = sorted([
-            os.path.join(_popup_dir, f)
-            for f in os.listdir(_popup_dir)
-            if os.path.splitext(f)[1].lower() in _exts
-        ]) if os.path.isdir(_popup_dir) else []
-        _yuju_path = _random.choice(_candidates) if _candidates else None
-        face_pix = None
-        try:
-            if not _yuju_path:
-                raise FileNotFoundError
-            from PIL import Image, ImageEnhance
-            import io
-            _pil = Image.open(_yuju_path).convert('RGBA')
-            face_h_px = int(_pil.height * 0.72)
-            _pil = _pil.crop((0, 0, _pil.width, face_h_px))
-            _pil = ImageEnhance.Brightness(_pil).enhance(1.2)
-            _pil = ImageEnhance.Color(_pil).enhance(1.1)
-            buf = io.BytesIO()
-            _pil.save(buf, format='PNG')
-            _yuju_pix = QPixmap()
-            _yuju_pix.loadFromData(buf.getvalue())
-            face_pix = _yuju_pix.scaledToHeight(130, Qt.SmoothTransformation)
-        except Exception:
-            if _yuju_path:
-                _yuju_pix = QPixmap(_yuju_path)
-                if not _yuju_pix.isNull():
-                    face_h = int(_yuju_pix.height() * 0.72)
-                    _tmp = _yuju_pix.copy(0, 0, _yuju_pix.width(), face_h)
-                    face_pix = _tmp.scaledToHeight(130, Qt.SmoothTransformation)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(27, 18, 27, 22)
-        layout.setSpacing(11)
-
-        header_row = QHBoxLayout()
-        header_row.setSpacing(9)
-        header = QLabel('마감 임박')
-        header.setFont(QFont('Malgun Gothic', 16, QFont.Bold))
-        header.setStyleSheet(f'color: {tct("#7a3000")};')
-        header_row.addWidget(header)
-        header_row.addStretch()
-        layout.addLayout(header_row)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet(f'background: {tc("#e8a070")}; max-height: 2px; border: none;')
-        layout.addWidget(sep)
-
-        for task in tasks:
-            dday = task.get('notice') or calc_dday(task['deadline'])
-            name = task['name']
-            if len(name) > 30:
-                name = name[:29] + '…'
-            row = QLabel(f'• {name}  <b>{dday}</b>')
-            row.setFont(QFont('Malgun Gothic', 14))
-            row.setStyleSheet(f'color: {tct("#3a2000")};')
-            layout.addWidget(row)
-
-        self.setMinimumWidth(300)
-        self.adjustSize()
-        screen = QApplication.primaryScreen().availableGeometry()
-        tx = screen.right() - self.width() - 24
-        ty = screen.bottom() - self.height() - 52
-        self.move(tx, ty)
-
-        # 유자 이미지: 팝업 우상단 밖으로 튀어나오는 별도 위젯
-        self._face_widget = None
-        if face_pix:
-            fw = QLabel(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-            fw.setAttribute(Qt.WA_TranslucentBackground)
-            fw.setAttribute(Qt.WA_ShowWithoutActivating)
-            fw.setPixmap(face_pix)
-            fw.setStyleSheet('background: transparent; border: none;')
-            fw.resize(face_pix.size())
-            # 팝업 가로 3/4 지점, 이미지 절반이 위로 튀어나오도록 배치
-            fw.move(tx + self.width() * 3 // 4 - face_pix.width() // 2,
-                    ty - face_pix.height() // 2)
-            fw.show()
-            fw.setCursor(Qt.PointingHandCursor)
-            fw.mousePressEvent = lambda e: self._click_fade()
-            self._face_widget = fw
-            # 토스트가 show()된 뒤 이미지 위젯을 맨 앞으로
-            QTimer.singleShot(0, fw.raise_)
-
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setMouseTracking(True)
         self.setCursor(Qt.PointingHandCursor)
 
-        # 10초 후 페이드 아웃
-        self._anim = QPropertyAnimation(self, b'windowOpacity')
-        self._anim.setDuration(600)
-        self._anim.setStartValue(1.0)
-        self._anim.setEndValue(0.0)
-        self._anim.setEasingCurve(QEasingCurve.InQuad)
-        self._anim.finished.connect(self._on_fade_done)
-        self._fade_timer = QTimer(self)
-        self._fade_timer.setSingleShot(True)
-        self._fade_timer.timeout.connect(self._anim.start)
-        self._fade_timer.start(10000)
+        from .common import pr_font
+        rows = sorted(((toast_level(t), t) for t in tasks), key=lambda x: _LEVEL_RANK[x[0][0]])
+        self._rows = [(lvl, label, t.get('name', '')) for (lvl, label), t in rows]
+        self._level = self._rows[0][0] if self._rows else 'later'
+        self._more = max(0, len(self._rows) - self.MAX_ROWS)
+        self._rows = self._rows[:self.MAX_ROWS]
 
-    def _on_fade_done(self):
-        if self._face_widget:
-            self._face_widget.close()
-        self.close()
+        try:
+            from . import motion
+            self._moving = motion.load()['enabled']
+        except Exception:
+            self._moving = True
 
-    def _click_fade(self):
-        self._fade_timer.stop()
-        self._anim.stop()
-        self._anim.setDuration(600)
-        self._anim.setStartValue(self.windowOpacity())
-        self._anim.start()
+        # ── 글꼴 ──
+        self._f_title = pr_font(12); self._f_title.setWeight(QFont.Bold)
+        self._f_line = pr_font(9)
+        self._f_row = pr_font(10)
+        self._f_chip = pr_font(9); self._f_chip.setWeight(QFont.DemiBold)
+        self._f_more = pr_font(9)
 
-    def paintEvent(self, event):
-        from PyQt5.QtGui import QPainter, QColor
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, False)
-        pen = painter.pen()
-        pen.setColor(QColor(tc('#d4637a')))
-        pen.setWidth(5)
-        painter.setPen(pen)
-        painter.setBrush(Qt.NoBrush)
-        # 안쪽으로 2px 들어와서 테두리가 잘리지 않게
-        painter.drawRect(2, 2, self.width() - 4, self.height() - 4)
-        painter.end()
+        # ── 치수 (글꼴 배율 반영) ──
+        self._shadow = px(18)                 # 그림자 여백
+        self._peek = px(36)                   # 유주 머리가 카드 위로 나오는 높이
+        self._overhang = self._peek + px(4)
+        self._radius = px(16)
+        self._char_col = px(104)              # 왼쪽 유주 자리
+        self._pad = px(16)
+        self._row_h = px(30)
+        card_w = px(340)
+        card_h = (self._pad + px(22) + px(18) + px(10) + self._row_h * len(self._rows)
+                  + (px(20) if self._more else 0) + px(14))
+        card_h = max(card_h, px(112))
+        s = self._shadow
+        self.resize(card_w + 2 * s, card_h + s * 2 + self._overhang)
+        self._card = QRectF(s, s + self._overhang, card_w, card_h)
+
+        # ── 유주 ──
+        self._yuju = self._load_yuju(self._level, max_w=self._char_col - px(8), max_h=px(150))
+
+        # ── 위치: 오른쪽 아래 ──
+        screen = QApplication.primaryScreen().availableGeometry()
+        self._base = QPoint(screen.right() - self.width() + s - px(14),
+                            screen.bottom() - self.height() + s - px(14))
+        self.move(self._base.x(), self._base.y() + px(16))
+        self.setWindowOpacity(0.0)
+
+        # ── 시간 ──
+        import time as _time
+        self._now = _time.monotonic
+        self._t0 = None
+        self._leave_t = None
+        self._shown_for = 0.0                 # 마우스가 올라가 있지 않은 동안 흐른 시간
+        self._last = None
+        self._hover = False
+        self._hover_close = False
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._tick)
+        # 그리는 값
+        self._yuju_dy = 0.0
+        self._yuju_angle = 0.0
+
+    # ── 준비 ──
+    @staticmethod
+    def _load_yuju(level, max_w, max_h):
+        import random as _random
+        folder = os.path.join(_base_path(), 'assets', 'popup_images')
+        choices = [os.path.join(folder, f'yuju_{n}.png') for n in _YUJU_FOR_LEVEL.get(level, ())]
+        choices = [p for p in choices if os.path.exists(p)]
+        if not choices and os.path.isdir(folder):
+            choices = [os.path.join(folder, f) for f in sorted(os.listdir(folder)) if f.lower().endswith('.png')]
+        if not choices:
+            return None
+        pix = QPixmap(_random.choice(choices))
+        if pix.isNull():
+            return None
+        dpr = QApplication.primaryScreen().devicePixelRatio() if QApplication.primaryScreen() else 1.0
+        height = min(max_h, max_w * pix.height() / pix.width())   # 유주 자리 폭을 넘지 않게
+        pix = pix.scaledToHeight(int(height * dpr), Qt.SmoothTransformation)
+        pix.setDevicePixelRatio(dpr)
+        return pix
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._t0 is None:
+            self._t0 = self._last = self._now()
+            self._timer.start()
+
+    # ── 움직임 ──
+    def _tick(self):
+        now = self._now()
+        t = now - self._t0
+        if not self._hover and self._leave_t is None:
+            self._shown_for += now - self._last
+        self._last = now
+
+        # 들어오기: 살며시 올라오며 나타남
+        e = _ease_out_cubic(min(1.0, t / 0.38))
+        dy = (1 - e) * px(16)
+        opacity = e
+        # 유주: 카드 뒤에서 통 튀어 오름 → 가볍게 숨쉬기
+        p = max(0.0, min(1.0, (t - 0.12) / 0.6))
+        pop = _ease_out_back(p) if self._moving else _ease_out_cubic(p)
+        yuju_h = self._yuju.height() / self._yuju.devicePixelRatio() if self._yuju else 0
+        self._yuju_dy = (1 - pop) * yuju_h * 0.6
+        self._yuju_angle = 0.0
+        if self._moving and p >= 1.0:
+            idle = t - 0.72
+            self._yuju_dy += math.sin(2 * math.pi * idle / 2.8) * px(2)
+            self._yuju_angle = math.sin(2 * math.pi * idle / 3.6) * 1.8
+            if self._level == 'now' and idle < 0.9:          # 급할 땐 처음에 한 번 꼼지락
+                self._yuju_angle += math.sin(idle * 2 * math.pi * 2.2) * 7 * (1 - idle / 0.9)
+
+        if self._leave_t is None and self._shown_for >= self.SHOW_SECONDS:
+            self.dismiss()
+        if self._leave_t is not None:
+            l = _ease_in_cubic(min(1.0, (now - self._leave_t) / 0.24))
+            opacity = min(opacity, 1 - l)
+            dy += l * px(12)
+            self._yuju_dy += l * px(18)
+            if l >= 1.0:
+                self._timer.stop()
+                self.close()
+                return
+        self.setWindowOpacity(opacity)
+        self.move(self._base.x(), self._base.y() + int(round(dy)))
+        self.update()
+
+    def dismiss(self):
+        if self._leave_t is None:
+            self._leave_t = self._now()
+
+    # ── 마우스 ──
+    def _close_rect(self):
+        c = self._card
+        size = px(22)
+        return QRectF(c.right() - self._pad + px(4) - size, c.top() + px(12), size, size)
+
+    def enterEvent(self, event):
+        self._hover = True
+        self.update()
+
+    def leaveEvent(self, event):
+        self._hover = False
+        self._hover_close = False
+        self.update()
+
+    def mouseMoveEvent(self, event):
+        over = self._close_rect().adjusted(-4, -4, 4, 4).contains(event.pos())
+        if over != self._hover_close:
+            self._hover_close = over
+            self.update()
 
     def mousePressEvent(self, event):
-        self._click_fade()
+        self.dismiss()
+
+    # ── 그리기 ──
+    def paintEvent(self, event):
+        from PyQt5.QtGui import QPainterPath, QPen
+        from PyQt5.QtCore import QPointF
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        c, r = self._card, self._radius
+        fg, soft = (tc(x) for x in _LEVEL_COLORS[self._level])
+
+        # 그림자 (겹겹이 옅게)
+        p.setPen(Qt.NoPen)
+        steps = 9
+        for i in range(steps, 0, -1):
+            grow = self._shadow * i / steps
+            alpha = int(16 * (1 - i / (steps + 1)) ** 1.6) + 1
+            p.setBrush(qcolor('#3a2a10', alpha) if not _dark() else QColor(0, 0, 0, alpha * 3))
+            p.drawRoundedRect(c.adjusted(-grow * 0.7, -grow * 0.4, grow * 0.7, grow * 1.0), r + grow, r + grow)
+
+        # 카드
+        card_path = QPainterPath()
+        card_path.addRoundedRect(c, r, r)
+        p.setBrush(QColor(tc('#ffffff')))
+        p.setPen(QPen(QColor(tc('#ece5da') if not self._hover else tc('#e2d6c4')), 1))
+        p.drawPath(card_path)
+
+        col = QRectF(c.left(), c.top(), self._char_col, c.height())
+
+        # 유주 (카드 위로 고개만 내밀고, 아래는 카드 밖으로 안 나가게)
+        if self._yuju:
+            clip = QPainterPath(card_path)
+            top = QPainterPath()
+            top.addRect(QRectF(c.left(), 0, c.width(), c.top() + r))
+            clip = clip.united(top)
+            p.save()
+            p.setClipPath(clip)
+            w = self._yuju.width() / self._yuju.devicePixelRatio()
+            h = self._yuju.height() / self._yuju.devicePixelRatio()
+            # 머리 꼭대기가 카드 위로 _peek만큼. 몸 가운데를 축으로 살짝 흔들림
+            pivot = QPointF(col.center().x() + px(2), c.top() - self._peek + h * 0.62 + self._yuju_dy)
+            p.translate(pivot)
+            p.rotate(self._yuju_angle)
+            p.drawPixmap(QRectF(-w / 2, -h * 0.62, w, h), self._yuju, QRectF(self._yuju.rect()))
+            p.restore()
+
+        # 글자 영역
+        x0 = c.left() + self._char_col + px(6)
+        x1 = c.right() - self._pad
+        y = c.top() + self._pad
+
+        # 제목 줄: ● 마감 임박  n건            ×
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(fg))
+        p.drawEllipse(QPointF(x0 + px(4), y + px(11)), px(4), px(4))
+        p.setFont(self._f_title)
+        p.setPen(QColor(tct('#1f1a14')))
+        title_rect = QRectF(x0 + px(14), y, x1 - x0, px(22))
+        p.drawText(title_rect, Qt.AlignLeft | Qt.AlignVCenter, '마감 임박')
+        tw = p.fontMetrics().horizontalAdvance('마감 임박')
+        p.setFont(self._f_line)
+        p.setPen(QColor(tct('#9a8f82')))
+        total = len(self._rows) + self._more
+        p.drawText(QRectF(title_rect.left() + tw + px(6), y, px(60), px(22)),
+                   Qt.AlignLeft | Qt.AlignVCenter, f'{total}건')
+
+        cr = self._close_rect()
+        if self._hover_close:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(tc('#f3eee7')))
+            p.drawEllipse(cr)
+        pen = QPen(QColor(tct('#6d6358') if self._hover_close else tct('#b3a99c')), 1.6)
+        pen.setCapStyle(Qt.RoundCap)
+        p.setPen(pen)
+        k = cr.width() * 0.22
+        ctr = cr.center()
+        p.drawLine(QPointF(ctr.x() - k, ctr.y() - k), QPointF(ctr.x() + k, ctr.y() + k))
+        p.drawLine(QPointF(ctr.x() + k, ctr.y() - k), QPointF(ctr.x() - k, ctr.y() + k))
+        y += px(22)
+
+        # 유주 한마디
+        p.setFont(self._f_line)
+        p.setPen(QColor(tct('#8a7f73')))
+        p.drawText(QRectF(x0, y, x1 - x0, px(18)), Qt.AlignLeft | Qt.AlignVCenter, _YUJU_LINE[self._level])
+        y += px(18) + px(10)
+
+        # 업무 줄: 이름 ……… [D-day]
+        for lvl, label, name in self._rows:
+            lfg, lsoft = (tc(x) for x in _LEVEL_COLORS[lvl])
+            p.setFont(self._f_chip)
+            fm = p.fontMetrics()
+            chip_w = fm.horizontalAdvance(label) + px(14)
+            chip_h = px(20)
+            chip = QRectF(x1 - chip_w, y + (self._row_h - chip_h) / 2, chip_w, chip_h)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(lsoft))
+            p.drawRoundedRect(chip, chip_h / 2, chip_h / 2)
+            p.setPen(QColor(lfg))
+            p.drawText(chip, Qt.AlignCenter, label)
+            p.setFont(self._f_row)
+            fm = p.fontMetrics()
+            name_w = chip.left() - x0 - px(10)
+            p.setPen(QColor(tct('#2b241c')))
+            p.drawText(QRectF(x0, y, name_w, self._row_h), Qt.AlignLeft | Qt.AlignVCenter,
+                       fm.elidedText(name, Qt.ElideRight, int(name_w)))
+            y += self._row_h
+        if self._more:
+            p.setFont(self._f_more)
+            p.setPen(QColor(tct('#9a8f82')))
+            p.drawText(QRectF(x0, y, x1 - x0, px(20)), Qt.AlignLeft | Qt.AlignVCenter, f'외 {self._more}건 더')
+
+        # 남은 시간 막대 (카드 아래 가장자리, 마우스를 올리면 멈춤)
+        remain = max(0.0, 1 - self._shown_for / self.SHOW_SECONDS)
+        if remain > 0:
+            p.save()
+            p.setClipPath(card_path)
+            bar = QColor(fg)
+            bar.setAlpha(110 if self._hover else 70)
+            p.setPen(Qt.NoPen)
+            p.setBrush(bar)
+            left = c.left() + self._char_col
+            p.drawRect(QRectF(left, c.bottom() - px(3), (c.right() - left) * remain, px(3)))
+            p.restore()
+        p.end()
+
+
+def _dark() -> bool:
+    from .theme import DARK
+    return DARK
 
 
 class SnapGuideOverlay(QWidget):
