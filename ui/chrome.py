@@ -700,7 +700,7 @@ class UrgentToast(QWidget):
         s = self._shadow
         # 유주: 카드 상단 바깥쪽에 서 있으므로, 창 위쪽 여백을 유주 키만큼 잡는다
         self._yuju = self._load_yuju(self._level, max_w=px(150), max_h=px(140))
-        self._overhang = int(self._yuju_h())
+        self._overhang = int(self._yuju_h() * 2 / 3) + px(4)     # 유주는 키의 2/3까지만 카드 위로 나온다
         self.resize(card_w + 2 * s, card_h + s * 2 + self._overhang)
         self._card = QRectF(s, s + self._overhang, card_w, card_h)
 
@@ -846,6 +846,19 @@ class UrgentToast(QWidget):
             p.setBrush(qcolor('#3a2a10', alpha) if not _dark() else QColor(0, 0, 0, alpha * 3))
             p.drawRoundedRect(c.adjusted(-grow * 0.7, -grow * 0.4, grow * 0.7, grow * 1.0), r + grow, r + grow)
 
+        # 유주: 카드 뒤에 있다가 위쪽 2/3만 글상자 위로 나옴 (카드가 아랫부분을 가림)
+        if self._yuju:
+            dpr = self._yuju.devicePixelRatio()
+            w = self._yuju.width() / dpr
+            h = self._yuju.height() / dpr
+            p.save()
+            cx = c.right() - px(30) - w / 2                  # 오른쪽 가장자리에서 적당히 떼어 놓기
+            foot = QPointF(cx, c.top() + h / 3 + self._yuju_dy)
+            p.translate(foot)
+            p.rotate(self._yuju_angle)
+            p.drawPixmap(QRectF(-w / 2, -h, w, h), self._yuju, QRectF(self._yuju.rect()))
+            p.restore()
+
         # 카드
         card_path = QPainterPath()
         card_path.addRoundedRect(c, r, r)
@@ -919,18 +932,6 @@ class UrgentToast(QWidget):
             p.setFont(self._f_more)
             p.setPen(QColor(tct('#9a8f82')))
             p.drawText(QRectF(x0, y, x1 - x0, px(20)), Qt.AlignLeft | Qt.AlignVCenter, f'외 {self._more}건 더')
-
-        # 유주: 카드 상단 바깥쪽에 서 있음. 앞 층이라 글자 위에 그려지지만, 글자 자리(카드 안 위쪽 여백)와는 겹치지 않음
-        if self._yuju:
-            dpr = self._yuju.devicePixelRatio()
-            w = self._yuju.width() / dpr
-            h = self._yuju.height() / dpr
-            p.save()
-            foot = QPointF(c.center().x() + px(2), c.top() + px(4) + self._yuju_dy)
-            p.translate(foot)
-            p.rotate(self._yuju_angle)
-            p.drawPixmap(QRectF(-w / 2, -h, w, h), self._yuju, QRectF(self._yuju.rect()))
-            p.restore()
 
         # 남은 시간 막대 (카드 아래 가장자리, 마우스를 올리면 멈춤)
         remain = max(0.0, 1 - self._shown_for / self.SHOW_SECONDS)
