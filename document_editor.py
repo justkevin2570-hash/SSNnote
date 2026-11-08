@@ -126,6 +126,9 @@ _STYLE_TEMPLATE = f"""
     }}
     QPushButton#DraftButton:hover {{ background: #E3E6FC; border-color: {C.FOCUS}; }}
     QPushButton#DraftButton:disabled {{ background: {C.SURFACE}; border-color: {C.BORDER}; color: {C.FAINT}; }}
+    QPushButton#TypeChip {{ padding: 0 10px; text-align: left; font-weight: 600; color: {C.TEXT}; }}
+    QPushButton#TypeChip[guess="true"] {{ color: {C.FAINT}; font-weight: 500; }}
+    QPushButton#TypeChip[manual="true"] {{ border-color: {C.ACCENT_LINE}; color: {C.ACCENT}; }}
     QPushButton#SaveButton, QPushButton#Primary {{
         background: {C.ACCENT}; border: 1px solid {C.ACCENT}; color: white; font-weight: 700;
     }}
@@ -203,6 +206,11 @@ _DOC_TYPE_LABELS = {
     'purchase':         '품의/지출',
     'general':          '일반 계획/운영',
 }
+
+
+# 공문 종류 고르기 메뉴에 보일 순서
+_DOC_TYPE_ORDER = ('general', 'result_report', 'submit', 'purchase',
+                   'home_letter', 'recruit_announce', 'recruit_result')
 
 
 def _detect_doc_type(title: str) -> str:
@@ -602,9 +610,10 @@ class DocumentEditorWindow(QMainWindow):
         self.title_input.setFixedHeight(_input_h)
         self.title_input.setPlaceholderText("공문 제목  (예: 2026학년도 교무회의 운영 계획)")
         self.title_input.textChanged.connect(self._update_draft_button)
+        self.title_input.textChanged.connect(self._on_title_changed)
         self.title_input.returnPressed.connect(self._try_generate_draft)
         grid.addWidget(field_label('제목'), 0, 0)
-        grid.addWidget(self.title_input, 0, 1, 1, 5)
+        grid.addWidget(self.title_input, 0, 1, 1, 6)
 
         self.ref_input = QLineEdit()
         self.ref_input.setFixedHeight(_input_h)
@@ -636,12 +645,23 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_draft.setFixedHeight(_input_h)
         self.btn_draft.setToolTip('제목에 맞는 공문 뼈대를 넣고, AI가 켜져 있으면 내용까지 채웁니다 (Enter)')
         self.btn_draft.clicked.connect(self.generate_draft)
+        # 공문 종류: 제목을 칠 때마다 자동으로 바뀌고, 눌러서 직접 고를 수도 있다
+        self._doc_type_manual = None      # 직접 고른 종류 (None = 제목으로 자동 판별)
+        self.btn_doc_type = QPushButton()
+        self.btn_doc_type.setObjectName('TypeChip')
+        self.btn_doc_type.setFixedHeight(_input_h)
+        self.btn_doc_type.setCursor(Qt.PointingHandCursor)
+        self.btn_doc_type.ensurePolished()
+        self.btn_doc_type.setFixedWidth(
+            max(self.btn_doc_type.fontMetrics().horizontalAdvance(f'{v}  ▾') for v in _DOC_TYPE_LABELS.values()) + 26)
+        self.btn_doc_type.clicked.connect(self._show_doc_type_menu)
         grid.addWidget(field_label('관련 번호'), 1, 0)
         grid.addWidget(self.ref_input, 1, 1)
         grid.addWidget(self.btn_move_to_title, 1, 2)
         grid.addWidget(lbl_attach, 1, 3)
         grid.addWidget(self.spin_attach, 1, 4)
-        grid.addWidget(self.btn_draft, 1, 5)
+        grid.addWidget(self.btn_doc_type, 1, 5)
+        grid.addWidget(self.btn_draft, 1, 6)
         grid.setColumnStretch(1, 1)
         layout.addWidget(card)
 
@@ -720,6 +740,7 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().showMessage("준비 완료")
         self._apply_ai_mode()
         self._update_draft_button()  # 초기 상태: 빈칸이면 비활성
+        self._update_doc_type_chip()
         self._apply_editor_line_height()
 
     # ── AI 초안 생성 ──
@@ -729,18 +750,28 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage("제목을 먼저 입력하세요.")
             return
 
-        doc_type   = _detect_doc_type(title)
+        doc_type   = self._current_doc_type()
         type_label = _DOC_TYPE_LABELS.get(doc_type, '일반 계획/운영')
         ref        = self.ref_input.text().strip()
         template   = _get_template(title, doc_type, ref, self.spin_attach.value())
         mode       = load_ai_mode()
 
-        # 1단계: 뼈대 템플릿 즉시 삽입 (AI 없이도 바로 사용 가능)
-        self.editor.setPlainText(template)
-        self._apply_editor_line_height()
+        # 본문에 직접 쓴 글이 있으면 바꾸기 전에 물어본다 (방금 만든 초안 그대로면 묻지 않음)
+        current = self.editor.toPlainText()
+        if current.strip() and current != getattr(self, '_last_draft', None):
+            ans = QMessageBox.question(
+                self, '자동 초안',
+                f'본문에 쓴 내용을 새 「{type_label}」 초안으로 바꿀까요?\n'
+                '바꾼 뒤에도 Ctrl+Z를 누르면 지금 내용으로 돌아옵니다.',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if ans != QMessageBox.Yes:
+                return
 
+        # 1단계: 뼈대 템플릿 (AI 없이도 바로 사용 가능) — Ctrl+Z 한 번이면 원래 글로
         if mode == 'none':
-            self.statusBar().showMessage(f'템플릿 삽입 완료 — {type_label}')
+            self._replace_body(template)
+            self._last_draft = self.editor.toPlainText()
+            self.statusBar().showMessage(f'템플릿 삽입 완료 — {type_label} (Ctrl+Z: 이전 내용)')
             return
 
         # 2단계: AI가 빈칸 채우기
@@ -774,7 +805,7 @@ class DocumentEditorWindow(QMainWindow):
             f"{self._received_context()}"
             '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
         )
-        self._start_ai(prompt, system=system, structured=True)
+        self._start_ai(prompt, system=system, structured=True, fallback=template)
 
     # ── AI 입력창 Enter 키 → 전송 ──
     def eventFilter(self, obj, event):
@@ -822,9 +853,11 @@ class DocumentEditorWindow(QMainWindow):
     # ── 공통 AI 실행 ──
     # AI가 쓰는 동안 원래 내용을 보관한다. 오류·빈 답·취소면 원래 내용으로 되돌리고,
     # 성공하면 결과를 '되돌리기(Ctrl+Z) 한 번'으로 원래 내용에 돌아갈 수 있게 넣는다.
-    def _start_ai(self, prompt, system=None, structured=False):
+    def _start_ai(self, prompt, system=None, structured=False, fallback=None):
+        """fallback: AI가 실패·취소되면 원래 내용 대신 넣을 글 (자동 초안의 뼈대). Ctrl+Z로 원래 내용."""
         if self.ai_thread and self.ai_thread.isRunning():
             return
+        self._ai_fallback = fallback
 
         self.statusBar().showMessage("AI가 생각 중..." if not structured else "AI가 공문을 작성 중...")
         self._set_controls_enabled(False)
@@ -853,12 +886,38 @@ class DocumentEditorWindow(QMainWindow):
         self.editor.setTextCursor(cursor)
 
     def _restore_before_ai(self):
-        """AI가 쓰기 전 내용으로 되돌린다."""
+        """AI가 쓰기 전 내용으로 되돌린다. 자동 초안이었으면 뼈대를 넣는다 (Ctrl+Z: 원래 내용).
+        뼈대를 넣었으면 True."""
         self.editor.blockSignals(True)
         self.editor.setPlainText(getattr(self, '_before_ai', ''))
         self.editor.blockSignals(False)
         self._apply_editor_line_height()
         self.editor.setUndoRedoEnabled(True)
+        fallback = getattr(self, '_ai_fallback', None)
+        if fallback:
+            self._replace_body(fallback)
+            self._last_draft = self.editor.toPlainText()
+            return True
+        return False
+
+    def _replace_body(self, text):
+        """본문을 text로 통째로 바꾼다 — 한 번의 편집이라 Ctrl+Z 한 번이면 이전 내용으로."""
+        from PyQt5.QtGui import QTextBlockFormat
+        cursor = self.editor.textCursor()
+        self._bulk_edit = True
+        try:
+            cursor.beginEditBlock()
+            cursor.select(QTextCursor.Document)
+            cursor.insertText(text)
+            cursor.select(QTextCursor.Document)                   # 줄간격도 같은 편집 안에서 (되돌리기 1번)
+            fmt = QTextBlockFormat()
+            fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
+            cursor.mergeBlockFormat(fmt)
+            cursor.endEditBlock()
+        finally:
+            self._bulk_edit = False
+        cursor.movePosition(QTextCursor.End)
+        self.editor.setTextCursor(cursor)
 
     def _on_finished(self, _, gen=None):
         if not self._is_current_ai(gen):
@@ -866,26 +925,19 @@ class DocumentEditorWindow(QMainWindow):
         self._ai_gen = getattr(self, '_ai_gen', 0) + 1          # 이 요청은 끝 — 이후 신호 무시
         raw = self.editor.toPlainText()
         if not raw.strip():
-            self._restore_before_ai()
-            self.statusBar().showMessage("AI가 빈 답을 보냈습니다 — 원래 내용을 그대로 두었습니다. 다시 시도해 주세요.")
+            if self._restore_before_ai():
+                self.statusBar().showMessage("AI가 빈 답을 보냈습니다 — 뼈대만 넣었습니다. 다시 시도해 주세요.")
+            else:
+                self.statusBar().showMessage("AI가 빈 답을 보냈습니다 — 원래 내용을 그대로 두었습니다. 다시 시도해 주세요.")
             self._set_controls_enabled(True)
             return
         # AI 응답 후 공문 규정 자동 보정
         corrected = _correct_document_format(raw)
         # 원래 내용 → (한 번의 편집으로) 새 내용: Ctrl+Z 한 번이면 원래 내용으로 돌아감
+        self._ai_fallback = None
         self._restore_before_ai()
-        cursor = self.editor.textCursor()
-        cursor.beginEditBlock()
-        cursor.select(QTextCursor.Document)
-        cursor.insertText(corrected)
-        cursor.select(QTextCursor.Document)                       # 줄간격도 같은 편집 안에서 (되돌리기 1번)
-        from PyQt5.QtGui import QTextBlockFormat
-        fmt = QTextBlockFormat()
-        fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
-        cursor.mergeBlockFormat(fmt)
-        cursor.endEditBlock()
-        cursor.movePosition(QTextCursor.End)
-        self.editor.setTextCursor(cursor)
+        self._replace_body(corrected)
+        self._last_draft = self.editor.toPlainText()
         masked = getattr(self.ai_thread, 'masked_counts', None) or {}
         if masked:
             from privacy import describe
@@ -899,8 +951,10 @@ class DocumentEditorWindow(QMainWindow):
         if not self._is_current_ai(gen):
             return
         self._ai_gen = getattr(self, '_ai_gen', 0) + 1
-        self._restore_before_ai()
-        self.statusBar().showMessage(f"오류: {msg} — 원래 내용으로 되돌렸습니다.")
+        if self._restore_before_ai():
+            self.statusBar().showMessage(f"오류: {msg} — 뼈대만 넣었습니다. (Ctrl+Z: 이전 내용)")
+        else:
+            self.statusBar().showMessage(f"오류: {msg} — 원래 내용으로 되돌렸습니다.")
         self._set_controls_enabled(True)
 
     def _set_controls_enabled(self, enabled):
@@ -914,10 +968,58 @@ class DocumentEditorWindow(QMainWindow):
             self.btn_draft.setEnabled(False)  # AI 실행 중엔 무조건 비활성
 
     def _update_draft_button(self):
-        """제목·관련번호 입력 여부로 버튼 활성화. AI 모드에 따라 텍스트 변경."""
-        has_input = bool(self.title_input.text().strip() or self.ref_input.text().strip())
-        self.btn_draft.setEnabled(has_input)
+        """제목이 있어야 초안을 만들 수 있다 (관련 번호만으로는 만들 수 없음)."""
+        self.btn_draft.setEnabled(bool(self.title_input.text().strip()))
         self.btn_draft.setText('자동 초안 생성')
+        self.btn_draft.setToolTip('제목에 맞는 공문 뼈대를 넣고, AI가 켜져 있으면 내용까지 채웁니다 (Enter)'
+                                  if self.title_input.text().strip() else '제목을 먼저 입력하세요')
+
+    # ── 공문 종류 ──
+    def _current_doc_type(self) -> str:
+        return self._doc_type_manual or _detect_doc_type(self.title_input.text())
+
+    def _on_title_changed(self, text):
+        if not text.strip():
+            self._doc_type_manual = None   # 제목을 비우면(새 공문) 다시 자동 판별
+        self._update_doc_type_chip()
+
+    def _update_doc_type_chip(self):
+        doc_type = self._current_doc_type()
+        manual = self._doc_type_manual is not None
+        # 아무 키워드도 안 맞아 '일반'으로 간 경우는 흐리게 — 추측한 것
+        guess = not manual and doc_type == 'general'
+        self.btn_doc_type.setText(f"{_DOC_TYPE_LABELS[doc_type]}  ▾")
+        if manual:
+            tip = '직접 고른 공문 종류 — 눌러서 바꾸거나 [자동]으로 되돌리기'
+        elif guess:
+            tip = '제목에서 종류를 못 찾아 일반 계획/운영으로 만듭니다 — 눌러서 바꾸기'
+        else:
+            tip = '제목으로 판별한 공문 종류 — 눌러서 바꾸기'
+        self.btn_doc_type.setToolTip(tip)
+        for name, val in (('manual', manual), ('guess', guess)):
+            self.btn_doc_type.setProperty(name, 'true' if val else 'false')
+        self.btn_doc_type.style().unpolish(self.btn_doc_type)
+        self.btn_doc_type.style().polish(self.btn_doc_type)
+
+    def _show_doc_type_menu(self):
+        from PyQt5.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.setStyleSheet(_style())
+        auto_type = _detect_doc_type(self.title_input.text())
+        manual = self._doc_type_manual
+
+        def mark(on):
+            return '✓  ' if on else '     '
+        act_auto = menu.addAction(f"{mark(manual is None)}자동 — 제목으로 판별 ({_DOC_TYPE_LABELS[auto_type]})")
+        menu.addSeparator()
+        actions = {}
+        for key in _DOC_TYPE_ORDER:
+            actions[menu.addAction(f"{mark(manual == key)}{_DOC_TYPE_LABELS[key]}")] = key
+        chosen = menu.exec_(self.btn_doc_type.mapToGlobal(self.btn_doc_type.rect().bottomLeft()))
+        if chosen is None:
+            return
+        self._doc_type_manual = None if chosen is act_auto else actions[chosen]
+        self._update_doc_type_chip()
 
     def _try_generate_draft(self):
         """Enter 키 → 버튼 활성 상태일 때만 초안 생성."""
@@ -981,8 +1083,9 @@ class DocumentEditorWindow(QMainWindow):
 
         items = [
             ('fa5s.magic', '자동 초안',
-             '제목(또는 관련 번호)을 넣고 Enter나 [자동 초안]을 누르면 공문 뼈대가 들어가고, '
-             'AI가 연결되어 있으면 내용까지 채웁니다.'),
+             '제목을 넣고 Enter나 [자동 초안]을 누르면 공문 뼈대가 들어가고, '
+             'AI가 연결되어 있으면 내용까지 채웁니다. 공문 종류는 제목으로 정해져 버튼 옆에 보이고, '
+             '눌러서 직접 고를 수 있습니다. 쓰던 본문은 Ctrl+Z로 되찾을 수 있습니다.'),
             ('fa5s.comment-dots', 'AI에게 요청',
              '아래 칸에 "장소를 시청각실로 바꿔줘"처럼 적고 Enter. 줄바꿈은 Shift+Enter. '
              '결과가 마음에 안 들면 Ctrl+Z 한 번으로 이전 내용으로 돌아갑니다.'),
@@ -1033,12 +1136,16 @@ class DocumentEditorWindow(QMainWindow):
             self.ai_thread.stop()
             self._ai_gen = getattr(self, '_ai_gen', 0) + 1      # 취소 뒤에 도착하는 글자는 무시
             self.ai_thread.wait(500)
-            self._restore_before_ai()
-            self.statusBar().showMessage('AI 생성을 취소하고 원래 내용으로 되돌렸습니다.')
+            if self._restore_before_ai():
+                self.statusBar().showMessage('AI 생성을 취소했습니다 — 뼈대만 넣었습니다. (Ctrl+Z: 이전 내용)')
+            else:
+                self.statusBar().showMessage('AI 생성을 취소하고 원래 내용으로 되돌렸습니다.')
             self._set_controls_enabled(True)
 
     def _apply_editor_line_height(self):
         """에디터 본문 줄간격 123% 적용."""
+        if getattr(self, '_bulk_edit', False):
+            return    # _replace_body가 같은 편집 안에서 직접 적용 (따로 하면 되돌리기가 여러 번으로 쪼개짐)
         from PyQt5.QtGui import QTextCursor, QTextBlockFormat
         cursor = self.editor.textCursor()
         cursor.select(QTextCursor.Document)
