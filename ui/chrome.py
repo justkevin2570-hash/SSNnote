@@ -690,10 +690,7 @@ class UrgentToast(QWidget):
 
         # ── 치수 (글꼴 배율 반영) ──
         self._shadow = px(18)                 # 그림자 여백
-        self._peek = px(36)                   # 유주 머리가 카드 위로 나오는 높이
-        self._overhang = self._peek + px(4)
         self._radius = px(16)
-        self._char_col = px(104)              # 왼쪽 유주 자리
         self._pad = px(16)
         self._row_h = px(30)
         card_w = px(340)
@@ -701,11 +698,11 @@ class UrgentToast(QWidget):
                   + (px(20) if self._more else 0) + px(14))
         card_h = max(card_h, px(112))
         s = self._shadow
+        # 유주: 카드 상단 바깥쪽에 서 있으므로, 창 위쪽 여백을 유주 키만큼 잡는다
+        self._yuju = self._load_yuju(self._level, max_w=px(150), max_h=px(140))
+        self._overhang = int(self._yuju_h())
         self.resize(card_w + 2 * s, card_h + s * 2 + self._overhang)
         self._card = QRectF(s, s + self._overhang, card_w, card_h)
-
-        # ── 유주 ──
-        self._yuju = self._load_yuju(self._level, max_w=self._char_col - px(8), max_h=px(150))
 
         # ── 위치: 오른쪽 아래 ──
         screen = QApplication.primaryScreen().availableGeometry()
@@ -731,6 +728,12 @@ class UrgentToast(QWidget):
         self._yuju_angle = 0.0
 
     # ── 준비 ──
+    def _yuju_h(self):
+        """유주 그림의 높이 (논리 픽셀). 그림이 없으면 0."""
+        if not self._yuju:
+            return 0
+        return self._yuju.height() / self._yuju.devicePixelRatio()
+
     @staticmethod
     def _load_yuju(level, max_w, max_h):
         import random as _random
@@ -850,27 +853,10 @@ class UrgentToast(QWidget):
         p.setPen(QPen(QColor(tc('#ece5da') if not self._hover else tc('#e2d6c4')), 1))
         p.drawPath(card_path)
 
-        col = QRectF(c.left(), c.top(), self._char_col, c.height())
 
-        # 유주 (카드 위로 고개만 내밀고, 아래는 카드 밖으로 안 나가게)
-        if self._yuju:
-            clip = QPainterPath(card_path)
-            top = QPainterPath()
-            top.addRect(QRectF(c.left(), 0, c.width(), c.top() + r))
-            clip = clip.united(top)
-            p.save()
-            p.setClipPath(clip)
-            w = self._yuju.width() / self._yuju.devicePixelRatio()
-            h = self._yuju.height() / self._yuju.devicePixelRatio()
-            # 머리 꼭대기가 카드 위로 _peek만큼. 몸 가운데를 축으로 살짝 흔들림
-            pivot = QPointF(col.center().x() + px(2), c.top() - self._peek + h * 0.62 + self._yuju_dy)
-            p.translate(pivot)
-            p.rotate(self._yuju_angle)
-            p.drawPixmap(QRectF(-w / 2, -h * 0.62, w, h), self._yuju, QRectF(self._yuju.rect()))
-            p.restore()
 
         # 글자 영역
-        x0 = c.left() + self._char_col + px(6)
+        x0 = c.left() + self._pad + px(2)     # 유주는 카드 위에 서므로 글자는 왼쪽 끝까지
         x1 = c.right() - self._pad
         y = c.top() + self._pad
 
@@ -934,6 +920,18 @@ class UrgentToast(QWidget):
             p.setPen(QColor(tct('#9a8f82')))
             p.drawText(QRectF(x0, y, x1 - x0, px(20)), Qt.AlignLeft | Qt.AlignVCenter, f'외 {self._more}건 더')
 
+        # 유주: 카드 상단 바깥쪽에 서 있음. 앞 층이라 글자 위에 그려지지만, 글자 자리(카드 안 위쪽 여백)와는 겹치지 않음
+        if self._yuju:
+            dpr = self._yuju.devicePixelRatio()
+            w = self._yuju.width() / dpr
+            h = self._yuju.height() / dpr
+            p.save()
+            foot = QPointF(c.center().x() + px(2), c.top() + px(4) + self._yuju_dy)
+            p.translate(foot)
+            p.rotate(self._yuju_angle)
+            p.drawPixmap(QRectF(-w / 2, -h, w, h), self._yuju, QRectF(self._yuju.rect()))
+            p.restore()
+
         # 남은 시간 막대 (카드 아래 가장자리, 마우스를 올리면 멈춤)
         remain = max(0.0, 1 - self._shown_for / self.SHOW_SECONDS)
         if remain > 0:
@@ -943,7 +941,7 @@ class UrgentToast(QWidget):
             bar.setAlpha(110 if self._hover else 70)
             p.setPen(Qt.NoPen)
             p.setBrush(bar)
-            left = c.left() + self._char_col
+            left = c.left() + self._pad
             p.drawRect(QRectF(left, c.bottom() - px(3), (c.right() - left) * remain, px(3)))
             p.restore()
         p.end()
