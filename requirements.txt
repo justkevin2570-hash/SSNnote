@@ -1,8 +1,6 @@
 PyQt5==5.15.11
 pydantic
-sentence-transformers
-scikit-learn
-numpy   # rag.py (유사 공문 찾기) — 빌드에 꼭 포함
+numpy   # 빌드에 꼭 포함 (selfcheck가 확인)
 qtawesome
 anthropic
 openai

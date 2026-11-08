@@ -22,6 +22,7 @@ from mcp.types import ToolAnnotations
 
 import dashboard
 import db
+import doc_style
 from korean_search import best_score
 from privacy import looks_masked
 from school_profile import mask_for_ai, privacy_enabled
@@ -192,6 +193,11 @@ def search_tasks(query: str, include_done: bool = False) -> dict:
     return {'query': query, 'tasks': [_view(t, today) for _, t in scored[:20]]}
 
 
+def _style_rules() -> str:
+    notes = doc_style.load_style_notes()
+    return mask_for_ai(notes)[0] if notes and privacy_enabled() else notes
+
+
 @server.tool(title='공문 작성 안내', annotations=_READ)
 def official_document_guide() -> dict:
     """공문·계획서 초안을 쓰기 전에 부르세요. 학교 공문 서식 규칙."""
@@ -205,6 +211,8 @@ def official_document_guide() -> dict:
             "마지막은 반드시 '끝.'으로 맺음. 붙임이 없으면 본문 끝에 '끝.'.",
             '마크다운(**, ##) 쓰지 않음. 공문에 없는 수치·명단은 지어내지 말고 ○○로 비워 둠.',
         ],
+        # 사용자가 서서니 노트에 적어 둔 나만의 작성 규칙 — 위 서식 규칙보다 우선
+        'my_style_rules': _style_rules(),
     }
 
 

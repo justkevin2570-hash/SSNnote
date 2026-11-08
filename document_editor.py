@@ -24,8 +24,8 @@ from ai_client import (AiStreamThread, PROVIDER_LABELS,
                         load_opencode_model, save_opencode_model,
                         OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
                         fetch_opencode_models, save_opencode_model_info, test_opencode)
-from db import save_official_document, get_official_documents, get_all_embeddings, save_embedding
-# rag(유사 공문 찾기)는 numpy·sentence-transformers가 필요해 쓸 때만 불러온다 — 없으면 그 기능만 꺼지고 창은 열림
+from db import save_official_document, get_official_documents
+import doc_style   # 내 공문 스타일: 비슷한 저장 공문 + 나만의 작성 규칙을 AI에 함께 보냄
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
 from ui.common import fit_to_screen, default_geometry, px
 
@@ -787,25 +787,30 @@ class DocumentEditorWindow(QMainWindow):
             system = FEWSHOT_DEFAULT_SYSTEM
         ref_line = f"관련: {ref}\n" if ref else ""
 
-        # RAG: 유사 공문 검색하여 컨텍스트 추가
-        rag_context = ''
+        # 내 스타일: 예전에 저장한 비슷한 공문 + 나만의 작성 규칙
+        examples = []
         try:
-            from rag import search_similar, make_search_prompt
-            embeddings = get_all_embeddings()
-            if embeddings:
-                similar = search_similar(title, embeddings, top_k=2)
-                if similar:
-                    rag_context = make_search_prompt(similar)
+            docs = get_official_documents()
+            for d in docs:
+                d['doc_type'] = d.get('doc_type') or _detect_doc_type(d.get('title', ''))
+            examples = doc_style.search_similar(title, docs, doc_type=doc_type, top_k=2)
         except Exception:
-            pass  # RAG 실패해도 진행에는 문제 없음
+            pass  # 못 찾아도 초안은 만든다
+        notes = doc_style.load_style_notes()
 
         prompt = (
-            f"제목: {title}\n{ref_line}\n"
-            f"{rag_context}\n"
+            f"제목: {title}\n{ref_line}"
+            f"공문 종류: {type_label}\n"
+            f"{doc_style.examples_prompt(examples)}"
+            f"{doc_style.style_notes_prompt(notes)}\n"
             f"{self._received_context()}"
             '반드시 JSON 형식({"body": "공문 본문"})으로만 출력하세요.'
         )
-        self._start_ai(prompt, system=system, structured=True, fallback=template)
+        used = [f'내 공문 {len(examples)}개'] if examples else []
+        if notes:
+            used.append('작성 규칙')
+        self._start_ai(prompt, system=system, structured=True, fallback=template,
+                       note=(' · '.join(used) + ' 참고') if used else '')
 
     # ── AI 입력창 Enter 키 → 전송 ──
     def eventFilter(self, obj, event):
@@ -847,19 +852,25 @@ class DocumentEditorWindow(QMainWindow):
         ctx = self._received_context()
         if ctx:
             prompt = f"{ctx}\n{prompt}"
+        notes = doc_style.style_notes_prompt()
+        if notes:
+            prompt = f"{notes}\n{prompt}"
 
-        self._start_ai(prompt)
+        self._start_ai(prompt, note='작성 규칙 참고' if notes else '')
 
     # ── 공통 AI 실행 ──
     # AI가 쓰는 동안 원래 내용을 보관한다. 오류·빈 답·취소면 원래 내용으로 되돌리고,
     # 성공하면 결과를 '되돌리기(Ctrl+Z) 한 번'으로 원래 내용에 돌아갈 수 있게 넣는다.
-    def _start_ai(self, prompt, system=None, structured=False, fallback=None):
-        """fallback: AI가 실패·취소되면 원래 내용 대신 넣을 글 (자동 초안의 뼈대). Ctrl+Z로 원래 내용."""
+    def _start_ai(self, prompt, system=None, structured=False, fallback=None, note=''):
+        """fallback: AI가 실패·취소되면 원래 내용 대신 넣을 글 (자동 초안의 뼈대). Ctrl+Z로 원래 내용.
+        note: 상태줄에 함께 보일 참고 내용 (예: '내 공문 2개 · 작성 규칙 참고')."""
         if self.ai_thread and self.ai_thread.isRunning():
             return
         self._ai_fallback = fallback
+        self._ai_note = note
 
-        self.statusBar().showMessage("AI가 생각 중..." if not structured else "AI가 공문을 작성 중...")
+        msg = "AI가 생각 중..." if not structured else "AI가 공문을 작성 중..."
+        self.statusBar().showMessage(f"{msg} ({note})" if note else msg)
         self._set_controls_enabled(False)
 
         self._ai_gen = getattr(self, '_ai_gen', 0) + 1          # 이번 요청 번호 (늦게 온 이전 응답 무시용)
@@ -939,11 +950,13 @@ class DocumentEditorWindow(QMainWindow):
         self._replace_body(corrected)
         self._last_draft = self.editor.toPlainText()
         masked = getattr(self.ai_thread, 'masked_counts', None) or {}
+        note = getattr(self, '_ai_note', '')
+        note = f"{note} · " if note else ''
         if masked:
             from privacy import describe
-            self.statusBar().showMessage(f"완료 — 🛡 개인정보 {describe(masked)}을 가리고 보냈습니다. (Ctrl+Z: 이전 내용)")
+            self.statusBar().showMessage(f"완료 — {note}🛡 개인정보 {describe(masked)}을 가리고 보냈습니다. (Ctrl+Z: 이전 내용)")
         else:
-            self.statusBar().showMessage("완료 — Ctrl+Z를 누르면 이전 내용으로 돌아갑니다.")
+            self.statusBar().showMessage(f"완료 — {note}Ctrl+Z를 누르면 이전 내용으로 돌아갑니다.")
         self._set_controls_enabled(True)
         self.ai_input.clear()
 
@@ -1086,6 +1099,9 @@ class DocumentEditorWindow(QMainWindow):
              '제목을 넣고 Enter나 [자동 초안]을 누르면 공문 뼈대가 들어가고, '
              'AI가 연결되어 있으면 내용까지 채웁니다. 공문 종류는 제목으로 정해져 버튼 옆에 보이고, '
              '눌러서 직접 고를 수 있습니다. 쓰던 본문은 Ctrl+Z로 되찾을 수 있습니다.'),
+            ('fa5s.user-edit', '내 스타일로',
+             '[저장 후 나가기]로 저장한 공문 중 제목이 비슷한 것을 AI가 예시로 보고 같은 말투로 씁니다. '
+             '저장할수록 더 닮아 갑니다. 꼭 지킬 규칙은 [AI 설정] → 나만의 작성 규칙에 적어 두세요.'),
             ('fa5s.comment-dots', 'AI에게 요청',
              '아래 칸에 "장소를 시청각실로 바꿔줘"처럼 적고 Enter. 줄바꿈은 Shift+Enter. '
              '결과가 마음에 안 들면 Ctrl+Z 한 번으로 이전 내용으로 돌아갑니다.'),
@@ -1194,11 +1210,16 @@ class DocumentEditorWindow(QMainWindow):
             acts[a] = key
         menu.addSeparator()
         act_none = menu.addAction(('✓  ' if mode == 'none' else '     ') + 'AI 끄기')
+        menu.addSeparator()
+        has_notes = bool(doc_style.load_style_notes())
+        act_style = menu.addAction(('✓  ' if has_notes else '     ') + '나만의 작성 규칙…')
 
         action = menu.exec_(self.btn_apikey.mapToGlobal(self.btn_apikey.rect().bottomLeft()))
         if action is None:
             return
-        if action == act_none:
+        if action == act_style:
+            self._edit_style_notes()
+        elif action == act_none:
             save_ai_mode('none')
             self._apply_ai_mode()
             self.statusBar().showMessage('AI를 껐습니다 — 자동 초안은 뼈대만 넣습니다.')
@@ -1208,6 +1229,56 @@ class DocumentEditorWindow(QMainWindow):
             self._setup_claude_ai()
         elif acts.get(action) == 'openai':
             self._setup_openai_ai()
+
+    def _edit_style_notes(self):
+        """나만의 작성 규칙 — 자동 초안·AI 대화 때마다 AI에 함께 보낸다."""
+        from PyQt5.QtWidgets import QPlainTextEdit
+        dlg = QDialog(self)
+        dlg.setWindowTitle('나만의 작성 규칙')
+        dlg.setStyleSheet(_style())
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(24, 22, 24, 18)
+        layout.setSpacing(10)
+        head = QLabel('나만의 작성 규칙')
+        head.setObjectName('DialogTitle')
+        layout.addWidget(head)
+        hint = QLabel('자동 초안과 AI 대화 때마다 AI에게 함께 알려 줍니다. 한 줄에 하나씩 적어 보세요.\n'
+                      '저장한 공문도 비슷한 제목이면 예시로 함께 보내므로, 공문 자체의 말투는 저절로 따라갑니다.')
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        edit = QPlainTextEdit()
+        edit.setPlaceholderText('예)\n'
+                                "일시는 '2026. 5. 13.(수) 13:00 ~ 16:30' 형식으로\n"
+                                "대상은 '전교생' 대신 '1~3학년 전체 학생'으로\n"
+                                "'협조 바랍니다' 대신 '협조하여 주시기 바랍니다'로")
+        edit.setPlainText(doc_style.load_style_notes())
+        edit.setMinimumSize(px(460), px(180))
+        layout.addWidget(edit, 1)
+        count = QLabel()
+        layout.addWidget(count)
+
+        def update_count():
+            n = len(edit.toPlainText().strip())
+            count.setText(f'{n} / {doc_style.STYLE_NOTES_MAX}자' + ('  — 넘는 부분은 저장되지 않습니다' if n > doc_style.STYLE_NOTES_MAX else ''))
+        edit.textChanged.connect(update_count)
+        update_count()
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_cancel = QPushButton('취소')
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_ok = QPushButton('저장')
+        btn_ok.setObjectName('Primary')
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_ok)
+        layout.addLayout(btn_row)
+        keep_light(dlg)
+        if dlg.exec_() == QDialog.Accepted:
+            doc_style.save_style_notes(edit.toPlainText())
+            self.statusBar().showMessage('작성 규칙을 저장했습니다.' if doc_style.load_style_notes()
+                                         else '작성 규칙을 비웠습니다.')
 
     def _busy(self, msg):
         self.statusBar().showMessage(msg)
@@ -1346,17 +1417,10 @@ class DocumentEditorWindow(QMainWindow):
                 QTimer.singleShot(1000, lambda: self.statusBar().showMessage(''))
                 return
 
-        doc_id = save_official_document(title, doc_number, content, '')
+        # 저장한 공문은 다음 자동 초안 때 '내 공문' 예시로 쓰인다 (doc_style)
+        save_official_document(title, doc_number, content, self._current_doc_type())
         self.statusBar().showMessage('저장되었습니다.')
         QTimer.singleShot(1000, lambda: self.statusBar().showMessage(''))
-
-        # RAG: 저장한 문서 자동 임베딩
-        try:
-            from rag import encode, embedding_to_bytes
-            vec = encode(f"{title}\n{content}")
-            save_embedding(doc_id, title, content, '', embedding_to_bytes(vec))
-        except Exception:
-            pass
 
         return True
 
