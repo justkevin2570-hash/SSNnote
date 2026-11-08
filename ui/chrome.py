@@ -658,6 +658,7 @@ class UrgentToast(QWidget):
     """
 
     SHOW_SECONDS = 10.0
+    SHOW_FRAC = 0.75     # 유주가 카드 위로 나오는 비율 (키 기준, 가슴께까지)
     MAX_ROWS = 4
 
     def __init__(self, tasks):
@@ -700,7 +701,7 @@ class UrgentToast(QWidget):
         s = self._shadow
         # 유주: 카드 상단 바깥쪽에 서 있으므로, 창 위쪽 여백을 유주 키만큼 잡는다
         self._yuju = self._load_yuju(self._level, max_w=px(150), max_h=px(140))
-        self._overhang = int(self._yuju_h() * 2 / 3) + px(4)     # 유주는 키의 2/3까지만 카드 위로 나온다
+        self._overhang = int(self._yuju_h() * self.SHOW_FRAC) + px(4)
         self.resize(card_w + 2 * s, card_h + s * 2 + self._overhang)
         self._card = QRectF(s, s + self._overhang, card_w, card_h)
 
@@ -846,14 +847,14 @@ class UrgentToast(QWidget):
             p.setBrush(qcolor('#3a2a10', alpha) if not _dark() else QColor(0, 0, 0, alpha * 3))
             p.drawRoundedRect(c.adjusted(-grow * 0.7, -grow * 0.4, grow * 0.7, grow * 1.0), r + grow, r + grow)
 
-        # 유주: 카드 뒤에 있다가 위쪽 2/3만 글상자 위로 나옴 (카드가 아랫부분을 가림)
+        # 유주: 카드 뒤에 있다가 위쪽 SHOW_FRAC만 글상자 위로 나옴 (카드가 아랫부분을 가림)
         if self._yuju:
             dpr = self._yuju.devicePixelRatio()
             w = self._yuju.width() / dpr
             h = self._yuju.height() / dpr
             p.save()
             cx = c.right() - px(30) - w / 2                  # 오른쪽 가장자리에서 적당히 떼어 놓기
-            foot = QPointF(cx, c.top() + h / 3 + self._yuju_dy)
+            foot = QPointF(cx, c.top() + h * (1 - self.SHOW_FRAC) + self._yuju_dy)
             p.translate(foot)
             p.rotate(self._yuju_angle)
             p.drawPixmap(QRectF(-w / 2, -h, w, h), self._yuju, QRectF(self._yuju.rect()))
