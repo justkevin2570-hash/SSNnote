@@ -250,10 +250,7 @@ class MemoWindow(QMainWindow):
 
         # 메모 모드 자유 편집기 (기본 숨김)
         self.memo_editor = PlainPasteMemoEdit()
-        _memo_font = QFont('굴림체', 12)
-        _memo_font.setStretch(100)
-        _memo_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
-        self.memo_editor.setFont(_memo_font)
+        self.memo_editor.setFont(pr_font(12))          # 글자 크기를 바꿔도 같은 글꼴(Pretendard)이 유지됨
         self.memo_editor.document().blockCountChanged.connect(self._apply_memo_line_spacing)
         self.memo_editor.setStyleSheet(f"""
             QTextEdit {{

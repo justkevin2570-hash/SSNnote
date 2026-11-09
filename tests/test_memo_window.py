@@ -68,3 +68,14 @@ def test_main_window_keeps_full_menu_and_shortcuts(make):
     assert '설정' in items and '도움말' in items and '배경색·글자 크기' in items and len(items) > 5
     style = next(a for a in w._last_menu.actions() if a.text() == '배경색·글자 크기').menu()
     assert '줄 간격' in _texts(style)
+
+
+def test_memo_font_is_pretendard_and_stays_after_size_change(make):
+    from ui.common import pr_font
+    w = make(True)
+    want = pr_font(12).family()
+    assert 'Pretendard' in want
+    assert w.memo_editor.font().family() == want and w.memo_editor.font().pointSize() == 12
+    for scale, pt in ((1.1, 13), (1.2, 14), (1.0, 12)):         # 글자 크기를 바꿔도 글꼴은 그대로
+        w._set_scale(scale)
+        assert w.memo_editor.font().family() == want and w.memo_editor.font().pointSize() == pt
