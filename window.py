@@ -73,19 +73,22 @@ class MemoWindow(QMainWindow):
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setMinimumWidth(EdgeHandle.MIN_W)
         self._build_ui()
-        from PyQt5.QtWidgets import QShortcut
-        from PyQt5.QtGui import QKeySequence
-        self._pin_shortcut = QShortcut(QKeySequence('Ctrl+Shift+F'), self)
-        self._pin_shortcut.activated.connect(self.toggle_always_on_top)
-        self._shade_shortcut = QShortcut(QKeySequence('Ctrl+Shift+R'), self)
-        self._shade_shortcut.activated.connect(self.toggle_shade)
-        self._palette_shortcut = QShortcut(QKeySequence('Ctrl+K'), self)
-        self._palette_shortcut.activated.connect(self._open_command_palette)
-        self._shortcuts = [self._pin_shortcut, self._shade_shortcut, self._palette_shortcut]
-        # 저장된 단축키 상태 적용
-        if get_shortcut_enabled is not None and not get_shortcut_enabled():
-            for sc in self._shortcuts:
-                sc.setEnabled(False)
+        # 메모장(메모 전용 창)은 단축키 없이 마우스로만 쓴다 — 핀·접기는 제목 표시줄 버튼과 더블클릭으로 충분
+        self._shortcuts = []
+        if not self._force_memo_mode:
+            from PyQt5.QtWidgets import QShortcut
+            from PyQt5.QtGui import QKeySequence
+            self._pin_shortcut = QShortcut(QKeySequence('Ctrl+Shift+F'), self)
+            self._pin_shortcut.activated.connect(self.toggle_always_on_top)
+            self._shade_shortcut = QShortcut(QKeySequence('Ctrl+Shift+R'), self)
+            self._shade_shortcut.activated.connect(self.toggle_shade)
+            self._palette_shortcut = QShortcut(QKeySequence('Ctrl+K'), self)
+            self._palette_shortcut.activated.connect(self._open_command_palette)
+            self._shortcuts = [self._pin_shortcut, self._shade_shortcut, self._palette_shortcut]
+            # 저장된 단축키 상태 적용
+            if get_shortcut_enabled is not None and not get_shortcut_enabled():
+                for sc in self._shortcuts:
+                    sc.setEnabled(False)
 
     def apply_state(self, x, y, width, height, collapsed, color='', scale=1.0, row_gap=0):
         # 큰 모니터에서 쓰던 위치·크기라도 지금 화면 안에 들어오게 (노트북·모니터 분리 대비)
@@ -1001,6 +1004,8 @@ class MemoWindow(QMainWindow):
         ]
 
     def _open_command_palette(self):
+        if self._force_memo_mode:
+            return
         from ui.command_palette import CommandPalette
         from db import search_tasks_all
         old = getattr(self, '_palette', None)
@@ -1140,8 +1145,39 @@ class MemoWindow(QMainWindow):
             grid.addWidget(cb, i // 6, i % 6)
         return color_widget
 
+    def _style_submenu(self, menu, with_row_gap):
+        """배경색·글자 크기 (이 메모장에만 적용). 줄 간격은 업무 목록 사이 간격이라 메모장에는 없다."""
+        add = self._menu_add
+        memo = self._submenu(menu, '배경색·글자 크기', icon='ph.palette')
+        self._menu_header(memo, '배경색')
+        wa = QWidgetAction(memo)
+        wa.setDefaultWidget(self._color_swatches(menu))
+        memo.addAction(wa)
+        memo.addSeparator()
+        size_menu = self._submenu(memo, '글자 크기', 110, icon='ph.text-aa')
+        for label, val in [('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2)]:
+            add(size_menu, label, lambda v=val: self._set_scale(v, menu), checked=abs(self._scale - val) < 0.01)
+        if with_row_gap:
+            gap_menu = self._submenu(memo, '줄 간격', 110, icon='ph.rows')
+            for label, val in [('0px', 0), ('5px', 5), ('10px', 10), ('15px', 15)]:
+                add(gap_menu, label, lambda v=val: self._set_row_gap(v, menu), checked=self._row_gap == val)
+
+    def _show_memo_menu(self, btn):
+        """메모장(메모 전용 창)의 「…」 메뉴: 배경색·글자 크기 · 다크 모드 · 메모장 삭제 — 이것뿐."""
+        menu = menu_style.make_menu(self)
+        self._style_submenu(menu, with_row_gap=False)
+        from db import get_setting as _gs
+        from ui.theme import MODE as _mode
+        self._menu_add(menu, '다크 모드 (다시 켜면 적용)', self._toggle_theme, checked=_gs('theme', _mode) == 'dark')
+        menu.addSeparator()
+        self._menu_add(menu, '메모장 삭제', self.delete_memo, icon='ph.trash')
+        self._last_menu = menu  # 테스트·디버그용 참조
+        menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
+
     def show_menu(self, btn):
         """「…」 메뉴: 자주 쓰는 기능 → 배경색·글자 크기 → 설정 → 도움말 → (삭제)."""
+        if self._force_memo_mode:
+            return self._show_memo_menu(btn)
         menu = menu_style.make_menu(self)
         add = self._menu_add
 
@@ -1157,18 +1193,7 @@ class MemoWindow(QMainWindow):
         menu.addSeparator()
 
         # ── 배경색·글자 크기 (이 메모장에만 적용) ──
-        memo = self._submenu(menu, '배경색·글자 크기', icon='ph.palette')
-        self._menu_header(memo, '배경색')
-        wa = QWidgetAction(memo)
-        wa.setDefaultWidget(self._color_swatches(menu))
-        memo.addAction(wa)
-        memo.addSeparator()
-        size_menu = self._submenu(memo, '글자 크기', 110, icon='ph.text-aa')
-        for label, val in [('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2)]:
-            add(size_menu, label, lambda v=val: self._set_scale(v, menu), checked=abs(self._scale - val) < 0.01)
-        gap_menu = self._submenu(memo, '줄 간격', 110, icon='ph.rows')
-        for label, val in [('0px', 0), ('5px', 5), ('10px', 10), ('15px', 15)]:
-            add(gap_menu, label, lambda v=val: self._set_row_gap(v, menu), checked=self._row_gap == val)
+        self._style_submenu(menu, with_row_gap=True)
 
         # ── 설정 (앱 전체에 적용) ──
         settings = self._submenu(menu, '설정', 230, icon='ph.gear-six')
