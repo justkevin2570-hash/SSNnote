@@ -12,7 +12,7 @@ from PyQt5.QtCore import QSettings, QSize, Qt
 from PyQt5.QtGui import QFont, QFontMetrics
 from PyQt5.QtWidgets import (
     QApplication, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QStackedWidget,
+    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QStackedWidget,
     QVBoxLayout, QWidget,
 )
 
@@ -338,26 +338,48 @@ class HistoryDialog(QDialog):
         self._doc_meta.setFont(_ui_font(9))
         self._doc_meta.setStyleSheet(f'color: {P.MUTED};')
         self._doc_meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # 수정할 때만 보이는 입력 칸 (평소에는 숨김)
+        self._doc_title_edit = QLineEdit()
+        self._doc_title_edit.setFont(_ui_font(12, QFont.Bold))
+        self._doc_title_edit.setPlaceholderText('공문 제목')
+        self._doc_title_edit.hide()
+        self._doc_num_edit = QLineEdit()
+        self._doc_num_edit.setFont(_ui_font(9))
+        self._doc_num_edit.setPlaceholderText('관련 공문번호 (선택)')
+        self._doc_num_edit.hide()
         self._doc_body = QPlainTextEdit()
         self._doc_body.setReadOnly(True)
         bf = QFont('굴림체', 11)
         self._doc_body.setFont(bf)
-        self._doc_body.setStyleSheet(f"QPlainTextEdit {{ background: {P.SURFACE}; border: 1px solid {P.LINE};"
+        self._doc_body_style_view = (f"QPlainTextEdit {{ background: {P.SURFACE}; border: 1px solid {P.LINE};"
                                      f" border-radius: 10px; padding: 10px 12px; color: {P.TEXT}; }}")
+        self._doc_body_style_edit = (f"QPlainTextEdit {{ background: {P.SURFACE}; border: 1px solid {P.TEXT2};"
+                                     f" border-radius: 10px; padding: 10px 12px; color: {P.TEXT}; }}")
+        self._doc_body.setStyleSheet(self._doc_body_style_view)
         acts = QHBoxLayout()
         acts.setSpacing(6)
         self._b_copy_title = _ghost_button('제목 복사')
         self._b_copy_body = _ghost_button('본문 복사')
+        self._b_doc_edit = _ghost_button('수정')
+        self._b_doc_cancel = _ghost_button('취소')
+        self._b_doc_cancel.hide()
         self._b_doc_del = _icon_button('ph.trash', '이 공문 기록 지우기', 32)
         self._b_copy_title.clicked.connect(lambda: self._copy(self._cur_doc.get('title', ''), '제목'))
         self._b_copy_body.clicked.connect(lambda: self._copy(self._cur_doc.get('content', ''), '본문'))
+        self._b_doc_edit.clicked.connect(self._on_edit_clicked)
+        self._b_doc_cancel.clicked.connect(self._cancel_edit)
         self._b_doc_del.clicked.connect(self._delete_doc)
         acts.addWidget(self._b_copy_title)
         acts.addWidget(self._b_copy_body)
+        acts.addWidget(self._b_doc_edit)
+        acts.addWidget(self._b_doc_cancel)
         acts.addStretch()
         acts.addWidget(self._b_doc_del)
+        self._editing = False
         rl.addWidget(self._doc_title)
+        rl.addWidget(self._doc_title_edit)
         rl.addWidget(self._doc_meta)
+        rl.addWidget(self._doc_num_edit)
         rl.addWidget(self._doc_body, 1)
         rl.addLayout(acts)
         self._doc_split.addWidget(right)
@@ -368,7 +390,7 @@ class HistoryDialog(QDialog):
         self._doc_list.currentItemChanged.connect(lambda *_: self._show_doc())
         self._reload_docs()
 
-    def _reload_docs(self):
+    def _reload_docs(self, keep_id=None):
         from db import get_official_documents
         docs = get_official_documents()
         self._seg.set_label(1, f'작성 공문  {len(docs)}' if docs else '작성 공문')
@@ -381,7 +403,8 @@ class HistoryDialog(QDialog):
             it.setToolTip(doc.get('title') or '')
             self._doc_list.addItem(it)
         if docs:
-            self._doc_list.setCurrentRow(0)
+            row = next((i for i, d in enumerate(docs) if keep_id is not None and d.get('id') == keep_id), 0)
+            self._doc_list.setCurrentRow(row)
 
     def _show_doc(self):
         it = self._doc_list.currentItem()
@@ -395,6 +418,64 @@ class HistoryDialog(QDialog):
             meta.append(f"관련 {doc['doc_number']}")
         self._doc_meta.setText(' · '.join(meta))
         self._doc_body.setPlainText(doc.get('content', ''))
+
+    # ── 수정 ──
+    def _set_editing(self, on):
+        self._editing = on
+        self._doc_title.setVisible(not on)
+        self._doc_meta.setVisible(not on)
+        self._doc_title_edit.setVisible(on)
+        self._doc_num_edit.setVisible(on)
+        self._doc_body.setReadOnly(not on)
+        self._doc_body.setStyleSheet(self._doc_body_style_edit if on else self._doc_body_style_view)
+        self._b_doc_edit.setText('저장' if on else '수정')
+        self._b_doc_cancel.setVisible(on)
+        self._b_copy_title.setEnabled(not on)
+        self._b_copy_body.setEnabled(not on)
+        self._b_doc_del.setEnabled(not on)
+        self._doc_list.setEnabled(not on)          # 고치는 중에는 다른 공문으로 넘어가지 않게
+
+    def _on_edit_clicked(self):
+        if self._editing:
+            return self._save_edit()
+        if not self._cur_doc:
+            return
+        self._doc_title_edit.setText(self._cur_doc.get('title') or '')
+        self._doc_num_edit.setText(self._cur_doc.get('doc_number') or '')
+        self._doc_body.setPlainText(self._cur_doc.get('content') or '')
+        self._set_editing(True)
+        self._doc_body.setFocus()
+        self._hint.setText('고친 뒤 [저장]을 누르세요. 저장하면 다음 자동 초안의 예시에도 반영돼요.')
+
+    def _save_edit(self):
+        from db import update_official_document
+        title = self._doc_title_edit.text().strip()
+        number = self._doc_num_edit.text().strip()
+        content = self._doc_body.toPlainText().rstrip()
+        if not title:
+            QMessageBox.warning(self, '공문 수정', '제목을 비울 수 없어요.')
+            return
+        if not content.strip():
+            QMessageBox.warning(self, '공문 수정', '본문이 비어 있어요. 내용을 넣거나 [취소]를 누르세요.')
+            return
+        doc_id = self._cur_doc['id']
+        update_official_document(doc_id, title, number, content)
+        self._set_editing(False)
+        self._reload_docs(keep_id=doc_id)
+        self._hint.setText('공문을 저장했어요.')
+
+    def _cancel_edit(self):
+        d = self._cur_doc
+        changed = (self._doc_title_edit.text().strip() != (d.get('title') or '')
+                   or self._doc_num_edit.text().strip() != (d.get('doc_number') or '')
+                   or self._doc_body.toPlainText().rstrip() != (d.get('content') or '').rstrip())
+        if changed and QMessageBox.question(
+                self, '수정 취소', '고친 내용을 버리고 되돌릴까요?',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            return
+        self._set_editing(False)
+        self._show_doc()
+        self._hint.setText('')
 
     def _copy(self, text, what):
         if text:
