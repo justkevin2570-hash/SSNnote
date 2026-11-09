@@ -57,15 +57,57 @@ def test_spent_cell_edit_saves_and_updates_totals(win):
     assert table.item(0, 4).text() == '300'
 
 
-def test_completed_items_fold_away(win):
+def test_completed_items_shown_by_default_and_can_fold(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     db.toggle_budget_item_completed(db.get_budget_items()[0]['id'])
     w.refresh()
     w.show()
     app.processEvents()
-    hidden = [t for t in w.findChildren(budget._BudgetTable) if t.horizontalHeader().isHidden()]
-    assert len(hidden) == 1 and not hidden[0].isVisible()   # 완료 표는 접혀 있음
+    done = [t for t in w.findChildren(budget._BudgetTable) if t.horizontalHeader().isHidden()]
+    assert len(done) == 1 and done[0].isVisible()            # 완료 항목은 펼친 것이 기본
+    from PyQt5.QtWidgets import QPushButton
+    toggle = next(b for b in w.findChildren(QPushButton) if '완료 1건' in b.text())
+    assert toggle.text().startswith('▾')
+    toggle.click()
+    assert not done[0].isVisible() and toggle.text().startswith('▸')
+
+
+def test_row_buttons_edit_left_done_right_always_visible(win):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    w.show()
+    app.processEvents()
+    t = w.findChildren(budget._BudgetTable)[0]
+    edit, done = t.action_buttons[0]
+    assert (edit.text(), done.text()) == ('수정', '완료')
+    assert edit.isVisible() and done.isVisible()
+    assert edit.mapTo(t, edit.rect().topLeft()).x() < done.mapTo(t, done.rect().topLeft()).x()
+    assert edit.height() >= 28 and edit.width() >= 64
+
+
+def test_pct_label_fits_text(win):
+    w, db, budget, app = win
+    from PyQt5.QtGui import QFontMetrics
+    w._apply_import(CATS, 'append')
+    w.show()
+    app.processEvents()
+    lbl = next(iter(w._row_refs.values()))['pct']
+    lbl.setText('100.0%')
+    assert QFontMetrics(lbl.font()).horizontalAdvance('100.0%') <= lbl.width()
+
+
+def test_delete_from_edit_dialog(win, monkeypatch):
+    w, db, budget, app = win
+    from PyQt5.QtWidgets import QMessageBox
+    w._apply_import(CATS, 'append')
+    item = db.get_budget_items()[0]
+    add = budget._ItemDialog(w.categories, None, w.categories[0]['id'], w)
+    assert not hasattr(add, 'btn_delete')                  # 추가 창에는 삭제 없음
+    monkeypatch.setattr(QMessageBox, 'question', lambda *a, **k: QMessageBox.Yes)
+    monkeypatch.setattr(budget._ItemDialog, 'exec_', lambda self: (self.btn_delete.click(), self.result())[1])
+    w._open_edit_item(item['id'])
+    assert item['id'] not in [i['id'] for i in db.get_budget_items()]
 
 
 def test_preview_reads_edits_and_default_mode(win):
