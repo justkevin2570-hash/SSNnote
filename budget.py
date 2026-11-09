@@ -482,14 +482,16 @@ def _sizes():
     """
     global _SIZES
     if _SIZES is None:
-        from PyQt5.QtGui import QFontMetrics
-        from ui.common import px
-        bold = QFont('Pretendard', 10)
-        bold.setBold(True)
-        fm = QFontMetrics(bold)
-        small = QFont('Pretendard', 9)
-        small.setBold(True)
-        fs = QFontMetrics(small)
+        # 실제 화면과 같은 스타일을 입힌 견본으로 잰다 (QFont만 만들어 재면 Windows에서 실제 글꼴과 폭이 달랐다)
+        sample = QLabel('100.0%')
+        sample.setStyleSheet(STYLE + 'QLabel { font-weight: 700; }')
+        sample.ensurePolished()
+        fm = sample.fontMetrics()
+        btn = QPushButton('완료 취소')
+        btn.setObjectName('RowBtn')
+        btn.setStyleSheet(STYLE)
+        btn.ensurePolished()
+        fs = btn.fontMetrics()
         pct_lbl = fm.horizontalAdvance('100.0%') + px(6)
         pad = px(20)                       # 표 칸 안쪽 여백(QSS 'padding: 0 10px')만큼 칸 속 위젯이 좁아진다
         pct_col = px(6) + px(40) + px(6) + pct_lbl + px(10) + pad
@@ -504,11 +506,25 @@ def _sizes():
     return _SIZES
 
 
+def _cell_widgets_width(table, col):
+    """그 칸에 들어간 위젯들이 바라는 폭 + 표 칸 안쪽 여백."""
+    best = 0
+    for r in range(table.rowCount()):
+        w = table.cellWidget(r, col)
+        if w is not None and not table.isRowHidden(r):
+            best = max(best, w.sizeHint().width())
+    return best + px(20) if best else 0
+
+
 def _fit_columns(table):
     """표 폭에 맞춰 열 폭을 배분한다(넘치면 최소 폭까지 비례 축소, 남으면 산출내역이 가져감)."""
     hdr = table.horizontalHeader()
     avail = table.viewport().width()
-    col_w, col_min = _sizes()['w'], _sizes()['min']
+    col_w, col_min = list(_sizes()['w']), list(_sizes()['min'])
+    for col in (5, 6):                     # 집행률·버튼 칸: 화면에 실제로 그려질 크기(글꼴·배율 반영)에 맞춤
+        need = _cell_widgets_width(table, col)
+        col_min[col] = max(col_min[col], need)
+        col_w[col] = max(col_w[col], need)
     n = len(col_w)
     if avail <= 0 or hdr.count() < n:
         return
@@ -631,8 +647,19 @@ class _BudgetTable(QTableWidget):
         super().__init__()
         self.action_buttons = []           # 행마다 (수정, 완료)
         self.row_costs = []
+        self.pct_labels = []
+
+    def _sync_pct_labels(self):
+        """집행률 글자 칸 폭을 창에 입혀진 실제 글꼴로 다시 잰다 (모든 줄을 같은 폭으로 → 막대가 나란히)."""
+        if not self.pct_labels or not self.isVisible():
+            return
+        need = self.pct_labels[0].fontMetrics().horizontalAdvance('100.0%') + px(6)
+        for lb in self.pct_labels:
+            if lb.width() != need:
+                lb.setFixedWidth(need)
 
     def sync_geometry(self):
+        self._sync_pct_labels()
         _fit_columns(self)
         hdr = self.horizontalHeader()
         rows_h = sum(self.rowHeight(r) for r in range(self.rowCount()) if not self.isRowHidden(r))
@@ -1427,6 +1454,7 @@ class BudgetWindow(QMainWindow):
         t.setItem(r, 5, cell('', R))
         t.setCellWidget(r, 5, wrap)
         self._set_pct(bar, lbl, pct, done)
+        t.pct_labels.append(lbl)
 
         sz = _sizes()
         acts = QWidget()
@@ -1446,7 +1474,8 @@ class BudgetWindow(QMainWindow):
         b_done.clicked.connect(lambda _, iid=item['id']: self._toggle_complete(iid))
         for b in (b_edit, b_done):                       # 수정 왼쪽 · 완료 오른쪽
             b.setIconSize(QSize(11, 11))
-            b.setFixedSize(sz['btn_wide'] if b.text() == '완료 취소' else sz['btn_w'], sz['btn_h'])
+            b.setMinimumWidth(sz['btn_wide'] if b.text() == '완료 취소' else sz['btn_w'])
+            b.setFixedHeight(sz['btn_h'])
             b.setCursor(Qt.PointingHandCursor)
             al.addWidget(b)
         t.setItem(r, 6, cell('', R))
