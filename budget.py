@@ -192,6 +192,26 @@ _BG_DONE = QColor(T.SLATE_100)
 _BG_NEG = QColor('#ffe4e6')
 
 _COLOR_NEG = QColor('#be123c')
+
+# 집행률 수준: 정상(파랑) · 80% 이상(주황) · 100% 이상(빨강) · 완료(회색)
+_LEVEL_BAR = {'ok': '#2563eb', 'warn': '#d97706', 'over': '#e11d48', 'done': T.SLATE_400}
+_LEVEL_TEXT = {'ok': '#1d4ed8', 'warn': '#b45309', 'over': '#be123c', 'done': T.SLATE_500}
+_LEVEL_ON_DARK = {'ok': '#67e8f9', 'warn': '#fcd34d', 'over': '#fda4af', 'done': '#cbd5e1'}
+
+
+def _level(pct, done=False):
+    if done:
+        return 'done'
+    if pct >= 100:
+        return 'over'
+    if pct >= 80:
+        return 'warn'
+    return 'ok'
+
+
+def _bar_qss(color):
+    return (f'QProgressBar {{ background: {T.SLATE_200}; border: none; border-radius: 4px; }}'
+            f'QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}')
 _COLOR_DONE_TEXT = QColor(T.SLATE_500)
 _COLOR_TEXT = QColor(T.SLATE_900)
 _COLOR_COST = QColor(T.SLATE_600)
@@ -632,9 +652,18 @@ class BudgetWindow(QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
 
+        strip = QFrame()
+        strip.setFixedHeight(4)
+        accent = {'allocated': T.INDIGO_600, 'spent': '#f59e0b', 'remaining': '#059669'}[key]
+        strip.setStyleSheet(f'background: {accent}; border: none; '
+                            f'border-top-left-radius: 10px; border-top-right-radius: 10px;')
+        v.addWidget(strip)
+        if key == 'spent':
+            self._spent_strip = strip
+
         body = QWidget()
         bl = QVBoxLayout(body)
-        bl.setContentsMargins(16, 14, 16, 12)
+        bl.setContentsMargins(16, 12, 16, 12)
         bl.setSpacing(4)
 
         lbl_title = QLabel(title)
@@ -889,22 +918,22 @@ class BudgetWindow(QMainWindow):
         pl.setContentsMargins(6, 5, 8, 5)
         pl.setSpacing(6)
         pl.addStretch()
+        lvl = _level(pct, is_done)
         bar = QProgressBar()
         bar.setRange(0, 100)
         bar.setValue(int(round(pct)))
         bar.setTextVisible(False)
-        bar.setFixedSize(64, 8)
+        bar.setFixedSize(52, 8)
+        bar.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
         pl.addWidget(bar)
         pct_lbl = QLabel(f'{pct:.1f}%')
-        pct_lbl.setFixedWidth(54)
+        pct_lbl.setFixedWidth(60)
         pct_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         if is_done:
-            bar.setStyleSheet(f'QProgressBar {{ background: {T.SLATE_200}; border-radius: 4px; }}'
-                              f'QProgressBar::chunk {{ background: {T.SLATE_400}; border-radius: 4px; }}')
-            pct_lbl.setStyleSheet(f'color: {T.SLATE_500}; background: transparent;')
+            pct_lbl.setStyleSheet(f'color: {_LEVEL_TEXT["done"]}; background: transparent;')
             pct_lbl.setFont(_make_strike_font(pct_lbl.font()))
         else:
-            pct_lbl.setStyleSheet('color: #1d4ed8; font-weight: 800; background: transparent;')
+            pct_lbl.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-weight: 800; background: transparent;')
         pl.addWidget(pct_lbl)
         table.setItem(row, 5, txt_item('', Qt.AlignRight | Qt.AlignVCenter, bold=False))
         table.setCellWidget(row, 5, pct_wrap)
@@ -1000,10 +1029,11 @@ class BudgetWindow(QMainWindow):
                                 f'<b style="color:#ffffff">{_fmt(budget)}원</b>')
         chips['spent'].setText(f'<span style="color:#ffffff">집행액: </span>'
                                f'<b style="color:#fcd34d">{_fmt(spent)}원</b>')
+        rem_color = '#fda4af' if rem < 0 else '#6ee7b7'
         chips['remaining'].setText(f'<span style="color:#ffffff">잔액: </span>'
-                                   f'<b style="color:#6ee7b7">{_fmt(rem)}원</b>')
+                                   f'<b style="color:{rem_color}">{_fmt(rem)}원</b>')
         chips['percent'].setText(f'<span style="color:#ffffff">집행률: </span>'
-                                 f'<b style="color:#67e8f9">{pct:.1f}%</b>')
+                                 f'<b style="color:{_LEVEL_ON_DARK[_level(pct)]}">{pct:.1f}%</b>')
 
     def _recalc_cat_header(self, cat_id):
         self._update_cat_header(cat_id)
@@ -1016,8 +1046,15 @@ class BudgetWindow(QMainWindow):
         self.lbl_allocated.setText(f'{_fmt(total_allocated)}원')
         self.lbl_spent.setText(f'{_fmt(total_spent)}원')
         self.lbl_remaining.setText(f'{_fmt(total_remaining)}원')
+        self.lbl_remaining.setStyleSheet(
+            f'color: {"#be123c" if total_remaining < 0 else "#059669"}; font-size: 19pt; font-weight: 800;')
+        lvl = _level(pct)
         self.lbl_percent.setText(f'{pct:.1f}%')
+        self.lbl_percent.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-size: 13pt; font-weight: 800;')
         self.bar_spent.setValue(int(round(min(pct, 100.0))))
+        self.bar_spent.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
+        self._spent_strip.setStyleSheet(f'background: {_LEVEL_BAR[lvl]}; border: none; '
+                                        f'border-top-left-radius: 10px; border-top-right-radius: 10px;')
 
     # ── 동작: 항목/세부항목 ────────────────────────────────────────
     def _toggle_complete(self, item_id):
