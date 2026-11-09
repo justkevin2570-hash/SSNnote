@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip('PyQt5')
 
-MODULES = ['db', 'dashboard', 'doc_ai', 'doc_style', 'budget_image', 'budget_types', 'privacy', 'school_profile', 'korean_search', 'claude_connect',
+MODULES = ['db', 'dashboard', 'doc_ai', 'doc_style', 'budget_image', 'budget_types', 'budget_ai', 'privacy', 'school_profile', 'korean_search', 'claude_connect',
            'ai_client', 'updater', 'capture', 'window', 'document_editor', 'budget', 'selfcheck',
            'ui.common', 'ui.theme', 'ui.widgets', 'ui.dialogs', 'ui.chrome', 'ui.task_row', 'ui.document_row',
            'ui.calendar_view', 'ui.capture_panel', 'ui.dashboard_dialog',

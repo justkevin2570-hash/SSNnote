@@ -1,4 +1,5 @@
 """예산 창: 집행액 바로 고치기 · 가져오기 방식 · 캡처 붙여넣기 연결."""
+import json
 import os
 
 import pytest
@@ -159,3 +160,67 @@ def test_item_dialog_has_cost_completer(win):
     model = dlg._cost_completer.model()
     names = [model.index(i, 0).data() for i in range(model.rowCount())]
     assert '교육운영비' in names and '목적사업업무추진비' in names
+
+
+class _FakeAdapter:
+    def __init__(self, reply):
+        self.reply = reply
+        self.prompts = []
+
+    @staticmethod
+    def get_api_key():
+        return 'k'
+
+    def complete(self, system, prompt, image_b64=None, max_tokens=0):
+        self.prompts.append(prompt)
+        return self.reply(prompt)
+
+
+def _ai(monkeypatch, reply):
+    import ai_client
+    import budget_ai
+    import school_profile
+    fake = _FakeAdapter(reply)
+    monkeypatch.setattr(ai_client, 'get_adapter', lambda: fake)
+    monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'claude')
+    monkeypatch.setattr(school_profile, 'privacy_enabled', lambda: False)
+    monkeypatch.setattr(budget_ai.BudgetAskWorker, 'start', lambda self: self.run())   # 스레드 없이
+    return fake
+
+
+def test_ask_answers_with_budget_context(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    fake = _ai(monkeypatch, lambda p: '{"answer": "A의 잔액은 800원이에요.", "spend": []}')
+    w.refresh()
+    assert w.ask_card.isVisibleTo(w) and w.ask_input.isEnabled()
+    w.ask_input.setText('A 얼마 남았어?')
+    w.ask_send.click()
+    assert '강사 수당' in fake.prompts[0]                     # 예산 표를 함께 보냄
+    assert 'A의 잔액은 800원' in w.ask_answer.toPlainText()
+    assert w.ask_proposal.isHidden()
+    w.quick_buttons[0].click()                               # 빠른 질문 버튼
+    assert len(fake.prompts) == 2 and '이전 질문: A 얼마 남았어?' in fake.prompts[1]
+
+
+def test_spoken_spending_needs_confirm(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    item = next(i for i in db.get_budget_items() if i['description'] == '간식')
+    _ai(monkeypatch, lambda p: json.dumps({'answer': '간식에 300원을 넣을까요?',
+                                           'spend': [{'item_id': item['id'], 'amount': 300}]}, ensure_ascii=False))
+    w.refresh()
+    w._ask('간식 300원 썼어')
+    assert not w.ask_proposal.isHidden() and '+300원' in w.lbl_proposal.text()
+    assert next(i for i in db.get_budget_items() if i['id'] == item['id'])['spent'] == 0   # 아직 안 넣음
+    w._apply_spend()
+    assert next(i for i in db.get_budget_items() if i['id'] == item['id'])['spent'] == 300
+    assert w.ask_proposal.isHidden() and '넣었어요' in w.ask_status.text()
+
+
+def test_ask_disabled_when_ai_off(win, monkeypatch):
+    w, db, budget, app = win
+    import ai_client
+    monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
+    w._apply_import(CATS, 'append')
+    assert not w.ask_input.isEnabled() and 'AI가 꺼져' in w.ask_input.placeholderText()

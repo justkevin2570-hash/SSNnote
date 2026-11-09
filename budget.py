@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
     QHeaderView, QDialog, QMessageBox, QComboBox, QAbstractItemView,
     QProgressBar, QFileDialog, QButtonGroup, QTextEdit, QPlainTextEdit,
-    QMenu, QRadioButton, QProgressDialog, QLayout, QCompleter
+    QMenu, QRadioButton, QProgressDialog, QLayout, QCompleter, QTextBrowser
 )
 from PyQt5.QtCore import Qt, QSize, QEvent, QBuffer, QIODevice, QPoint, QRect, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QImage, QPixmap, QCursor
@@ -111,6 +111,15 @@ STYLE = f"""
     QPushButton#IconBtn:disabled {{ background: transparent; }}
     QPushButton#Link {{ background: transparent; border: none; color: {C.MUTED}; padding: 4px 2px; text-align: left; }}
     QPushButton#Link:hover {{ color: {C.TEXT}; }}
+    QPushButton#QuickBtn {{
+        background: {C.BG}; border: 1px solid {C.BORDER}; border-radius: 11px; padding: 3px 11px;
+        font-size: 9pt; font-weight: 600; color: {C.BODY};
+    }}
+    QPushButton#QuickBtn:hover {{ border-color: {C.ACCENT_LINE}; color: {C.ACCENT_HI}; background: {C.ACCENT_SOFT}; }}
+    QTextBrowser#Answer {{
+        background: {C.BG}; border: none; border-radius: 8px; padding: 8px 10px; color: {C.TEXT};
+    }}
+    QFrame#Proposal {{ background: {C.ACCENT_SOFT}; border: 1px solid {C.ACCENT_LINE}; border-radius: 8px; }}
 
     QFrame#Nav {{ background: transparent; border: none; border-radius: 10px; }}
     QFrame#Nav:hover {{ background: {C.HOVER}; }}
@@ -560,7 +569,7 @@ def _cost_chip_qss(budget, spent, selector='QPushButton'):
     lvl = _level(_pct(spent, budget))
     neg = budget - spent < 0
     return (f'{selector} {{ background: {_LEVEL_SOFT[lvl]}; color: {C.NEG if neg else _LEVEL_TEXT[lvl]};'
-            f' border: 1px solid transparent; border-radius: 13px; padding: 4px 11px;'
+            f' border: 1px solid transparent; border-radius: 11px; padding: 4px 11px;'
             f' font-weight: 600; font-size: 9pt; }}'
             f'{selector}:hover {{ border-color: {C.BORDER_HI}; }}'
             f'{selector}:checked {{ background: {C.SURFACE}; border: 1px solid {C.ACCENT}; }}')
@@ -687,6 +696,10 @@ class BudgetWindow(QMainWindow):
         self._cost_filter = {}            # 세부항목별로 골라 본 원가통계비목 (없으면 전부)
         self._overview_chips = {}
         self._img_worker = None
+        self._ask_worker = None
+        self._ask_history = []            # [(질문, 답)] — 이어지는 질문에 쓰려고 최근 것만
+        self._ask_q = ''
+        self._pending_spend = []          # AI가 제안한 지출 (사용자가 [넣기]를 눌러야 반영)
         self._restore_window_state()
         self._init_ui()
         self.refresh()
@@ -827,6 +840,180 @@ class BudgetWindow(QMainWindow):
         self.empty = self._make_empty()
         root.addWidget(self.empty, 1)
 
+        self.ask_card = self._make_ask_panel()
+        root.addWidget(self.ask_card)
+
+    # ── AI에게 묻기 ────────────────────────────────────────────────
+    def _make_ask_panel(self):
+        from budget_ai import QUICK
+        card = QFrame()
+        card.setObjectName('Card')
+        v = QVBoxLayout(card)
+        v.setContentsMargins(16, 12, 16, 12)
+        v.setSpacing(8)
+
+        self.ask_answer = QTextBrowser()
+        self.ask_answer.setObjectName('Answer')
+        self.ask_answer.setOpenLinks(False)
+        self.ask_answer.hide()
+        v.addWidget(self.ask_answer)
+
+        self.ask_proposal = QFrame()
+        self.ask_proposal.setObjectName('Proposal')
+        pl = QHBoxLayout(self.ask_proposal)
+        pl.setContentsMargins(12, 8, 8, 8)
+        pl.setSpacing(8)
+        self.lbl_proposal = QLabel()
+        self.lbl_proposal.setTextFormat(Qt.RichText)
+        self.lbl_proposal.setWordWrap(True)
+        b_apply = QPushButton('넣기')
+        b_apply.setObjectName('Primary')
+        b_apply.setCursor(Qt.PointingHandCursor)
+        b_apply.clicked.connect(self._apply_spend)
+        b_skip = QPushButton('취소')
+        b_skip.setCursor(Qt.PointingHandCursor)
+        b_skip.clicked.connect(self._hide_proposal)
+        pl.addWidget(self.lbl_proposal, 1)
+        pl.addWidget(b_apply)
+        pl.addWidget(b_skip)
+        self.ask_proposal.hide()
+        v.addWidget(self.ask_proposal)
+
+        quick = QHBoxLayout()
+        quick.setSpacing(6)
+        icon = QLabel()
+        icon.setPixmap(qta.icon('fa5s.comment-dots', color=C.ACCENT).pixmap(15, 15))
+        title = QLabel('AI에게 묻기')
+        title.setStyleSheet(f'color: {C.ACCENT}; font-weight: 700;')
+        quick.addWidget(icon)
+        quick.addWidget(title)
+        quick.addSpacing(6)
+        self.quick_buttons = []
+        for label, question in QUICK:
+            b = QPushButton(label)
+            b.setObjectName('QuickBtn')
+            b.setCursor(Qt.PointingHandCursor)
+            b.setToolTip(question)
+            b.clicked.connect(lambda _, q=question: self._ask(q))
+            quick.addWidget(b)
+            self.quick_buttons.append(b)
+        quick.addStretch()
+        self.ask_status = QLabel()
+        self.ask_status.setObjectName('Muted')
+        quick.addWidget(self.ask_status)
+        v.addLayout(quick)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.ask_input = QLineEdit()
+        self.ask_input.setFixedHeight(36)
+        self.ask_input.returnPressed.connect(lambda: self._ask(self.ask_input.text()))
+        self.ask_send = QPushButton()
+        self.ask_send.setObjectName('Primary')
+        self.ask_send.setIcon(qta.icon('fa5s.paper-plane', color='white'))
+        self.ask_send.setFixedSize(40, 36)
+        self.ask_send.setToolTip('보내기 (Enter)')
+        self.ask_send.setCursor(Qt.PointingHandCursor)
+        self.ask_send.clicked.connect(lambda: self._ask(self.ask_input.text()))
+        row.addWidget(self.ask_input, 1)
+        row.addWidget(self.ask_send)
+        v.addLayout(row)
+        return card
+
+    def _ai_ready(self):
+        try:
+            from ai_client import load_ai_mode
+            return load_ai_mode() != 'none'
+        except Exception:
+            return False
+
+    def _update_ask_enabled(self):
+        busy = self._ask_worker is not None and self._ask_worker.isRunning()
+        ready = self._ai_ready()
+        for w in [self.ask_input, self.ask_send] + self.quick_buttons:
+            w.setEnabled(ready and not busy)
+        self.ask_input.setPlaceholderText(
+            '예산에 대해 묻거나, "교과융합캠프 간식비 5만원 썼어"처럼 쓴 돈을 알려 주세요'
+            if ready else 'AI가 꺼져 있어요 — 공문 작성 창 → [AI 설정]에서 연결하면 쓸 수 있어요')
+
+    def _ask(self, question):
+        q = (question or '').strip()
+        if not q or (self._ask_worker is not None and self._ask_worker.isRunning()):
+            return
+        from budget_ai import BudgetAskWorker
+        self._ask_q = q
+        self.ask_input.clear()
+        self._hide_proposal()
+        self._set_answer(f'Q. {q}\n\n생각하는 중…')
+        self.ask_status.setText('AI가 예산 표를 보는 중…')
+        w = BudgetAskWorker(q, self.categories, self.items, self._ask_history)
+        w.done.connect(self._on_ask_done)
+        w.failed.connect(self._on_ask_failed)
+        self._ask_worker = w
+        w.finished.connect(self._update_ask_enabled)
+        w.start()
+        self._update_ask_enabled()
+
+    def _on_ask_done(self, reply, masked):
+        answer = reply.get('answer') or ''
+        self._ask_history = (self._ask_history + [(self._ask_q, answer)])[-2:]
+        text = f'Q. {self._ask_q}\n\n{answer}'
+        if masked:
+            try:
+                from privacy import describe
+                text += f'\n\n🛡 개인정보 {describe(masked)}을(를) 가리고 보냈어요.'
+            except Exception:
+                pass
+        self._set_answer(text)
+        self.ask_status.setText('')
+        self._show_proposal(reply.get('spend') or [])
+
+    def _on_ask_failed(self, msg):
+        self._set_answer(f'Q. {self._ask_q}\n\n⚠ {msg}')
+        self.ask_status.setText('')
+
+    def _set_answer(self, text):
+        """답 칸: 글 길이에 맞춰 높이를 정하되 170px까지 (넘으면 스크롤)."""
+        a = self.ask_answer
+        a.setPlainText(text)
+        a.show()
+        doc = a.document()
+        doc.setTextWidth(max(200, a.viewport().width() or self.width() - 90))
+        a.setFixedHeight(int(min(170, max(52, doc.size().height() + 20))))
+
+    # ── 말로 지출 입력: AI가 제안 → [넣기]를 눌러야 반영 ─────────────
+    def _show_proposal(self, spend):
+        self._pending_spend = list(spend)
+        if not spend:
+            self.ask_proposal.hide()
+            return
+        lines = []
+        for sp in spend:
+            it = self._items_by_id.get(sp['item_id']) or sp['item']
+            new = it['spent'] + sp['amount']
+            rem = it['budget'] - new
+            rem_html = f'<span style="color:{C.NEG}">{_fmt(rem)}원</span>' if rem < 0 else f'{_fmt(rem)}원'
+            lines.append(f"<b>{it['description']}</b> <span style='color:{C.MUTED}'>({it['cost_type']})</span> "
+                         f"<b style='color:{C.ACCENT}'>+{_fmt(sp['amount'])}원</b> → 집행 {_fmt(new)}원 · 잔액 {rem_html}")
+        self.lbl_proposal.setText('이번에 쓴 금액으로 넣을까요?<br>' + '<br>'.join(lines))
+        self.ask_proposal.show()
+
+    def _hide_proposal(self):
+        self._pending_spend = []
+        self.ask_proposal.hide()
+
+    def _apply_spend(self):
+        done = 0
+        for sp in self._pending_spend:
+            cur = self._items_by_id.get(sp['item_id'])          # 지금 값 기준으로 더한다
+            if not cur or cur['completed']:
+                continue
+            set_budget_item_spent(cur['id'], cur['spent'] + sp['amount'])
+            done += 1
+        self._hide_proposal()
+        self.refresh()
+        self.ask_status.setText(f'{done}개 항목에 넣었어요.' if done else '넣을 항목이 없어요.')
+
     def _make_empty(self):
         card = QFrame()
         card.setObjectName('Card')
@@ -909,6 +1096,8 @@ class BudgetWindow(QMainWindow):
         self.summary.setVisible(has)
         self.body.setVisible(has)
         self.empty.setVisible(not has)
+        self.ask_card.setVisible(has)
+        self._update_ask_enabled()
         self.btn_add_item.setEnabled(has)
         self._rebuild_nav()
         self._rebuild_sections()
