@@ -206,3 +206,18 @@ def test_worker_fixes_blurry_cost_type(monkeypatch):
     out = _run_worker(monkeypatch, Blurry(), privacy=False, words=[])
     it = out['cats'][0]['items'][0]
     assert it['cost_type'] == '교육운영비' and '고쳤어요' in it['warn'][0]
+
+
+class _TextOnlyAI(_FakeAI):
+    """EXAONE처럼 이미지를 못 읽고 항상 개인정보를 가리는 AI."""
+    supports_image = False
+    always_mask = True
+
+
+def test_worker_text_only_ai_never_gets_the_image(monkeypatch):
+    ai = _TextOnlyAI()
+    words = _words([[c, t, d, b, r] for c, t, d, b, r in SCREEN[:2]], [10, 200, 450, 760, 880])
+    import ai_client
+    monkeypatch.setattr(ai_client, 'text_only_required', lambda: True)       # 보호 모드가 꺼져 있어도
+    out = _run_worker(monkeypatch, ai, privacy=False, words=words)
+    assert out['method'] == 'ai-text' and ai.calls == ['text']

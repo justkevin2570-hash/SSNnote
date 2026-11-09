@@ -254,8 +254,8 @@ class DocAnalysisWorker(QThread):
 
     def run(self):
         try:
-            from ai_client import get_adapter, friendly_error
-            from school_profile import privacy_enabled, mask_for_ai
+            from ai_client import get_adapter, friendly_error, masking_required, text_only_required
+            from school_profile import mask_for_ai
             adapter = get_adapter()
             if adapter is None:
                 self.failed.emit('AI가 꺼져 있습니다. 메뉴 → 설정 → AI 연결(API 키)에서 사용할 AI를 고르세요.')
@@ -265,13 +265,13 @@ class DocAnalysisWorker(QThread):
                 return
 
             info = {'mode': 'image', 'masked': {}, 'ocr_text': self._ocr_text}
-            use_text = bool(self._ocr_text) or (privacy_enabled())
+            use_text = bool(self._ocr_text) or text_only_required()
             if use_text:
                 text = self._ocr_text
                 if not text:
                     self.failed.emit('글자를 읽지 못했습니다.')
                     return
-                if privacy_enabled():
+                if masking_required():
                     text, info['masked'] = mask_for_ai(text)
                 info['mode'] = 'text'
                 self.progress.emit('AI가 공문을 읽는 중…')

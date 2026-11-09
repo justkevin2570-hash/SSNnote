@@ -328,8 +328,8 @@ class BudgetImageWorker(QThread):
 
     def run(self):
         try:
-            from ai_client import get_adapter
-            from school_profile import privacy_enabled, mask_for_ai
+            from ai_client import get_adapter, masking_required, text_only_required
+            from school_profile import mask_for_ai
             adapter = get_adapter()
             has_ai = adapter is not None and bool(adapter.get_api_key())
             try:
@@ -339,7 +339,7 @@ class BudgetImageWorker(QThread):
                 types = []
             rows, method, image_error = None, '', None
 
-            if has_ai and not privacy_enabled():
+            if has_ai and not text_only_required():
                 self.progress.emit('AI가 캡처한 표를 읽는 중…')
                 try:
                     rows = parse_rows(adapter.complete(SYSTEM, build_prompt(cost_types=types),
@@ -353,7 +353,7 @@ class BudgetImageWorker(QThread):
                     raise RuntimeError('표에서 글자를 읽지 못했습니다. 표가 잘 보이게 다시 캡처해 주세요.')
                 if has_ai:
                     text = words_to_text(words)
-                    if privacy_enabled():
+                    if masking_required():
                         text, _ = mask_for_ai(text)
                     self.progress.emit('AI가 표를 정리하는 중…')
                     rows = parse_rows(adapter.complete(SYSTEM, build_prompt(text, types), max_tokens=8000))

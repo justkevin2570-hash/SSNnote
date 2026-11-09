@@ -94,8 +94,8 @@ def ai(tmp_path, monkeypatch):
     srv.shutdown()
 
 
-def test_only_three_providers(ai):
-    assert ai._AI_MODES == ('none', 'claude', 'openai', 'opencode')
+def test_only_four_providers(ai):
+    assert ai._AI_MODES == ('none', 'claude', 'openai', 'opencode', 'exaone')
     for gone in ('GeminiAdapter', 'NvidiaAdapter', 'OllamaAdapter', 'is_local_adapter', 'AiImageWorker'):
         assert not hasattr(ai, gone)
 

@@ -245,12 +245,11 @@ class CapturePanel(QFrame):
     def _analyze(self):
         """개인정보 보호 모드면 아직 안 읽은 캡처의 글자를 PC에서 읽은 뒤, 모은 글자를 AI로 보낸다.
         보호 모드가 꺼져 있으면 이어 붙인 이미지를 보낸다."""
-        from ai_client import get_adapter
-        from school_profile import privacy_enabled
+        from ai_client import get_adapter, text_only_required
         self._gen += 1
         gen = self._gen
         self._set_busy(True)
-        if get_adapter() is not None and privacy_enabled():
+        if get_adapter() is not None and text_only_required():
             self._ocr_pending(gen)
         else:
             self._run_ai(gen, use_text=False)
@@ -263,8 +262,12 @@ class CapturePanel(QFrame):
         try:
             import winrt  # noqa: F401  (Windows OCR)
         except ImportError:
-            self._fail('Windows OCR을 쓸 수 없어 글자를 읽지 못했습니다.\n'
-                       '메뉴 → 설정 → 개인정보 보호 모드를 끄면 이미지로 분석합니다.', gen)
+            from ai_client import get_adapter
+            if getattr(get_adapter(), 'supports_image', True):
+                hint = '메뉴 → 설정 → 개인정보 보호 모드를 끄면 이미지로 분석합니다.'
+            else:
+                hint = '지금 연결한 AI(EXAONE)는 이미지를 읽지 못해 PC 글자 인식이 꼭 필요해요. 이미지를 읽는 다른 AI로 바꿔 보세요.'
+            self._fail('Windows OCR을 쓸 수 없어 글자를 읽지 못했습니다.\n' + hint, gen)
             return
         from capture import run_ocr
         i = todo[0]
