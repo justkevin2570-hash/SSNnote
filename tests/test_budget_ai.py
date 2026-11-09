@@ -47,3 +47,7 @@ def test_parse_reply_plain_text_and_string_amount():
 
 def test_quick_questions():
     assert len(ba.QUICK) == 4 and all(label and q for label, q in ba.QUICK)
+
+
+def test_system_prompt_keeps_ids_out_of_answers():
+    assert 'answer에는 id를 절대 쓰지' in ba.SYSTEM            # 실제 EXAONE 시험에서 답에 'id=12'가 그대로 나왔음
