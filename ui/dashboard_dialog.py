@@ -1,14 +1,13 @@
 """ui/dashboard_dialog.py — 「오늘 한눈에 보기」 창.
 
-지난 마감 / 오늘 마감 / 이번 주 / 공문 업무 개수, 급한 업무 목록, 예산 집행률을 한 장에 보여준다.
+지난 마감 / 오늘 마감 / 이번 주 개수, 급한 업무 목록, 예산 집행률을 한 장에 보여준다.
 업무를 누르면 해당 메모 창에서 그 업무를 강조한다.
 """
 
-import os
 from datetime import date
 
 from PyQt5.QtCore import Qt, QRectF, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QFontDatabase, QPainter
+from PyQt5.QtGui import QColor, QFont, QPainter
 from PyQt5.QtWidgets import (
     QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
     QVBoxLayout, QWidget,
@@ -16,29 +15,15 @@ from PyQt5.QtWidgets import (
 
 import dashboard
 from db import get_budget_items, get_open_tasks, get_setting, set_setting
-from .common import pr_font, px, _base_path
+from .common import pr_font, px
 
 SHOW_ON_START_KEY = 'dashboard_on_start'
 LAST_SHOWN_KEY = 'dashboard_last_shown'
 _MAX_ROWS = 5
 
-# 이 창의 글꼴: assets/fonts 폴더에 IBM Plex Sans KR 파일(.ttf)을 넣으면 그 글꼴로, 없으면 Pretendard로 보인다.
-_FONT_FAMILIES = ['IBM Plex Sans KR', 'Pretendard GOV', 'Pretendard', 'Malgun Gothic']
+# 이 창의 글꼴: 앱 공통 Pretendard (없는 PC는 맑은 고딕)
+_FONT_FAMILIES = ['Pretendard GOV', 'Pretendard', 'Malgun Gothic']
 _FONT_STACK = ', '.join(f"'{f}'" for f in _FONT_FAMILIES)
-_fonts_loaded = False
-
-
-def _load_fonts():
-    """assets/fonts 안의 글꼴 파일을 앱 글꼴로 등록한다 (한 번만, 폴더가 없으면 건너뜀)."""
-    global _fonts_loaded
-    if _fonts_loaded:
-        return
-    _fonts_loaded = True
-    folder = os.path.join(_base_path(), 'assets', 'fonts')
-    if os.path.isdir(folder):
-        for fn in sorted(os.listdir(folder)):
-            if fn.lower().endswith(('.ttf', '.otf')):
-                QFontDatabase.addApplicationFont(os.path.join(folder, fn))
 
 
 def _font(pt, weight=QFont.Normal) -> QFont:
@@ -160,7 +145,6 @@ class DashboardDialog(QDialog):
     def __init__(self, parent=None, summary: dict = None):
         super().__init__(parent, Qt.Window | Qt.WindowStaysOnTopHint)
         self.setWindowTitle('오늘 한눈에 보기')
-        _load_fonts()
         self.setStyleSheet(_style())
         self.setFont(_font(10))
         self.setFixedWidth(px(480))
@@ -193,13 +177,12 @@ class DashboardDialog(QDialog):
         head.addWidget(hl)
         root.addLayout(head)
 
-        # ── 숫자 네 칸 (둥근 타일 4개, 글자는 각 칸의 가운데) ──
+        # ── 숫자 세 칸 (둥근 타일, 글자는 각 칸의 가운데) ──
         stats = QHBoxLayout()
         stats.setSpacing(10)
         items = [('지난 마감', len(s['overdue']), P.DANGER, True),
                  ('오늘 마감', len(s['today']), '#E8590C', True),
-                 ('이번 주', len(s['week']), P.TEXT, False),
-                 ('공문 업무', s['doc_open'], P.TEXT, False)]
+                 ('이번 주', len(s['week']), P.TEXT, False)]
         for label, value, color, can_tint in items:
             on = can_tint and value > 0
             tile = _tile(label, value, color if (on or not can_tint) else P.FAINT, tinted=on)

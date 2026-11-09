@@ -53,8 +53,7 @@ def make(app, tasks=TASKS, budget=None):
 def test_stat_tiles_text_is_centered_in_each_tile(app):
     from PyQt5.QtCore import Qt
     dlg = make(app)
-    assert len(dlg.tiles) == 4
-    assert [t.name_label.text() for t in dlg.tiles] == ['지난 마감', '오늘 마감', '이번 주', '공문 업무']
+    assert [t.name_label.text() for t in dlg.tiles] == ['지난 마감', '오늘 마감', '이번 주']   # 공문 업무 칸은 없음
     for tile in dlg.tiles:
         for lb in (tile.value_label, tile.name_label):
             assert lb.alignment() & Qt.AlignHCenter                      # 가운데 정렬
@@ -83,6 +82,6 @@ def test_budget_card_centered_and_level_color(app):
 
 def test_empty_day_and_no_budget(app):
     dlg = make(app, tasks=[], budget=[])
-    assert [t.value_label.text() for t in dlg.tiles] == ['0', '0', '0', '0']
+    assert [t.value_label.text() for t in dlg.tiles] == ['0', '0', '0']
     assert dlg.rows == [] and not hasattr(dlg, 'budget_labels')
     dlg.close()
