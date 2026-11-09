@@ -126,3 +126,36 @@ def test_add_dialog_has_no_spend_now(win):
     w, db, budget, app = win
     dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], None, 1, w)
     assert dlg.edit_spend_now is None
+
+
+def test_cost_chips_totals_and_filter(win):
+    w, db, budget, app = win
+    cats = [{'name': 'A', 'items': [
+        {'cost_type': '교육운영비', 'description': '간식', 'budget': 1000, 'spent': 400},
+        {'cost_type': '운영수당', 'description': '강사', 'budget': 2000, 'spent': 0},
+        {'cost_type': '교육운영비', 'description': '자료', 'budget': 500, 'spent': 500}]}]
+    w._apply_import(cats, 'append')
+    w.show()
+    app.processEvents()
+    cid = w.categories[0]['id']
+    chips = w._sec_refs[cid]['chips']
+    assert list(chips) == ['교육운영비', '운영수당']
+    assert '잔액 600원' in chips['교육운영비'].text()              # 1500 - 900
+    assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 카드
+    table = w._sec_refs[cid]['tables'][0]
+    h_all = table.height()
+    chips['운영수당'].click()                                    # 운영수당 줄만
+    assert [table.isRowHidden(r) for r in range(3)] == [True, False, True]
+    assert table.height() < h_all
+    chips['운영수당'].click()                                    # 다시 누르면 전부
+    assert not any(table.isRowHidden(r) for r in range(3))
+    table.item(0, budget._COL_SPENT).setText('900')             # 집행액 고치면 칩도 다시 계산
+    assert '잔액 100원' in chips['교육운영비'].text()
+
+
+def test_item_dialog_has_cost_completer(win):
+    w, db, budget, app = win
+    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], None, 1, w)
+    model = dlg._cost_completer.model()
+    names = [model.index(i, 0).data() for i in range(model.rowCount())]
+    assert '교육운영비' in names and '목적사업업무추진비' in names

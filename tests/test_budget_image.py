@@ -147,6 +147,8 @@ def _run_worker(monkeypatch, adapter, privacy, words):
     monkeypatch.setattr(ai_client, 'get_adapter', lambda: adapter)
     monkeypatch.setattr(school_profile, 'privacy_enabled', lambda: privacy)
     monkeypatch.setattr(capture, 'ocr_words', lambda png: words)
+    import budget_types
+    monkeypatch.setattr(budget_types, 'known', lambda: list(budget_types.DEFAULTS))
     w = bi.BudgetImageWorker('b64', b'png')
     out = {}
     w.done.connect(lambda cats, method: out.update(cats=cats, method=method))
@@ -194,3 +196,13 @@ def test_worker_without_ai_uses_ocr_layout(monkeypatch):
 def test_worker_reports_when_nothing_read(monkeypatch):
     out = _run_worker(monkeypatch, None, privacy=False, words=[])
     assert '글자를 읽지 못했' in out['error']
+
+
+def test_worker_fixes_blurry_cost_type(monkeypatch):
+    class Blurry(_FakeAI):
+        def complete(self, system, prompt, image_b64=None, max_tokens=0):
+            assert '교육운영비' in prompt                     # 아는 비목 목록을 AI에 알려 줌
+            return ai_json([(CAT1, '교육운염비', '간식', '1,000', '200')])
+    out = _run_worker(monkeypatch, Blurry(), privacy=False, words=[])
+    it = out['cats'][0]['items'][0]
+    assert it['cost_type'] == '교육운영비' and '고쳤어요' in it['warn'][0]

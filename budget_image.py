@@ -12,6 +12,7 @@
   · '세부항목' 칸은 묶음의 첫 줄에만 있다 → 새 이름이 나올 때까지 아래 줄은 같은 세부항목
   · 화면에는 집행액이 없고 예산잔액만 있다 → 집행액 = 예산현액 - 예산잔액 (잔액이 음수면 초과 집행)
   · 합계·소계 줄은 뺀다. 숫자를 못 읽었거나 이상한 줄은 'warn'에 이유를 남긴다 (확인 화면에서 노란색)
+  · 원가통계비목은 아는 목록(budget_types)을 AI에 알려 주고, 읽은 뒤 한두 글자 틀린 것은 목록 이름으로 고친다
 
 UI 없는 함수(build_prompt, parse_rows, group_rows, rows_from_words, words_to_text)는 tests/에서 검증한다.
 """
@@ -37,12 +38,16 @@ _RULES = """규칙
 - 칸이 좁아 잘린 글자는 보이는 만큼만 적고 지어내지 마세요."""
 
 
-def build_prompt(table_text: str = '') -> str:
-    """AI에 보낼 요청. table_text가 있으면 이미지 대신 OCR로 읽은 표 글자를 준다."""
+def build_prompt(table_text: str = '', cost_types=()) -> str:
+    """AI에 보낼 요청. table_text가 있으면 이미지 대신 OCR로 읽은 표 글자를 준다.
+    cost_types: 아는 원가통계비목 목록 (흐린 글자를 바로잡는 데 쓰도록 알려 줌)."""
     src = (f"아래는 화면의 예산 표를 PC에서 글자로 읽은 것입니다 (칸 사이는 ' | ', 줄 순서는 화면 그대로).\n"
            f"글자 인식 오류(0과 O, 1과 l 등)는 문맥에 맞게 바로잡으세요.\n\n{table_text}\n\n"
            if table_text else "첨부한 이미지는 학교 예산 시스템 화면의 표입니다.\n\n")
-    return f"{src}{_RULES}\n\n다음 형식의 JSON만 출력하세요:\n{_FORMAT}"
+    types = (f"- 원가통계비목은 보통 다음 중 하나입니다: {', '.join(cost_types)}\n"
+             f"  흐려서 잘 안 보이면 이 목록의 이름으로 적고, 목록에 없는 비목이 또렷이 보이면 보이는 그대로 적으세요.\n"
+             if cost_types else '')
+    return f"{src}{_RULES}\n{types}\n다음 형식의 JSON만 출력하세요:\n{_FORMAT}"
 
 
 # ── 숫자 ───────────────────────────────────────────────────────
@@ -327,12 +332,18 @@ class BudgetImageWorker(QThread):
             from school_profile import privacy_enabled, mask_for_ai
             adapter = get_adapter()
             has_ai = adapter is not None and bool(adapter.get_api_key())
+            try:
+                from budget_types import known
+                types = known()
+            except Exception:
+                types = []
             rows, method, image_error = None, '', None
 
             if has_ai and not privacy_enabled():
                 self.progress.emit('AI가 캡처한 표를 읽는 중…')
                 try:
-                    rows = parse_rows(adapter.complete(SYSTEM, build_prompt(), image_b64=self._b64, max_tokens=8000))
+                    rows = parse_rows(adapter.complete(SYSTEM, build_prompt(cost_types=types),
+                                                       image_b64=self._b64, max_tokens=8000))
                     method = 'ai-image'
                 except Exception as e:          # 이미지를 못 읽는 모델 등 → 글자로 다시
                     image_error = e
@@ -345,12 +356,13 @@ class BudgetImageWorker(QThread):
                     if privacy_enabled():
                         text, _ = mask_for_ai(text)
                     self.progress.emit('AI가 표를 정리하는 중…')
-                    rows = parse_rows(adapter.complete(SYSTEM, build_prompt(text), max_tokens=8000))
+                    rows = parse_rows(adapter.complete(SYSTEM, build_prompt(text, types), max_tokens=8000))
                     method = 'ai-text'
                 else:
                     rows = rows_from_words(words)
                     method = 'ocr'
-            cats = group_rows(rows)
+            from budget_types import apply_to_categories
+            cats = apply_to_categories(group_rows(rows), types)   # 흐린 비목 이름을 목록에 맞춰 바로잡기
             if not cats:
                 hint = f'\n({image_error})' if image_error else ''
                 raise RuntimeError('표에서 예산 줄을 찾지 못했습니다. 세부항목·산출내역·예산현액·예산잔액이 '
