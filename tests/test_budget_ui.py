@@ -95,3 +95,34 @@ def test_paste_routes_image_and_text(win, monkeypatch):
     w._paste()
     assert calls[0] == ('image', 40)
     assert calls[1][0] in ('text', 'warn')
+
+
+def test_item_dialog_spend_now_adds_to_spent(win):
+    w, db, budget, app = win
+    item = {'id': 1, 'category_id': 1, 'cost_type': '교육운영비', 'description': '간식비',
+            'budget': 400000, 'spent': 115500, 'completed': 0}
+    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], item, 1, w)
+    assert '더해지고' in dlg.lbl_spend_preview.text()
+    dlg.edit_spend_now.setText('50000')
+    assert dlg.edit_spend_now.text() == '50,000'
+    assert '165,500원' in dlg.lbl_spend_preview.text() and '234,500원' in dlg.lbl_spend_preview.text()
+    dlg.edit_spend_now.setText('400000')                  # 잔액 마이너스 → 빨강
+    assert budget.C.NEG in dlg.lbl_spend_preview.text()
+    dlg.edit_spend_now.setText('50000')
+    dlg._save()
+    assert dlg.result_data['spent'] == 165500 and dlg.result_data['budget'] == 400000
+
+
+def test_item_dialog_spend_now_blank_keeps_spent(win):
+    w, db, budget, app = win
+    item = {'id': 1, 'category_id': 1, 'cost_type': 'x', 'description': 'y',
+            'budget': 1000, 'spent': 300, 'completed': 0}
+    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], item, 1, w)
+    dlg._save()
+    assert dlg.result_data['spent'] == 300
+
+
+def test_add_dialog_has_no_spend_now(win):
+    w, db, budget, app = win
+    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], None, 1, w)
+    assert dlg.edit_spend_now is None

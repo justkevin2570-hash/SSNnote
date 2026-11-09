@@ -1608,6 +1608,25 @@ class _ItemDialog(QDialog):
         self.edit_desc.setPlaceholderText('예: 교과융합캠프 간식비')
         v.addWidget(self.edit_desc)
 
+        # 이번에 쓴 금액 (수정할 때만): 적으면 집행액에 더해지고 잔액이 준다 — 따로 계산할 필요 없게
+        self.edit_spend_now = None
+        if item:
+            lbl_now = QLabel('이번에 쓴 금액')
+            lbl_now.setStyleSheet(f'font-size: 9pt; font-weight: 700; color: {C.ACCENT};')
+            v.addWidget(lbl_now)
+            self.edit_spend_now = QLineEdit()
+            self.edit_spend_now.setAlignment(Qt.AlignRight)
+            self.edit_spend_now.setPlaceholderText('0')
+            self.edit_spend_now.setStyleSheet(
+                f'QLineEdit {{ color: {C.ACCENT}; font-weight: 700; border: 1px solid {C.ACCENT_LINE}; }}'
+                f'QLineEdit:focus {{ border: 1px solid {C.ACCENT}; }}')
+            _attach_amount_format(self.edit_spend_now)
+            v.addWidget(self.edit_spend_now)
+            self.lbl_spend_preview = QLabel()
+            self.lbl_spend_preview.setTextFormat(Qt.RichText)
+            self.lbl_spend_preview.setStyleSheet(f'color: {C.MUTED}; font-size: 9pt;')
+            v.addWidget(self.lbl_spend_preview)
+
         amount_row = QHBoxLayout()
         amount_row.setSpacing(12)
         budget_col = QVBoxLayout()
@@ -1645,7 +1664,30 @@ class _ItemDialog(QDialog):
             self.edit_desc.setText(item['description'])
             self.edit_budget.setText(f'{item["budget"]:,}')
             self.edit_spent.setText(f'{item["spent"]:,}')
-        self.edit_desc.setFocus()
+            for e in (self.edit_spend_now, self.edit_budget, self.edit_spent):
+                e.textChanged.connect(self._update_spend_preview)
+            self._update_spend_preview()
+            self.edit_spend_now.setFocus()           # 수정 창을 여는 가장 흔한 이유
+        else:
+            self.edit_desc.setFocus()
+
+    def _final_spent(self):
+        """저장할 집행액 = 집행액 칸 + 이번에 쓴 금액."""
+        add = _parse_amount(self.edit_spend_now.text()) if self.edit_spend_now else 0
+        return _parse_amount(self.edit_spent.text()) + add
+
+    def _update_spend_preview(self):
+        budget = _parse_amount(self.edit_budget.text())
+        base = _parse_amount(self.edit_spent.text())
+        new = self._final_spent()
+        if new == base:
+            self.lbl_spend_preview.setText('적으면 집행액에 더해지고, 잔액은 그만큼 줄어요.')
+            return
+        rem_before, rem_after = budget - base, budget - new
+        rem_color = C.NEG if rem_after < 0 else C.TEXT
+        self.lbl_spend_preview.setText(
+            f'집행액 {_fmt(base)} → <b style="color:{C.ACCENT}">{_fmt(new)}원</b> · '
+            f'잔액 {_fmt(rem_before)} → <b style="color:{rem_color}">{_fmt(rem_after)}원</b>')
 
     @staticmethod
     def _label(text):
@@ -1664,7 +1706,7 @@ class _ItemDialog(QDialog):
             'cost_type': cost,
             'description': desc,
             'budget': _parse_amount(self.edit_budget.text()),
-            'spent': _parse_amount(self.edit_spent.text()),
+            'spent': self._final_spent(),
         }
         self.accept()
 
