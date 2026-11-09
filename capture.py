@@ -5,8 +5,8 @@ from PyQt5.QtGui import QPainter, QColor, QPen, QPixmap
 from PyQt5.QtWidgets import QApplication, QWidget
 
 
-async def _winrt_ocr_async(png_bytes: bytes) -> str:
-    """winrt 패키지를 통해 Windows 내장 OCR로 텍스트 인식."""
+async def _winrt_recognize_async(png_bytes: bytes):
+    """Windows 내장 OCR 결과(OcrResult). 글자와 위치(단어별 사각형)를 모두 담고 있다."""
     from winrt.windows.media.ocr import OcrEngine
     from winrt.windows.globalization import Language
     from winrt.windows.graphics.imaging import BitmapDecoder
@@ -28,13 +28,34 @@ async def _winrt_ocr_async(png_bytes: bytes) -> str:
     if not eng:
         raise RuntimeError('OCR 언어팩이 없습니다.')
 
-    result = await eng.recognize_async(bmp)
+    return await eng.recognize_async(bmp)
+
+
+async def _winrt_ocr_async(png_bytes: bytes) -> str:
+    """winrt 패키지를 통해 Windows 내장 OCR로 텍스트 인식."""
+    result = await _winrt_recognize_async(png_bytes)
     return '\n'.join(line.text for line in result.lines)
+
+
+async def _winrt_ocr_words_async(png_bytes: bytes) -> list:
+    result = await _winrt_recognize_async(png_bytes)
+    words = []
+    for line in result.lines:
+        for w in line.words:
+            r = w.bounding_rect
+            words.append((w.text, float(r.x), float(r.y), float(r.width), float(r.height)))
+    return words
 
 
 def _winrt_ocr(png_bytes: bytes) -> str:
     """동기 래퍼: 새 이벤트 루프에서 WinRT OCR 실행."""
     return asyncio.run(_winrt_ocr_async(png_bytes))
+
+
+def ocr_words(png_bytes: bytes) -> list:
+    """Windows OCR로 단어와 위치를 읽는다: [(글자, x, y, 폭, 높이)]. 표를 칸별로 나눌 때 쓴다.
+    Windows가 아니거나 OCR 언어팩이 없으면 예외."""
+    return asyncio.run(_winrt_ocr_words_async(png_bytes))
 
 
 class ScreenCaptureOverlay(QWidget):

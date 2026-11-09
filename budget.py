@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """budget.py — 예산 관리 창.
 
-'예산관리 기능.html'의 로직(요약 카드 / 세부항목 탭 / 예산 테이블 /
-집행액 인라인 편집 / 완료 토글 / 세부항목·항목 관리)을 PyQt5로 재구현.
+화면: 위 요약 한 줄(예산현액·집행액·잔액·집행률) / 왼쪽 세부항목 목록 / 오른쪽 세부항목별 표.
+  · 집행액 칸은 눌러서 바로 고치고, 완료·수정·삭제는 행에 마우스를 올리면 나온다.
+  · 완료한 항목은 흐리게 아래로 접힌다. 집행률 색: 포인트 색 → 80% 이상 주황 → 100% 이상 빨강.
+가져오기: 엑셀 파일(끌어다 놓기) · 엑셀에서 복사한 표 · 예산 화면 캡처(우클릭 → 붙여넣기, Ctrl+V)
+  → 세부항목별로 보여 주고(_ImportPreviewDialog) 고친 뒤 가져온다. 캡처 읽기는 budget_image.py.
 데이터는 ssnnote.db의 budget_categories, budget_items 테이블에 저장.
 """
 
@@ -15,16 +18,17 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QLineEdit, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
     QHeaderView, QDialog, QMessageBox, QComboBox, QAbstractItemView,
-    QProgressBar, QFileDialog, QCheckBox, QButtonGroup, QTextEdit, QPlainTextEdit
+    QProgressBar, QFileDialog, QButtonGroup, QTextEdit, QPlainTextEdit,
+    QMenu, QRadioButton, QProgressDialog
 )
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence
+from PyQt5.QtCore import Qt, QSize, QEvent, QBuffer, QIODevice, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QImage, QPixmap, QCursor
 
 from db import (get_budget_categories, add_budget_category, rename_budget_category,
                 delete_budget_category, get_budget_items, add_budget_item,
                 update_budget_item, delete_budget_item, set_budget_item_spent,
                 toggle_budget_item_completed, clear_budget_data)
-from ui.theme import TL as T, keep_light  # 예산·공문 창은 아직 라이트 전용
+from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
 
 
 # ── 번들 Pretendard 등록 ──────────────────────────────────────────
@@ -53,150 +57,114 @@ def _load_pretendard():
                 QFontDatabase.addApplicationFont(os.path.join(dirpath, fn))
 
 
-# ── 전체 QSS 테마 ─────────────────────────────────────────────────
+# ── 색 (공문 작성 창과 같은 결: 회색 바탕 + 포인트 색 하나) ─────────────
+class C:
+    BG          = '#F6F7F9'
+    SURFACE     = '#FFFFFF'
+    BORDER      = '#E3E6EB'
+    BORDER_HI   = '#CBD2DC'
+    LINE        = '#EEF0F3'    # 표 줄 구분
+    TEXT        = '#1E293B'
+    BODY        = '#334155'
+    MUTED       = '#64748B'
+    FAINT       = '#94A3B8'
+    HOVER       = '#F1F3F6'
+    ACCENT      = '#4F46E5'
+    ACCENT_HI   = '#4338CA'
+    ACCENT_SOFT = '#EEF0FD'
+    ACCENT_LINE = '#C7CCF7'
+    NEG         = '#BE123C'
+    WARN_BG     = '#FFF7E0'
+
+
+# ── 전체 QSS ─────────────────────────────────────────────────────
 STYLE = f"""
-    QMainWindow {{ background-color: {T.SLATE_100}; }}
-    QWidget {{
-        font-family: 'Pretendard', 'Malgun Gothic';
-        font-size: 10.5pt;
-        color: {T.SLATE_900};
-    }}
+    QMainWindow, QDialog {{ background: {C.BG}; }}
+    QWidget {{ font-family: 'Pretendard', 'Malgun Gothic'; font-size: 10pt; color: {C.TEXT}; }}
+    QLabel {{ background: transparent; }}
     QScrollArea {{ border: none; background: transparent; }}
-    QFrame#Card {{ background: white; border: 1px solid {T.SLATE_200}; border-radius: 10px; }}
-    QFrame#Section {{ background: white; border: 1px solid {T.SLATE_300}; border-radius: 10px; }}
-    QFrame#SectionHeader {{
-        background: {T.INDIGO_950};
-        border: none;
-        border-top-left-radius: 9px;
-        border-top-right-radius: 9px;
+    QScrollArea > QWidget > QWidget {{ background: transparent; }}
+    QFrame#Card {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 12px; }}
+    QFrame#VSep {{ background: {C.BORDER}; border: none; }}
+    QLabel#Title {{ font-size: 16pt; font-weight: 800; }}
+    QLabel#Meta {{ color: {C.MUTED}; font-size: 9.5pt; }}
+    QLabel#StatLabel {{ color: {C.MUTED}; font-size: 9pt; font-weight: 600; }}
+    QLabel#StatValue {{ font-size: 15pt; font-weight: 800; }}
+    QLabel#SectionTitle {{ font-size: 12pt; font-weight: 800; }}
+    QLabel#SectionMeta {{ color: {C.MUTED}; font-size: 9.5pt; }}
+    QLabel#Muted {{ color: {C.MUTED}; }}
+    QLabel#EmptyTitle {{ font-size: 13pt; font-weight: 800; }}
+
+    QPushButton {{
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px;
+        padding: 6px 14px; color: {C.TEXT}; font-weight: 600;
     }}
-    QFrame#Toolbar {{ background: white; border: 1px solid {T.SLATE_200}; border-radius: 10px; }}
-    QLabel#CardTitle {{ color: {T.SLATE_500}; font-size: 9.5pt; font-weight: 700; }}
-    QLabel#CardSub {{ color: {T.SLATE_400}; font-size: 8.5pt; }}
-    QLabel#CardValueIndigo {{ color: {T.INDIGO_700}; font-size: 19pt; font-weight: 800; }}
-    QLabel#CardValueAmber {{ color: #d97706; font-size: 19pt; font-weight: 800; }}
-    QLabel#CardValueEmerald {{ color: #059669; font-size: 19pt; font-weight: 800; }}
-    QLabel#PercentBig {{ color: #1d4ed8; font-size: 13pt; font-weight: 800; }}
-    QLabel#SectionTitle {{ color: white; font-size: 13pt; font-weight: 700; }}
-    QLabel#Chip {{
-        background: {T.INDIGO_900};
-        border: 1px solid {T.INDIGO_700};
-        border-radius: 8px;
-        padding: 4px 10px;
-        font-size: 9.5pt;
-        color: #ffffff;
+    QPushButton:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
+    QPushButton:pressed {{ background: {C.BORDER}; }}
+    QPushButton:disabled {{ color: {C.FAINT}; background: {C.SURFACE}; border-color: {C.BORDER}; }}
+    QPushButton::menu-indicator {{ subcontrol-position: right center; right: 8px; width: 8px; }}
+    QPushButton#Primary {{ background: {C.ACCENT}; border: 1px solid {C.ACCENT}; color: white; font-weight: 700; }}
+    QPushButton#Primary:hover {{ background: {C.ACCENT_HI}; border-color: {C.ACCENT_HI}; }}
+    QPushButton#Primary:disabled {{ background: {C.ACCENT_LINE}; border-color: {C.ACCENT_LINE}; color: white; }}
+    QPushButton#IconBtn {{ background: transparent; border: none; border-radius: 6px; padding: 0; }}
+    QPushButton#IconBtn:hover {{ background: {C.HOVER}; }}
+    QPushButton#IconBtn:disabled {{ background: transparent; }}
+    QPushButton#Link {{ background: transparent; border: none; color: {C.MUTED}; padding: 4px 2px; text-align: left; }}
+    QPushButton#Link:hover {{ color: {C.TEXT}; }}
+
+    QFrame#Nav {{ background: transparent; border: none; border-radius: 10px; }}
+    QFrame#Nav:hover {{ background: {C.HOVER}; }}
+    QFrame#Nav[active="true"] {{ background: {C.ACCENT_SOFT}; }}
+    QLabel#NavName {{ font-weight: 700; }}
+    QFrame#Nav[active="true"] QLabel#NavName {{ color: {C.ACCENT_HI}; }}
+    QLabel#NavMeta {{ color: {C.MUTED}; font-size: 8.5pt; }}
+
+    QTableWidget {{
+        background: {C.SURFACE}; border: none; gridline-color: transparent;
+        selection-background-color: transparent; selection-color: {C.TEXT}; outline: 0;
     }}
-    QLabel#EmptyBox {{
-        background: white;
-        border: 1px solid {T.SLATE_200};
-        border-radius: 10px;
-        color: {T.SLATE_400};
-        padding: 30px;
-    }}
-    QPushButton#TabActive {{
-        background: {T.INDIGO_900}; color: white; border: none; border-radius: 8px;
-        padding: 6px 16px; font-weight: 700;
-    }}
-    QPushButton#TabBtn {{
-        background: {T.SLATE_200}; color: {T.SLATE_700}; border: none; border-radius: 8px;
-        padding: 6px 16px; font-weight: 600;
-    }}
-    QPushButton#TabBtn:hover {{ background: {T.SLATE_300}; }}
-    QPushButton#Primary {{
-        background: {T.INDIGO_600}; color: white; border: none; border-radius: 8px;
-        padding: 7px 14px; font-weight: 700;
-    }}
-    QPushButton#Primary:hover {{ background: {T.INDIGO_700}; }}
-    QPushButton#Primary:disabled {{ background: #c7d2fe; }}
-    QPushButton#Danger {{
-        background: #be123c; color: white; border: none; border-radius: 8px;
-        padding: 7px 12px; font-weight: 700;
-    }}
-    QPushButton#Danger:hover {{ background: #9f1239; }}
-    QPushButton#Dark {{
-        background: {T.INDIGO_900}; color: white; border: 1px solid {T.INDIGO_700};
-        border-radius: 8px; padding: 7px 12px; font-weight: 700;
-    }}
-    QPushButton#Dark:hover {{ background: #3730a3; }}
-    QPushButton#Ghost {{
-        background: white; color: {T.SLATE_700}; border: 1px solid {T.SLATE_300};
-        border-radius: 8px; padding: 6px 12px; font-weight: 600;
-    }}
-    QPushButton#Ghost:hover {{ background: {T.SLATE_100}; }}
-    QPushButton#IconBtn {{ background: transparent; border: none; border-radius: 6px; }}
-    QPushButton#IconBtn:hover {{ background: {T.SLATE_200}; }}
-    QPushButton#CompleteBtn {{
-        background: {T.SLATE_200}; color: {T.SLATE_700}; border: none; border-radius: 6px;
-        padding: 4px 10px; font-weight: 700; font-size: 9.5pt;
-    }}
-    QPushButton#CompleteBtn:hover {{ background: {T.SLATE_300}; }}
-    QPushButton#DoneBtn {{
-        background: #059669; color: white; border: none; border-radius: 6px;
-        padding: 4px 10px; font-weight: 700; font-size: 9.5pt;
-    }}
-    QPushButton#DoneBtn:hover {{ background: #047857; }}
-    QTableWidget {{ background: white; border: none; gridline-color: transparent; }}
-    QTableWidget::item {{
-        border-right: 1px solid {T.SLATE_200};
-        border-bottom: 1px solid {T.SLATE_200};
-        padding: 4px 8px;
-    }}
+    QTableWidget::item {{ border-bottom: 1px solid {C.LINE}; padding: 0 10px; }}
+    QTableWidget::item:selected {{ background: transparent; color: {C.TEXT}; }}
+    QTableWidget QLineEdit {{ border: 1px solid {C.ACCENT}; border-radius: 4px; padding: 2px 6px; }}
     QHeaderView::section {{
-        background: {T.SLATE_200}; color: {T.SLATE_700}; padding: 7px 8px; border: none;
-        border-right: 1px solid {T.SLATE_300}; border-bottom: 1px solid {T.SLATE_300};
-        font-weight: 700;
+        background: {C.SURFACE}; color: {C.MUTED}; padding: 8px 10px; border: none;
+        border-bottom: 1px solid {C.BORDER}; font-weight: 700; font-size: 9pt;
     }}
-    QLineEdit {{
-        background: white; border: 1px solid {T.SLATE_300}; border-radius: 6px;
-        padding: 5px 8px;
+    QLineEdit, QComboBox {{
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 6px 9px;
     }}
-    QLineEdit:focus {{ border: 2px solid {T.INDIGO_500}; }}
-    QLineEdit:disabled {{ background: {T.SLATE_200}; color: {T.SLATE_500}; border-color: transparent; }}
-    QLineEdit#SpentInput {{
-        background: #fffbeb; border: 2px solid #fcd34d; color: #78350f;
-        font-weight: 700;
-    }}
-    QLineEdit#SpentInput:focus {{ border: 2px solid {T.INDIGO_500}; background: white; }}
-    QLineEdit#SpentInput:disabled {{
-        background: {T.SLATE_200}; border-color: transparent; color: {T.SLATE_500};
-    }}
-    QComboBox {{
-        background: white; border: 1px solid {T.SLATE_300}; border-radius: 6px;
-        padding: 5px 8px;
-    }}
-    QCheckBox {{ font-size: 12.5pt; spacing: 8px; }}
-    QCheckBox:disabled {{ color: {T.SLATE_400}; }}
-    QProgressBar {{ background: {T.SLATE_200}; border: none; border-radius: 4px; }}
-    QProgressBar::chunk {{ background: #2563eb; border-radius: 4px; }}
-    QProgressBar#SummaryBar::chunk {{ background: #f59e0b; border-radius: 4px; }}
-    QScrollBar:vertical {{ width: 10px; background: transparent; }}
-    QScrollBar::handle:vertical {{ background: {T.SLATE_300}; border-radius: 5px; min-height: 24px; }}
-    QScrollBar::handle:vertical:hover {{ background: {T.SLATE_400}; }}
+    QLineEdit:focus, QComboBox:focus {{ border: 1px solid {C.ACCENT}; }}
+    QRadioButton {{ spacing: 8px; }}
+    QProgressBar {{ background: {C.LINE}; border: none; border-radius: 3px; }}
+    QProgressBar::chunk {{ background: {C.ACCENT}; border-radius: 3px; }}
+    QMenu {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 6px; }}
+    QMenu::item {{ padding: 7px 18px 7px 12px; border-radius: 5px; color: {C.TEXT}; }}
+    QMenu::item:selected {{ background: {C.HOVER}; }}
+    QMenu::item:disabled {{ color: {C.FAINT}; }}
+    QMenu::separator {{ height: 1px; background: {C.BORDER}; margin: 5px 6px; }}
+    QToolTip {{ background: {C.TEXT}; color: white; border: none; padding: 5px 8px; border-radius: 4px; }}
+    QScrollBar:vertical {{ width: 10px; background: transparent; margin: 2px; }}
+    QScrollBar::handle:vertical {{ background: {C.BORDER_HI}; border-radius: 4px; min-height: 24px; }}
+    QScrollBar::handle:vertical:hover {{ background: {C.FAINT}; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+    QScrollBar:horizontal {{ height: 0; }}
 """
 
 _STATE_FILE = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'budget_state.json')
 
-_ROW_H = 46
-_HEADER_H = 38
+_ROW_H = 44
 
-# 열 폭: 넉넉할 때의 폭과, 좁아져도 이 아래로는 줄이지 않는 최소 폭.
-# 최소 폭은 실제 내용(헤더 텍스트·금액·진행바/버튼 셀)에 맞춘 값이라
-# 숫자가 '1,200,0…'처럼 잘리지 않는다. 합계 939px + 창 여백 ≈ 최소 창 폭 1000.
-_COL_W = (160, 258, 130, 160, 130, 150, 118, 86)
-_COL_MIN = (120, 136, 124, 149, 112, 142, 90, 66)
+# 열: 원가통계비목 · 산출내역 · 예산현액 · 집행액 · 잔액 · 집행률 · (마우스를 올리면 나오는 버튼)
+# 넉넉할 때의 폭과, 좁아져도 이 아래로는 줄이지 않는 최소 폭. 남는 폭은 산출내역이 가져간다.
+_COL_W = (150, 250, 118, 118, 118, 132, 96)
+_COL_MIN = (104, 140, 104, 104, 104, 124, 96)
+_COLS = ('원가통계비목', '산출내역', '예산현액', '집행액', '잔액', '집행률', '')
+_COL_SPENT = 3
 
-_BG_ZEBRA = QColor(T.SLATE_50)
-_BG_WHITE = QColor('#ffffff')
-_BG_DONE = QColor(T.SLATE_100)
-_BG_NEG = QColor('#ffe4e6')
-
-_COLOR_NEG = QColor('#be123c')
-
-# 집행률 수준: 정상(파랑) · 80% 이상(주황) · 100% 이상(빨강) · 완료(회색)
-_LEVEL_BAR = {'ok': '#2563eb', 'warn': '#d97706', 'over': '#e11d48', 'done': T.SLATE_400}
-_LEVEL_TEXT = {'ok': '#1d4ed8', 'warn': '#b45309', 'over': '#be123c', 'done': T.SLATE_500}
-_LEVEL_ON_DARK = {'ok': '#67e8f9', 'warn': '#fcd34d', 'over': '#fda4af', 'done': '#cbd5e1'}
+# 집행률 수준: 정상(포인트 색) · 80% 이상(주황) · 100% 이상(빨강) · 완료(회색)
+_LEVEL_BAR = {'ok': C.ACCENT, 'warn': '#D97706', 'over': '#E11D48', 'done': C.BORDER_HI}
+_LEVEL_TEXT = {'ok': C.ACCENT_HI, 'warn': '#B45309', 'over': C.NEG, 'done': C.FAINT}
+_LEVEL_SOFT = {'ok': C.ACCENT_SOFT, 'warn': '#FEF3E2', 'over': '#FDECEF', 'done': C.HOVER}
 
 
 def _level(pct, done=False):
@@ -210,11 +178,8 @@ def _level(pct, done=False):
 
 
 def _bar_qss(color):
-    return (f'QProgressBar {{ background: {T.SLATE_200}; border: none; border-radius: 4px; }}'
-            f'QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}')
-_COLOR_DONE_TEXT = QColor(T.SLATE_500)
-_COLOR_TEXT = QColor(T.SLATE_900)
-_COLOR_COST = QColor(T.SLATE_600)
+    return (f'QProgressBar {{ background: {C.LINE}; border: none; border-radius: 3px; }}'
+            f'QProgressBar::chunk {{ background: {color}; border-radius: 3px; }}')
 
 
 def _fmt(n):
@@ -251,7 +216,7 @@ def _make_strike_font(font):
     return f
 
 
-def _icon_btn(icon_name, tooltip, color=T.SLATE_500, size=16):
+def _icon_btn(icon_name, tooltip, color=C.MUTED, size=16):
     btn = QPushButton()
     btn.setObjectName('IconBtn')
     btn.setIcon(qta.icon(icon_name, color=color))
@@ -483,11 +448,7 @@ def parse_budget_clipboard(text):
 
 # ── 표 열 폭 / 높이 자동 맞춤 ──────────────────────────────────────
 def _fit_columns(table):
-    """표 폭에 맞춰 열 폭을 배분한다(넘치면 최소 폭까지 비례 축소).
-
-    가로 스크롤바가 생기면 마지막 행이 잘리므로, 폭이 모자라면 열을 줄여
-    스크롤바 없이 표 전체가 보이게 한다.
-    """
+    """표 폭에 맞춰 열 폭을 배분한다(넘치면 최소 폭까지 비례 축소, 남으면 산출내역이 가져감)."""
     hdr = table.horizontalHeader()
     avail = table.viewport().width()
     n = len(_COL_W)
@@ -496,16 +457,15 @@ def _fit_columns(table):
     total = sum(_COL_W)
     if avail >= total:
         widths = list(_COL_W)
-        widths[1] += avail - total            # 남는 폭은 산출내역 열이 흡수
+        widths[1] += avail - total
     else:
         slack = [max(0, _COL_W[i] - _COL_MIN[i]) for i in range(n)]
         pool = sum(slack)
         if pool <= 0:
             return
         cut = min(total - avail, pool)
-        widths = [max(_COL_MIN[i], int(_COL_W[i] - cut * slack[i] / pool))
-                  for i in range(n)]
-        over = sum(widths) - avail            # 반올림 초과분은 여유 있는 열에서 깎는다
+        widths = [max(_COL_MIN[i], int(_COL_W[i] - cut * slack[i] / pool)) for i in range(n)]
+        over = sum(widths) - avail
         while over > 0:
             i = max(range(n), key=lambda k: widths[k] - _COL_MIN[k])
             if widths[i] <= _COL_MIN[i]:
@@ -518,30 +478,109 @@ def _fit_columns(table):
 
 
 class _BudgetTable(QTableWidget):
-    """폭에 맞춰 열 폭을 줄이고, 높이를 (헤더 + 행 높이 합)에 맞추는 표.
+    """세부항목 하나의 표. 폭에 맞춰 열을 나누고 높이를 내용에 맞춘다(안쪽 스크롤 없음).
+    행에 마우스를 올리면 그 행의 버튼(완료·수정·삭제)만 보인다."""
 
-    기존 고정 높이(_HEADER_H + _ROW_H*n)는 실제 헤더 높이(46px)보다 작아
-    마지막 행이 늘 조금씩 잘렸고, 가로 스크롤바가 뜨면 그만큼 더 잘렸다.
-    """
+    def __init__(self):
+        super().__init__()
+        self.action_buttons = []           # 행마다 [완료, 수정, 삭제]
+        self._hover_row = -1
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
+        self.viewport().installEventFilter(self)
+
+    def show_actions(self, row):
+        if row == self._hover_row:
+            return
+        self._hover_row = row
+        for r, btns in enumerate(self.action_buttons):
+            for b in btns or ():
+                b.setVisible(r == row)
+
+    def eventFilter(self, obj, e):
+        if obj is self.viewport():
+            if e.type() == QEvent.MouseMove:
+                self.show_actions(self.rowAt(e.pos().y()))
+            elif e.type() == QEvent.Leave:
+                if not self.viewport().rect().contains(self.viewport().mapFromGlobal(QCursor.pos())):
+                    self.show_actions(-1)
+        return super().eventFilter(obj, e)
 
     def sync_geometry(self):
         _fit_columns(self)
-        self._sync_height()
-
-    def _sync_height(self):
         hdr = self.horizontalHeader()
         rows_h = sum(self.rowHeight(r) for r in range(self.rowCount()))
-        cols = sum(hdr.sectionSize(c) for c in range(hdr.count()))
-        hbar_h = 0
-        if cols > self.viewport().width() > 0:   # 열이 다 안 들어가면 스크롤바 높이 확보
-            hbar_h = self.horizontalScrollBar().sizeHint().height()
-        target = hdr.height() + rows_h + hbar_h
+        head_h = 0 if hdr.isHidden() else max(hdr.height(), hdr.sizeHint().height())
+        target = head_h + rows_h + 2
         if self.height() != target:
             self.setFixedHeight(target)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.sync_geometry()
+
+
+class _NavItem(QFrame):
+    """왼쪽 세부항목 목록의 한 줄: 이름 · 집행률 막대 · 잔액."""
+    clicked = pyqtSignal()
+
+    def __init__(self, name):
+        super().__init__()
+        self.setObjectName('Nav')
+        self.setProperty('active', 'false')
+        self.setCursor(Qt.PointingHandCursor)
+        v = QVBoxLayout(self)
+        v.setContentsMargins(10, 8, 10, 8)
+        v.setSpacing(5)
+        self.lbl_name = QLabel(name)
+        self.lbl_name.setObjectName('NavName')
+        self.lbl_name.setWordWrap(True)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 100)
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(4)
+        self.lbl_pct = QLabel()
+        self.lbl_pct.setObjectName('NavMeta')
+        self.lbl_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.lbl_pct.setFixedWidth(46)
+        row.addWidget(self.bar, 1)
+        row.addWidget(self.lbl_pct)
+        self.lbl_meta = QLabel()
+        self.lbl_meta.setObjectName('NavMeta')
+        v.addWidget(self.lbl_name)
+        v.addLayout(row)
+        v.addWidget(self.lbl_meta)
+
+    def set_active(self, on):
+        self.setProperty('active', 'true' if on else 'false')
+        for w in (self, self.lbl_name):
+            w.style().unpolish(w)
+            w.style().polish(w)
+
+    def set_values(self, budget, spent, extra=''):
+        pct = _pct(spent, budget)
+        lvl = _level(pct)
+        self.bar.setValue(int(round(min(pct, 100))))
+        self.bar.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
+        self.lbl_pct.setText(f'{pct:.0f}%')
+        self.lbl_pct.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-weight: 700;')
+        rem = budget - spent
+        color = C.NEG if rem < 0 else C.MUTED
+        self.lbl_meta.setText(f'<span style="color:{color}">잔액 {_fmt(rem)}원</span>{extra}')
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self.clicked.emit()
+
+
+_IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
+_IMAGE_METHOD = {
+    'ai-image': 'AI가 이미지를 읽어 정리',
+    'ai-text': 'PC 글자 인식 + AI 정리',
+    'ocr': 'PC 글자 인식 (AI 없음) — 숫자를 꼭 확인하세요',
+}
 
 
 class BudgetWindow(QMainWindow):
@@ -553,159 +592,218 @@ class BudgetWindow(QMainWindow):
         self.active_tab = 'ALL'
         self._items_by_id = {}
         self._row_refs = {}
-        self._cat_refs = {}
+        self._sec_refs = {}
+        self._nav_refs = {}
+        self._show_done = set()           # 완료 항목을 펼쳐 둔 세부항목
+        self._img_worker = None
         self._restore_window_state()
         self._init_ui()
         self.refresh()
-        keep_light(self)  # 예산 창은 아직 라이트 전용 (다크 테마에서도 원래 모습 유지)
+        keep_light(self)  # 예산 창은 라이트 전용 (다크 테마에서도 원래 모습 유지)
 
     # ── UI 구성 ────────────────────────────────────────────────────
     def _init_ui(self):
         self.setWindowTitle('예산 관리')
-        self.setMinimumSize(1000, 560)
+        self.setMinimumSize(1000, 600)
         self.setStyleSheet(STYLE)
         self.setAcceptDrops(True)
 
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
-        root.setContentsMargins(20, 16, 20, 16)
+        root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(14)
 
-        # 헤더
+        # 머리: 제목 · 요약 글 | 가져오기 ▾ · 항목 추가 · ⋯
         header = QHBoxLayout()
-        header.setSpacing(10)
-        icon_lbl = QLabel()
-        icon_lbl.setPixmap(qta.icon('fa5s.calculator', color=T.INDIGO_600).pixmap(26, 26))
-        title_box = QVBoxLayout()
-        title_box.setSpacing(0)
-        lbl_title = QLabel('예산 관리')
-        lbl_title.setStyleSheet(f'font-size: 17pt; font-weight: 800; color: {T.INDIGO_950};')
-        lbl_sub = QLabel('추경 세부항목 변경 대응 · 실시간 예산 잔액 및 집행률 · 항목 완료 기능')
-        lbl_sub.setStyleSheet(f'font-size: 9pt; color: {T.SLATE_500};')
-        title_box.addWidget(lbl_title)
-        title_box.addWidget(lbl_sub)
-        header.addWidget(icon_lbl)
-        header.addLayout(title_box)
+        header.setSpacing(8)
+        tb = QVBoxLayout()
+        tb.setSpacing(2)
+        title = QLabel('예산 관리')
+        title.setObjectName('Title')
+        self.lbl_meta = QLabel()
+        self.lbl_meta.setObjectName('Meta')
+        tb.addWidget(title)
+        tb.addWidget(self.lbl_meta)
+        header.addLayout(tb)
         header.addStretch()
 
-        btn_categories = QPushButton('예산 등록·관리')
-        btn_categories.setObjectName('Dark')
-        btn_categories.setIcon(qta.icon('fa5s.folder-open', color='white'))
-        btn_categories.setIconSize(QSize(14, 14))
-        btn_categories.clicked.connect(self._open_category_manager)
-        header.addWidget(btn_categories)
-
-        btn_reset = QPushButton('초기화')
-        btn_reset.setObjectName('Danger')
-        btn_reset.setIcon(qta.icon('fa5s.undo', color='white'))
-        btn_reset.setIconSize(QSize(14, 14))
-        btn_reset.clicked.connect(self._reset_all)
-        header.addWidget(btn_reset)
+        self.btn_import = QPushButton('가져오기')
+        self.btn_import.setIcon(qta.icon('fa5s.file-import', color=C.MUTED))
+        self.btn_import.setIconSize(QSize(13, 13))
+        self.btn_import.setToolTip('엑셀 파일, 엑셀에서 복사한 표, 예산 화면 캡처를 가져와 세부항목별로 정리')
+        self.btn_import.clicked.connect(lambda: self._exec_menu(self._import_menu(), self.btn_import))
+        self.btn_add_item = QPushButton('항목 추가')
+        self.btn_add_item.setObjectName('Primary')
+        self.btn_add_item.setIcon(qta.icon('fa5s.plus', color='white'))
+        self.btn_add_item.setIconSize(QSize(11, 11))
+        self.btn_add_item.clicked.connect(lambda: self._open_add_item())
+        self.btn_more = QPushButton()
+        self.btn_more.setObjectName('IconBtn')
+        self.btn_more.setIcon(qta.icon('fa5s.ellipsis-h', color=C.MUTED))
+        self.btn_more.setFixedSize(34, 34)
+        self.btn_more.setToolTip('세부항목 관리 · 전체 지우기')
+        self.btn_more.clicked.connect(lambda: self._exec_menu(self._more_menu(), self.btn_more))
+        for b in (self.btn_import, self.btn_add_item):
+            b.setFixedHeight(34)
+            b.setCursor(Qt.PointingHandCursor)
+        header.addWidget(self.btn_import)
+        header.addWidget(self.btn_add_item)
+        header.addWidget(self.btn_more)
         root.addLayout(header)
 
-        # 요약 카드 3개
-        cards = QHBoxLayout()
-        cards.setSpacing(14)
-        cards.addWidget(self._make_card('현재 편성 예산합 (예산현액)', 'CardValueIndigo',
-                                        '세부항목별 예산현액 총합', 'allocated'))
-        cards.addWidget(self._make_card('총 집행액 (지출)', 'CardValueAmber',
-                                        '현재 편성 예산합 대비 집행률', 'spent'))
-        cards.addWidget(self._make_card('총 예산 잔액', 'CardValueEmerald',
-                                        '현재 편성 예산합 - 총 집행액', 'remaining'))
-        root.addLayout(cards)
+        # 요약 한 줄: 예산현액 | 집행액 | 잔액 ……… 집행률 ▓▓▓░
+        self.summary = QFrame()
+        self.summary.setObjectName('Card')
+        sl = QHBoxLayout(self.summary)
+        sl.setContentsMargins(22, 14, 22, 14)
+        sl.setSpacing(22)
+        self.stat = {}
+        for key, label in (('budget', '예산현액'), ('spent', '집행액'), ('remaining', '잔액')):
+            box = QVBoxLayout()
+            box.setSpacing(2)
+            lb = QLabel(label)
+            lb.setObjectName('StatLabel')
+            val = QLabel('0원')
+            val.setObjectName('StatValue')
+            box.addWidget(lb)
+            box.addWidget(val)
+            sl.addLayout(box)
+            self.stat[key] = val
+            if key != 'remaining':
+                sep = QFrame()
+                sep.setObjectName('VSep')
+                sep.setFixedWidth(1)
+                sl.addWidget(sep)
+        sl.addStretch()
+        pct_box = QWidget()
+        pct_box.setFixedWidth(260)
+        pv = QVBoxLayout(pct_box)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(8)
+        top = QHBoxLayout()
+        lb = QLabel('집행률')
+        lb.setObjectName('StatLabel')
+        self.lbl_pct = QLabel('0.0%')
+        top.addWidget(lb)
+        top.addStretch()
+        top.addWidget(self.lbl_pct)
+        self.bar_total = QProgressBar()
+        self.bar_total.setRange(0, 100)
+        self.bar_total.setTextVisible(False)
+        self.bar_total.setFixedHeight(6)
+        pv.addLayout(top)
+        pv.addWidget(self.bar_total)
+        sl.addWidget(pct_box)
+        root.addWidget(self.summary)
 
-        # 탭 + 항목 추가 버튼
-        toolbar = QFrame()
-        toolbar.setObjectName('Toolbar')
-        tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(12, 10, 12, 10)
-        tb_layout.setSpacing(8)
-        self.tabs_container = QWidget()
-        self.tabs_layout = QHBoxLayout(self.tabs_container)
-        self.tabs_layout.setContentsMargins(0, 0, 0, 0)
-        self.tabs_layout.setSpacing(8)
-        tb_layout.addWidget(self.tabs_container)
-        tb_layout.addStretch()
-        self.btn_add_item = QPushButton('새 예산 항목 추가')
-        self.btn_add_item.setObjectName('Primary')
-        self.btn_add_item.setIcon(qta.icon('fa5s.plus-circle', color='white'))
-        self.btn_add_item.setIconSize(QSize(14, 14))
-        self.btn_add_item.clicked.connect(self._open_add_item)
-        tb_layout.addWidget(self.btn_add_item)
-        root.addWidget(toolbar)
+        # 본문: 왼쪽 세부항목 목록 | 오른쪽 표
+        self.body = QWidget()
+        bl = QHBoxLayout(self.body)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(14)
+        self.nav_card = QFrame()
+        self.nav_card.setObjectName('Card')
+        self.nav_card.setFixedWidth(250)
+        nl = QVBoxLayout(self.nav_card)
+        nl.setContentsMargins(8, 12, 8, 8)
+        nl.setSpacing(4)
+        cap = QLabel('  세부항목')
+        cap.setObjectName('StatLabel')
+        nl.addWidget(cap)
+        nav_scroll = QScrollArea()
+        nav_scroll.setWidgetResizable(True)
+        nav_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        nav_box = QWidget()
+        self.nav_layout = QVBoxLayout(nav_box)
+        self.nav_layout.setContentsMargins(0, 0, 0, 0)
+        self.nav_layout.setSpacing(2)
+        nav_scroll.setWidget(nav_box)
+        nl.addWidget(nav_scroll, 1)
+        bl.addWidget(self.nav_card)
 
-        # 섹션 스크롤 영역
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.sections_container = QWidget()
         self.sections_layout = QVBoxLayout(self.sections_container)
-        self.sections_layout.setContentsMargins(0, 0, 6, 0)
-        self.sections_layout.setSpacing(16)
+        self.sections_layout.setContentsMargins(0, 0, 4, 0)
+        self.sections_layout.setSpacing(14)
         self.scroll.setWidget(self.sections_container)
-        root.addWidget(self.scroll, stretch=1)
+        bl.addWidget(self.scroll, 1)
+        root.addWidget(self.body, 1)
 
-    def _make_card(self, title, value_obj, sub_text, key):
+        self.empty = self._make_empty()
+        root.addWidget(self.empty, 1)
+
+    def _make_empty(self):
         card = QFrame()
         card.setObjectName('Card')
         v = QVBoxLayout(card)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(0)
-
-        strip = QFrame()
-        strip.setFixedHeight(4)
-        accent = {'allocated': T.INDIGO_600, 'spent': '#f59e0b', 'remaining': '#059669'}[key]
-        strip.setStyleSheet(f'background: {accent}; border: none; '
-                            f'border-top-left-radius: 10px; border-top-right-radius: 10px;')
-        v.addWidget(strip)
-        if key == 'spent':
-            self._spent_strip = strip
-
-        body = QWidget()
-        bl = QVBoxLayout(body)
-        bl.setContentsMargins(16, 12, 16, 12)
-        bl.setSpacing(4)
-
-        lbl_title = QLabel(title)
-        lbl_title.setObjectName('CardTitle')
-        bl.addWidget(lbl_title)
-
-        lbl_value = QLabel('0원')
-        lbl_value.setObjectName(value_obj)
-        if key == 'spent':
-            row = QHBoxLayout()
-            row.setSpacing(6)
-            row.addWidget(lbl_value)
-            row.addStretch()
-            self.lbl_percent = QLabel('0.0%')
-            self.lbl_percent.setObjectName('PercentBig')
-            row.addWidget(self.lbl_percent)
-            bl.addLayout(row)
-        else:
-            bl.addWidget(lbl_value)
-
-        lbl_sub = QLabel(sub_text)
-        lbl_sub.setObjectName('CardSub')
-        bl.addWidget(lbl_sub)
-
-        if key == 'spent':
-            self.bar_spent = QProgressBar()
-            self.bar_spent.setObjectName('SummaryBar')
-            self.bar_spent.setRange(0, 100)
-            self.bar_spent.setValue(0)
-            self.bar_spent.setTextVisible(False)
-            self.bar_spent.setFixedHeight(8)
-            bl.addWidget(self.bar_spent)
-
-        v.addWidget(body)
-
-        if key == 'allocated':
-            self.lbl_allocated = lbl_value
-        elif key == 'remaining':
-            self.lbl_remaining = lbl_value
-        else:
-            self.lbl_spent = lbl_value
+        v.setContentsMargins(40, 40, 40, 40)
+        v.setSpacing(10)
+        v.addStretch()
+        icon = QLabel()
+        icon.setPixmap(qta.icon('fa5s.file-import', color=C.BORDER_HI).pixmap(44, 44))
+        icon.setAlignment(Qt.AlignCenter)
+        t = QLabel('예산 자료를 가져오세요')
+        t.setObjectName('EmptyTitle')
+        t.setAlignment(Qt.AlignCenter)
+        s = QLabel('사업관리카드 엑셀 파일을 이 창에 끌어다 놓거나,\n'
+                   '예산 화면을 캡처해 붙여넣으면(우클릭 → 붙여넣기 또는 Ctrl+V) 세부항목별로 정리해 드려요.')
+        s.setObjectName('Muted')
+        s.setAlignment(Qt.AlignCenter)
+        row = QHBoxLayout()
+        row.addStretch()
+        for text, icon_name, fn in (('엑셀 파일 열기', 'fa5s.file-excel', lambda: self._choose_excel()),
+                                    ('붙여넣기', 'fa5s.paste', lambda: self._paste()),
+                                    ('직접 만들기', 'fa5s.folder-plus', lambda: self._open_category_manager())):
+            b = QPushButton(text)
+            b.setIcon(qta.icon(icon_name, color=C.MUTED))
+            b.setIconSize(QSize(13, 13))
+            b.setCursor(Qt.PointingHandCursor)
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        row.addStretch()
+        for w in (icon, t, s):
+            v.addWidget(w)
+        v.addSpacing(8)
+        v.addLayout(row)
+        v.addStretch()
         return card
+
+    # ── 메뉴 ───────────────────────────────────────────────────────
+    def _menu(self):
+        m = QMenu(self)
+        m.setStyleSheet(STYLE)
+        return m
+
+    @staticmethod
+    def _exec_menu(menu, button):
+        menu.exec_(button.mapToGlobal(button.rect().bottomLeft()))
+
+    def _import_menu(self):
+        m = self._menu()
+        m.addAction(qta.icon('fa5s.file-excel', color=C.MUTED), '엑셀 파일 열기…', lambda: self._choose_excel())
+        a = m.addAction(qta.icon('fa5s.paste', color=C.MUTED), '붙여넣기 — 엑셀 표 또는 캡처 이미지\tCtrl+V',
+                        lambda: self._paste())
+        a.setEnabled(self._clipboard_kind() is not None)
+        return m
+
+    def _more_menu(self):
+        m = self._menu()
+        m.addAction('세부항목 관리…', lambda: self._open_category_manager())
+        m.addSeparator()
+        a = m.addAction('전체 지우기…', lambda: self._reset_all())
+        a.setEnabled(bool(self.categories or self.items))
+        return m
+
+    def contextMenuEvent(self, e):
+        m = self._import_menu()
+        m.addSeparator()
+        a = m.addAction('항목 추가…', lambda: self._open_add_item())
+        a.setEnabled(bool(self.categories))
+        m.exec_(e.globalPos())
 
     # ── 데이터 새로고침 ────────────────────────────────────────────
     def refresh(self, keep_scroll=True):
@@ -713,303 +811,295 @@ class BudgetWindow(QMainWindow):
         self.categories = get_budget_categories()
         self.items = get_budget_items()
         self._items_by_id = {it['id']: it for it in self.items}
-        valid_ids = {c['id'] for c in self.categories}
-        if self.active_tab != 'ALL' and self.active_tab not in valid_ids:
+        if self.active_tab != 'ALL' and self.active_tab not in {c['id'] for c in self.categories}:
             self.active_tab = 'ALL'
-        self._rebuild_tabs()
+        has = bool(self.categories)
+        self.summary.setVisible(has)
+        self.body.setVisible(has)
+        self.empty.setVisible(not has)
+        self.btn_add_item.setEnabled(has)
+        self._rebuild_nav()
         self._rebuild_sections()
         self._update_summary()
-        self.btn_add_item.setEnabled(bool(self.categories))
         if keep_scroll:
             self.scroll.verticalScrollBar().setValue(pos)
 
-    def _rebuild_tabs(self):
-        while self.tabs_layout.count():
-            w = self.tabs_layout.takeAt(0).widget()
+    def _update_meta(self):
+        if not self.categories:
+            self.lbl_meta.setText('세부항목을 가져오거나 직접 만들어 시작하세요')
+            return
+        done = sum(1 for it in self.items if it['completed'])
+        text = f'세부항목 {len(self.categories)}개 · 항목 {len(self.items)}개'
+        self.lbl_meta.setText(text + (f' · 완료 {done}개' if done else ''))
+
+    # ── 왼쪽 목록 ──────────────────────────────────────────────────
+    def _rebuild_nav(self):
+        while self.nav_layout.count():
+            w = self.nav_layout.takeAt(0).widget()
             if w:
                 w.setParent(None)
                 w.deleteLater()
+        self._nav_refs = {}
+        for key, name in [('ALL', '전체')] + [(c['id'], c['name']) for c in self.categories]:
+            nav = _NavItem(name)
+            nav.clicked.connect(lambda k=key: self._set_tab(k))
+            self.nav_layout.addWidget(nav)
+            self._nav_refs[key] = nav
+        self.nav_layout.addStretch()
+        self._update_nav()
 
-        all_btn = QPushButton('전체 보기')
-        all_btn.setObjectName('TabActive' if self.active_tab == 'ALL' else 'TabBtn')
-        all_btn.setCursor(Qt.PointingHandCursor)
-        all_btn.clicked.connect(lambda: self._set_tab('ALL'))
-        self.tabs_layout.addWidget(all_btn)
-
-        for cat in self.categories:
-            btn = QPushButton(cat['name'])
-            btn.setObjectName('TabActive' if self.active_tab == cat['id'] else 'TabBtn')
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda _, cid=cat['id']: self._set_tab(cid))
-            self.tabs_layout.addWidget(btn)
+    def _update_nav(self):
+        for key, nav in self._nav_refs.items():
+            if key == 'ALL':
+                b = sum(it['budget'] for it in self.items)
+                s = sum(it['spent'] for it in self.items)
+                nav.set_values(b, s, f' · {len(self.categories)}개 세부항목')
+            else:
+                b, s = self._cat_totals(key)
+                nav.set_values(b, s)
+            nav.set_active(key == self.active_tab)
 
     def _set_tab(self, tab):
+        if tab == self.active_tab:
+            return
         self.active_tab = tab
-        self.refresh(keep_scroll=False)
+        self._update_nav()
+        self._rebuild_sections()
+        self.scroll.verticalScrollBar().setValue(0)
 
-    def _clear_sections(self):
+    # ── 오른쪽 표 ──────────────────────────────────────────────────
+    def _rebuild_sections(self):
+        self._row_refs = {}
+        self._sec_refs = {}
         while self.sections_layout.count():
             w = self.sections_layout.takeAt(0).widget()
             if w:
                 w.setParent(None)
                 w.deleteLater()
-
-    def _rebuild_sections(self):
-        self._row_refs = {}
-        self._cat_refs = {}
-        self._clear_sections()
-
-        if not self.categories:
-            lbl = QLabel('등록된 세부항목이 없습니다.\n'
-                         '[예산 등록·관리]에서 직접 추가하거나, '
-                         '사업관리카드 엑셀 파일(.xls/.xlsx)을 창에 끌어다 놓으세요.\n'
-                         '(엑셀에서 셀 범위를 복사해 Ctrl+V 붙여넣기도 가능합니다.)')
-            lbl.setObjectName('EmptyBox')
-            lbl.setAlignment(Qt.AlignCenter)
-            self.sections_layout.addWidget(lbl)
-            self.sections_layout.addStretch()
-            return
-
         target = self.categories if self.active_tab == 'ALL' else \
             [c for c in self.categories if c['id'] == self.active_tab]
-
         for cat in target:
             cat_items = [it for it in self.items if it['category_id'] == cat['id']]
             self.sections_layout.addWidget(self._make_section(cat, cat_items))
         self.sections_layout.addStretch()
 
     def _make_section(self, cat, cat_items):
-        section = QFrame()
-        section.setObjectName('Section')
-        v = QVBoxLayout(section)
-        v.setContentsMargins(0, 0, 0, 0)
+        card = QFrame()
+        card.setObjectName('Card')
+        v = QVBoxLayout(card)
+        v.setContentsMargins(1, 0, 1, 8)
         v.setSpacing(0)
 
-        # 헤더
-        header = QFrame()
-        header.setObjectName('SectionHeader')
-        hl = QHBoxLayout(header)
-        hl.setContentsMargins(16, 12, 16, 12)
-        hl.setSpacing(8)
+        head = QWidget()
+        hl = QHBoxLayout(head)
+        hl.setContentsMargins(18, 14, 12, 8)
+        hl.setSpacing(10)
+        name = QLabel(cat['name'])
+        name.setObjectName('SectionTitle')
+        name.setWordWrap(True)
+        meta = QLabel()
+        meta.setObjectName('SectionMeta')
+        meta.setTextFormat(Qt.RichText)
+        chip = QLabel()
+        add = _icon_btn('fa5s.plus', '이 세부항목에 항목 추가', color=C.MUTED, size=12)
+        add.clicked.connect(lambda _, cid=cat['id']: self._open_add_item(cid))
+        hl.addWidget(name, 1)
+        hl.addWidget(meta)
+        hl.addWidget(chip)
+        hl.addWidget(add)
+        v.addWidget(head)
 
-        icon_lbl = QLabel()
-        icon_lbl.setPixmap(qta.icon('fa5s.folder', color=T.INDIGO_300).pixmap(16, 16))
-        lbl_name = QLabel(cat['name'])
-        lbl_name.setObjectName('SectionTitle')
-        hl.addWidget(icon_lbl)
-        hl.addWidget(lbl_name)
-        hl.addStretch()
+        active = [it for it in cat_items if not it['completed']]
+        done = [it for it in cat_items if it['completed']]
+        if not cat_items:
+            lbl = QLabel('아직 항목이 없어요. 오른쪽 위 + 로 추가하세요.')
+            lbl.setObjectName('Muted')
+            lbl.setContentsMargins(18, 4, 18, 8)
+            v.addWidget(lbl)
+        elif active:
+            v.addWidget(self._make_table(active))
+        else:
+            lbl = QLabel('모든 항목을 완료했어요.')
+            lbl.setObjectName('Muted')
+            lbl.setContentsMargins(18, 4, 18, 4)
+            v.addWidget(lbl)
+        if done:
+            open_ = cat['id'] in self._show_done
+            wrap = QWidget()
+            wl = QHBoxLayout(wrap)
+            wl.setContentsMargins(14, 6, 14, 0)
+            toggle = QPushButton()
+            toggle.setObjectName('Link')
+            toggle.setCursor(Qt.PointingHandCursor)
+            wl.addWidget(toggle)
+            wl.addStretch()
+            dtable = self._make_table(done, finished=True)
 
-        chips = {}
-        for key, prefix in (('budget', '예산합'), ('spent', '집행액'),
-                            ('remaining', '잔액'), ('percent', '집행률')):
-            chip = QLabel('')
-            chip.setObjectName('Chip')
-            chip.setTextFormat(Qt.RichText)
-            chips[key] = chip
-            hl.addWidget(chip)
-        self._cat_refs[cat['id']] = chips
+            def set_open(on, cid=cat['id'], t=dtable, b=toggle, n=len(done)):
+                (self._show_done.add if on else self._show_done.discard)(cid)
+                t.setVisible(on)
+                b.setText(f'{"▾" if on else "▸"}  완료 {n}건')
+                if on:
+                    t.sync_geometry()
+            toggle.clicked.connect(lambda _, c=cat['id'], f=set_open: f(c not in self._show_done))
+            set_open(open_)
+            v.addWidget(wrap)
+            v.addWidget(dtable)
+        self._sec_refs[cat['id']] = {'meta': meta, 'chip': chip}
+        self._update_section(cat['id'])
+        return card
 
-        v.addWidget(header)
-
-        # 테이블
-        table = _BudgetTable()
-        table.setColumnCount(8)
-        table.setHorizontalHeaderLabels(['원가통계비목', '산출내역 (내용)', '예산현액',
-                                         '집행액 (입력)', '예산잔액', '집행률',
-                                         '완료여부', '관리'])
-        table.verticalHeader().setVisible(False)
-        table.verticalHeader().setDefaultSectionSize(_ROW_H)
-        table.setSelectionMode(QAbstractItemView.NoSelection)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        table.setFocusPolicy(Qt.NoFocus)
-        table.setShowGrid(False)
-        table.setFont(QFont('Pretendard', 10))
-        hdr = table.horizontalHeader()
+    def _make_table(self, items, finished=False):
+        t = _BudgetTable()
+        t.setColumnCount(len(_COLS))
+        t.setHorizontalHeaderLabels(list(_COLS))
+        for col in range(len(_COLS)):
+            h = t.horizontalHeaderItem(col)
+            h.setTextAlignment((Qt.AlignRight if 2 <= col <= 5 else Qt.AlignLeft) | Qt.AlignVCenter)
+        t.horizontalHeaderItem(_COL_SPENT).setToolTip('집행액 칸을 눌러 바로 고칠 수 있어요')
+        t.verticalHeader().setVisible(False)
+        t.verticalHeader().setDefaultSectionSize(_ROW_H)
+        t.setSelectionMode(QAbstractItemView.SingleSelection)
+        t.setEditTriggers(QAbstractItemView.CurrentChanged | QAbstractItemView.DoubleClicked
+                          | QAbstractItemView.SelectedClicked | QAbstractItemView.EditKeyPressed)
+        t.setFocusPolicy(Qt.ClickFocus)
+        t.setShowGrid(False)
+        t.setWordWrap(False)
+        t.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        t.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        hdr = t.horizontalHeader()
         hdr.setHighlightSections(False)
         hdr.setSectionsClickable(False)
-        hdr.setMinimumSectionSize(40)      # 기본 71px 바닥 때문에 좁은 폭에서 넘쳤다
-        for col in range(8):
-            hdr.setSectionResizeMode(col, QHeaderView.Interactive)
-        for col, wd in enumerate(_COL_W):
-            table.setColumnWidth(col, wd)
+        hdr.setMinimumSectionSize(40)
+        for col in range(len(_COLS)):
+            hdr.setSectionResizeMode(col, QHeaderView.Fixed)
+        hdr.setStretchLastSection(True)          # 반올림으로 남는 몇 px까지 채움 (오른쪽 끝 틈 없게)
+        if finished:
+            hdr.hide()
+        t.setRowCount(len(items))
+        t.action_buttons = [None] * len(items)
+        t.blockSignals(True)
+        for r, item in enumerate(items):
+            self._fill_row(t, r, item)
+        t.blockSignals(False)
+        t.itemChanged.connect(lambda it, tb=t: self._on_cell_changed(tb, it))
+        t.sync_geometry()
+        return t
 
-        if cat_items:
-            table.setRowCount(len(cat_items))
-            for idx, item in enumerate(cat_items):
-                self._add_item_row(table, idx, item)
-        else:
-            table.setRowCount(1)
-            msg = QTableWidgetItem('해당 세부항목에 등록된 예산 내역이 없습니다.')
-            msg.setFlags(Qt.ItemIsEnabled)
-            msg.setTextAlignment(Qt.AlignCenter)
-            msg.setForeground(QColor(T.SLATE_400))
-            table.setItem(0, 0, msg)
-            table.setSpan(0, 0, 1, 8)
-            table.setRowHeight(0, 60)
-
-        table.sync_geometry()
-        v.addWidget(table)
-        self._update_cat_header(cat['id'])
-        return section
-
-    def _add_item_row(self, table, row, item):
-        is_done = bool(item['completed'])
-        bg = _BG_DONE if is_done else (_BG_ZEBRA if row % 2 == 1 else _BG_WHITE)
+    def _fill_row(self, t, r, item):
+        done = bool(item['completed'])
         rem = item['budget'] - item['spent']
-        pct = min(_pct(item['spent'], item['budget']), 100.0)
+        pct = _pct(item['spent'], item['budget'])
+        L, R = Qt.AlignLeft | Qt.AlignVCenter, Qt.AlignRight | Qt.AlignVCenter
 
-        def txt_item(text, align, color=_COLOR_TEXT, strike=False, bold=True):
+        def cell(text, align, color=C.TEXT, bold=False, strike=False, editable=False):
             it = QTableWidgetItem(text)
-            it.setFlags(Qt.ItemIsEnabled)
+            flags = Qt.ItemIsEnabled
+            if editable:
+                flags |= Qt.ItemIsEditable | Qt.ItemIsSelectable
+            it.setFlags(flags)
             it.setTextAlignment(align)
-            it.setBackground(bg)
-            f = QFont(table.font())
+            f = QFont(t.font())
             f.setBold(bold)
-            if strike:
-                f.setStrikeOut(True)
+            f.setStrikeOut(strike)
             it.setFont(f)
-            it.setForeground(_COLOR_DONE_TEXT if is_done else color)
+            it.setForeground(QColor(C.FAINT if done else color))
             return it
 
-        # 원가통계비목
-        table.setItem(row, 0, txt_item(item['cost_type'], Qt.AlignLeft | Qt.AlignVCenter,
-                                       _COLOR_COST, strike=is_done, bold=True))
-        # 산출내역
-        table.setItem(row, 1, txt_item(item['description'], Qt.AlignLeft | Qt.AlignVCenter,
-                                       _COLOR_TEXT, strike=is_done))
-        # 예산현액
-        table.setItem(row, 2, txt_item(f'{_fmt(item["budget"])}원',
-                                       Qt.AlignRight | Qt.AlignVCenter, strike=is_done))
+        t.setItem(r, 0, cell(item['cost_type'], L, C.MUTED))
+        desc = cell(item['description'], L, C.TEXT, bold=True, strike=done)
+        desc.setToolTip(item['description'])
+        t.setItem(r, 1, desc)
+        t.setItem(r, 2, cell(_fmt(item['budget']), R))
+        sp = cell(_fmt(item['spent']), R, C.ACCENT_HI, bold=not done, editable=not done)
+        sp.setData(Qt.UserRole, item['id'])
+        if not done:
+            sp.setToolTip('눌러서 집행액 고치기 — Enter로 저장')
+        t.setItem(r, _COL_SPENT, sp)
+        rem_it = cell(_fmt(rem), R, C.NEG if rem < 0 else C.TEXT, bold=rem < 0)
+        t.setItem(r, 4, rem_it)
 
-        # 집행액 (인라인 편집)
-        spent_wrap = QWidget()
-        sl = QHBoxLayout(spent_wrap)
-        sl.setContentsMargins(6, 5, 6, 5)
-        sl.setSpacing(4)
-        spent_edit = QLineEdit(f'{_fmt(item["spent"])}')
-        spent_edit.setObjectName('SpentInput')
-        spent_edit.setAlignment(Qt.AlignRight)
-        spent_edit.setFrame(True)
-        spent_edit.editingFinished.connect(
-            lambda item_id=item['id'], e=spent_edit: self._on_spent_edited(item_id, e))
-        if is_done:
-            spent_edit.setDisabled(True)
-            spent_edit.setFont(_make_strike_font(spent_edit.font()))
-        sl.addWidget(spent_edit, stretch=1)
-        won_lbl = QLabel('원')
-        won_lbl.setStyleSheet(f'color: {T.SLATE_500}; background: transparent;')
-        sl.addWidget(won_lbl)
-        for w in (spent_wrap, spent_edit, won_lbl):
-            w.setToolTip('집행액을 입력한 뒤 Enter 또는 다른 곳 클릭 시 저장됩니다.')
-        table.setItem(row, 3, txt_item('', Qt.AlignRight | Qt.AlignVCenter, bold=False))
-        table.setCellWidget(row, 3, spent_wrap)
-
-        # 예산잔액
-        rem_item = txt_item(f'{_fmt(rem)}원', Qt.AlignRight | Qt.AlignVCenter)
-        if rem < 0 and not is_done:
-            rem_item.setForeground(_COLOR_NEG)
-            rem_item.setBackground(_BG_NEG)
-        table.setItem(row, 4, rem_item)
-
-        # 집행률
-        pct_wrap = QWidget()
-        pl = QHBoxLayout(pct_wrap)
-        pl.setContentsMargins(6, 5, 8, 5)
+        wrap = QWidget()
+        pl = QHBoxLayout(wrap)
+        pl.setContentsMargins(6, 0, 8, 0)
         pl.setSpacing(6)
         pl.addStretch()
-        lvl = _level(pct, is_done)
         bar = QProgressBar()
         bar.setRange(0, 100)
-        bar.setValue(int(round(pct)))
         bar.setTextVisible(False)
-        bar.setFixedSize(52, 8)
-        bar.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
+        bar.setFixedSize(40, 6)
+        lbl = QLabel()
+        lbl.setFixedWidth(58)
+        lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         pl.addWidget(bar)
-        pct_lbl = QLabel(f'{pct:.1f}%')
-        pct_lbl.setFixedWidth(60)
-        pct_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        if is_done:
-            pct_lbl.setStyleSheet(f'color: {_LEVEL_TEXT["done"]}; background: transparent;')
-            pct_lbl.setFont(_make_strike_font(pct_lbl.font()))
-        else:
-            pct_lbl.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-weight: 800; background: transparent;')
-        pl.addWidget(pct_lbl)
-        table.setItem(row, 5, txt_item('', Qt.AlignRight | Qt.AlignVCenter, bold=False))
-        table.setCellWidget(row, 5, pct_wrap)
+        pl.addWidget(lbl)
+        t.setItem(r, 5, cell('', R))
+        t.setCellWidget(r, 5, wrap)
+        self._set_pct(bar, lbl, pct, done)
 
-        # 완료 토글
-        done_wrap = QWidget()
-        dl = QHBoxLayout(done_wrap)
-        dl.setContentsMargins(4, 6, 4, 6)
-        dl.setSpacing(0)
-        btn_done = QPushButton('완료 취소' if is_done else '완료')
-        btn_done.setObjectName('DoneBtn' if is_done else 'CompleteBtn')
-        btn_done.setCursor(Qt.PointingHandCursor)
-        btn_done.setToolTip('완료를 취소합니다.' if is_done else '이 항목을 완료 처리합니다.')
-        btn_done.clicked.connect(lambda _, iid=item['id']: self._toggle_complete(iid))
-        dl.addWidget(btn_done)
-        table.setItem(row, 6, txt_item('', Qt.AlignCenter, bold=False))
-        table.setCellWidget(row, 6, done_wrap)
-
-        # 수정/삭제
-        act_wrap = QWidget()
-        al = QHBoxLayout(act_wrap)
-        al.setContentsMargins(2, 4, 2, 4)
+        acts = QWidget()
+        al = QHBoxLayout(acts)
+        al.setContentsMargins(4, 0, 8, 0)
         al.setSpacing(2)
-        btn_edit = _icon_btn('fa5s.edit', '수정')
-        btn_edit.clicked.connect(lambda _, iid=item['id']: self._open_edit_item(iid))
-        btn_del = _icon_btn('fa5s.trash-alt', '삭제', color='#e11d48')
-        btn_del.clicked.connect(lambda _, iid=item['id']: self._delete_item(iid))
-        if is_done:
-            btn_edit.setDisabled(True)
-            btn_del.setDisabled(True)
-        al.addWidget(btn_edit)
-        al.addWidget(btn_del)
-        table.setItem(row, 7, txt_item('', Qt.AlignCenter, bold=False))
-        table.setCellWidget(row, 7, act_wrap)
+        al.addStretch()
+        b_done = _icon_btn('fa5s.undo' if done else 'fa5s.check', '완료 취소' if done else '완료로 표시',
+                           color=C.MUTED if done else '#059669', size=12)
+        b_done.clicked.connect(lambda _, iid=item['id']: self._toggle_complete(iid))
+        b_edit = _icon_btn('fa5s.pen', '수정', color=C.MUTED, size=12)
+        b_edit.clicked.connect(lambda _, iid=item['id']: self._open_edit_item(iid))
+        b_del = _icon_btn('fa5s.trash-alt', '삭제', color='#E11D48', size=12)
+        b_del.clicked.connect(lambda _, iid=item['id']: self._delete_item(iid))
+        for b in (b_done, b_edit, b_del):
+            b.setVisible(False)
+            al.addWidget(b)
+        t.setItem(r, 6, cell('', R))
+        t.setCellWidget(r, 6, acts)
+        t.action_buttons[r] = (b_done, b_edit, b_del)
+        t.setRowHeight(r, _ROW_H)
+        self._row_refs[item['id']] = {'rem': rem_it, 'bar': bar, 'pct': lbl}
 
-        self._row_refs[item['id']] = {
-            'remaining': rem_item,
-            'pct_bar': bar,
-            'pct_lbl': pct_lbl,
-            'spent_edit': spent_edit,
-            'bg': bg,
-        }
+    @staticmethod
+    def _set_pct(bar, lbl, pct, done=False):
+        lvl = _level(pct, done)
+        bar.setValue(int(round(min(pct, 100))))
+        bar.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
+        lbl.setText(f'{pct:.1f}%')
+        lbl.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-weight: {400 if done else 700};')
 
-    # ── 실시간 재계산 ──────────────────────────────────────────────
-    def _on_spent_edited(self, item_id, line_edit):
-        item = self._items_by_id.get(item_id)
+    # ── 집행액 바로 고치기 ─────────────────────────────────────────
+    def _on_cell_changed(self, table, it):
+        if it.column() != _COL_SPENT:
+            return
+        item = self._items_by_id.get(it.data(Qt.UserRole))
         if not item or item['completed']:
             return
-        val = _parse_amount(line_edit.text())
-        line_edit.setText(f'{val:,}')
+        val = _parse_amount(it.text())
+        table.blockSignals(True)
+        it.setText(_fmt(val))
+        table.blockSignals(False)
         if val == item['spent']:
             return
-        set_budget_item_spent(item_id, val)
+        set_budget_item_spent(item['id'], val)
         item['spent'] = val
-        self._recalc_item(item_id)
-        self._recalc_cat_header(item['category_id'])
+        self._update_row(item['id'])
+        self._update_section(item['category_id'])
+        self._update_nav()
         self._update_summary()
 
-    def _recalc_item(self, item_id):
+    def _update_row(self, item_id):
         refs = self._row_refs.get(item_id)
         item = self._items_by_id.get(item_id)
         if not refs or not item:
             return
         rem = item['budget'] - item['spent']
-        pct = min(_pct(item['spent'], item['budget']), 100.0)
-        refs['remaining'].setText(f'{_fmt(rem)}원')
-        if rem < 0:
-            refs['remaining'].setForeground(_COLOR_NEG)
-            refs['remaining'].setBackground(_BG_NEG)
-        else:
-            refs['remaining'].setForeground(_COLOR_TEXT)
-            refs['remaining'].setBackground(refs['bg'])
-        refs['pct_bar'].setValue(int(round(pct)))
-        refs['pct_lbl'].setText(f'{pct:.1f}%')
+        refs['rem'].setText(_fmt(rem))
+        refs['rem'].setForeground(QColor(C.NEG if rem < 0 else C.TEXT))
+        f = refs['rem'].font()
+        f.setBold(rem < 0)
+        refs['rem'].setFont(f)
+        self._set_pct(refs['bar'], refs['pct'], _pct(item['spent'], item['budget']))
 
-    # ── 합계 계산 ──────────────────────────────────────────────────
+    # ── 합계 ───────────────────────────────────────────────────────
     def _cat_totals(self, cat_id):
         budget = spent = 0
         for it in self.items:
@@ -1018,63 +1108,53 @@ class BudgetWindow(QMainWindow):
                 spent += it['spent']
         return budget, spent
 
-    def _update_cat_header(self, cat_id):
-        chips = self._cat_refs.get(cat_id)
-        if not chips:
+    def _update_section(self, cat_id):
+        refs = self._sec_refs.get(cat_id)
+        if not refs:
             return
         budget, spent = self._cat_totals(cat_id)
         rem = budget - spent
         pct = _pct(spent, budget)
-        chips['budget'].setText(f'<span style="color:#ffffff">예산합: </span>'
-                                f'<b style="color:#ffffff">{_fmt(budget)}원</b>')
-        chips['spent'].setText(f'<span style="color:#ffffff">집행액: </span>'
-                               f'<b style="color:#fcd34d">{_fmt(spent)}원</b>')
-        rem_color = '#fda4af' if rem < 0 else '#6ee7b7'
-        chips['remaining'].setText(f'<span style="color:#ffffff">잔액: </span>'
-                                   f'<b style="color:{rem_color}">{_fmt(rem)}원</b>')
-        chips['percent'].setText(f'<span style="color:#ffffff">집행률: </span>'
-                                 f'<b style="color:{_LEVEL_ON_DARK[_level(pct)]}">{pct:.1f}%</b>')
-
-    def _recalc_cat_header(self, cat_id):
-        self._update_cat_header(cat_id)
+        lvl = _level(pct)
+        rem_html = f'<span style="color:{C.NEG}"><b>{_fmt(rem)}원</b></span>' if rem < 0 else f'{_fmt(rem)}원'
+        refs['meta'].setText(f'예산 {_fmt(budget)}원 · 집행 {_fmt(spent)}원 · 잔액 {rem_html}')
+        refs['chip'].setText(f'{pct:.1f}%')
+        refs['chip'].setStyleSheet(f'background: {_LEVEL_SOFT[lvl]}; color: {_LEVEL_TEXT[lvl]}; '
+                                   f'border-radius: 10px; padding: 3px 10px; font-weight: 700;')
 
     def _update_summary(self):
-        total_allocated = sum(it['budget'] for it in self.items)
-        total_spent = sum(it['spent'] for it in self.items)
-        total_remaining = total_allocated - total_spent
-        pct = _pct(total_spent, total_allocated)
-        self.lbl_allocated.setText(f'{_fmt(total_allocated)}원')
-        self.lbl_spent.setText(f'{_fmt(total_spent)}원')
-        self.lbl_remaining.setText(f'{_fmt(total_remaining)}원')
-        self.lbl_remaining.setStyleSheet(
-            f'color: {"#be123c" if total_remaining < 0 else "#059669"}; font-size: 19pt; font-weight: 800;')
+        budget = sum(it['budget'] for it in self.items)
+        spent = sum(it['spent'] for it in self.items)
+        rem = budget - spent
+        pct = _pct(spent, budget)
         lvl = _level(pct)
-        self.lbl_percent.setText(f'{pct:.1f}%')
-        self.lbl_percent.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-size: 13pt; font-weight: 800;')
-        self.bar_spent.setValue(int(round(min(pct, 100.0))))
-        self.bar_spent.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
-        self._spent_strip.setStyleSheet(f'background: {_LEVEL_BAR[lvl]}; border: none; '
-                                        f'border-top-left-radius: 10px; border-top-right-radius: 10px;')
+        self.stat['budget'].setText(f'{_fmt(budget)}원')
+        self.stat['spent'].setText(f'{_fmt(spent)}원')
+        self.stat['remaining'].setText(f'{_fmt(rem)}원')
+        self.stat['remaining'].setStyleSheet(f'color: {C.NEG if rem < 0 else C.TEXT};')
+        self.lbl_pct.setText(f'{pct:.1f}%')
+        self.lbl_pct.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-size: 12pt; font-weight: 800;')
+        self.bar_total.setValue(int(round(min(pct, 100))))
+        self.bar_total.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
+        self._update_meta()
 
     # ── 동작: 항목/세부항목 ────────────────────────────────────────
     def _toggle_complete(self, item_id):
         toggle_budget_item_completed(item_id)
         self.refresh()
 
-    def _open_add_item(self):
+    def _open_add_item(self, cat_id=None):
         if not self.categories:
             QMessageBox.information(self, '세부항목 필요',
-                                    '먼저 [예산 등록·관리]에서 세부항목을 추가하거나 '
-                                    '사업관리카드 엑셀 파일을 창에 끌어다 놓으세요.')
+                                    '먼저 세부항목을 만들거나, 엑셀·캡처를 가져오세요.')
             self._open_category_manager()
             return
-        default_cat = self.active_tab if self.active_tab != 'ALL' else self.categories[0]['id']
+        default_cat = cat_id or (self.active_tab if self.active_tab != 'ALL' else self.categories[0]['id'])
         dlg = _ItemDialog(self.categories, None, default_cat, self)
         if dlg.exec_() == QDialog.Accepted and dlg.result_data:
             d = dlg.result_data
-            add_budget_item(d['category_id'], d['cost_type'], d['description'],
-                            d['budget'], d['spent'])
-            self.refresh(keep_scroll=False)
+            add_budget_item(d['category_id'], d['cost_type'], d['description'], d['budget'], d['spent'])
+            self.refresh()
 
     def _open_edit_item(self, item_id):
         item = self._items_by_id.get(item_id)
@@ -1091,8 +1171,7 @@ class BudgetWindow(QMainWindow):
         item = self._items_by_id.get(item_id)
         if not item:
             return
-        ans = QMessageBox.question(self, '항목 삭제',
-                                   f"'{item['description']}' 항목을 삭제하시겠습니까?",
+        ans = QMessageBox.question(self, '항목 삭제', f"'{item['description']}' 항목을 삭제할까요?",
                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if ans == QMessageBox.Yes:
             delete_budget_item(item_id)
@@ -1103,22 +1182,19 @@ class BudgetWindow(QMainWindow):
 
     def _reset_all(self):
         if not self.categories and not self.items:
-            QMessageBox.information(self, '초기화', '삭제할 데이터가 없습니다.')
             return
-        ans = QMessageBox.question(self, '초기화',
-                                   '모든 세부항목과 예산 항목이 삭제됩니다. 계속하시겠습니까?',
+        ans = QMessageBox.question(self, '전체 지우기',
+                                   '모든 세부항목과 예산 항목을 지웁니다. 계속할까요?',
                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if ans == QMessageBox.Yes:
             clear_budget_data()
             self.active_tab = 'ALL'
             self.refresh(keep_scroll=False)
 
-    # ── 엑셀 가져오기 / 클립보드 붙여넣기 ──────────────────────────
+    # ── 가져오기: 엑셀 파일 · 엑셀 표 붙여넣기 · 캡처 이미지 ─────────
     def _choose_excel(self, parent=None):
         parent = parent or self
-        path, _ = QFileDialog.getOpenFileName(
-            parent, '예산 엑셀 파일 선택', '',
-            '엑셀 파일 (*.xls *.xlsx)')
+        path, _ = QFileDialog.getOpenFileName(parent, '예산 엑셀 파일 선택', '', '엑셀 파일 (*.xls *.xlsx)')
         if path:
             self._import_excel(path, parent=parent)
 
@@ -1126,24 +1202,93 @@ class BudgetWindow(QMainWindow):
         try:
             parsed = parse_budget_excel(path)
         except Exception as e:
-            QMessageBox.critical(parent or self, '가져오기 실패',
-                                 f'엑셀 파일을 읽을 수 없습니다.\n\n{e}')
+            QMessageBox.critical(parent or self, '가져오기 실패', f'엑셀 파일을 읽을 수 없습니다.\n\n{e}')
             return
-        self._import_parsed(parsed, f'파일: {os.path.basename(path)}', parent=parent)
+        self._import_parsed(parsed, f'엑셀 파일 · {os.path.basename(path)}', parent=parent)
 
-    def _paste_from_clipboard(self):
-        text = QApplication.clipboard().text()
-        if not text.strip():
+    @staticmethod
+    def _clipboard_kind():
+        md = QApplication.clipboard().mimeData()
+        if md is None:
+            return None
+        if md.hasImage():
+            return 'image'
+        if md.hasUrls() and any(u.toLocalFile().lower().endswith(_IMAGE_EXTS + _EXCEL_EXTS) for u in md.urls()):
+            return 'file'
+        if md.hasText() and md.text().strip():
+            return 'text'
+        return None
+
+    def _paste(self):
+        cb = QApplication.clipboard()
+        md = cb.mimeData()
+        kind = self._clipboard_kind()
+        if kind == 'image':
+            self._import_image(cb.image())
+            return
+        if kind == 'file':
+            for u in md.urls():
+                path = u.toLocalFile()
+                if path.lower().endswith(_EXCEL_EXTS):
+                    self._import_excel(path)
+                    return
+                if path.lower().endswith(_IMAGE_EXTS):
+                    self._import_image(QImage(path))
+                    return
+        if kind != 'text':
             QMessageBox.information(self, '붙여넣기',
-                                    '클립보드가 비어 있습니다.\n'
-                                    '엑셀에서 셀 범위를 복사한 뒤 다시 시도해주세요.')
+                                    '붙여넣을 내용이 없습니다.\n'
+                                    '예산 화면을 캡처하거나, 엑셀에서 셀 범위를 복사한 뒤 다시 시도해 주세요.')
             return
         try:
-            parsed = parse_budget_clipboard(text)
+            parsed = parse_budget_clipboard(md.text())
         except Exception as e:
             QMessageBox.warning(self, '붙여넣기 실패', str(e))
             return
-        self._import_parsed(parsed, '출처: 클립보드 붙여넣기')
+        self._import_parsed(parsed, '엑셀에서 복사한 표')
+
+    def _import_image(self, img):
+        if img is None or img.isNull():
+            QMessageBox.warning(self, '캡처 정리', '이미지를 읽지 못했습니다.')
+            return
+        if self._img_worker is not None and self._img_worker.isRunning():
+            QMessageBox.information(self, '캡처 정리', '앞의 캡처를 아직 읽는 중이에요. 잠시 뒤 다시 해 주세요.')
+            return
+        from ai_client import _pixmap_to_base64
+        from budget_image import BudgetImageWorker
+        b64 = _pixmap_to_base64(QPixmap.fromImage(img))
+        ocr_img = img.scaled(img.width() * 2, img.height() * 2, Qt.KeepAspectRatio, Qt.SmoothTransformation) \
+            if img.width() < 1800 else img          # 작은 글자는 키워서 읽어야 잘 읽힌다
+        buf = QBuffer()
+        buf.open(QIODevice.WriteOnly)
+        ocr_img.save(buf, 'PNG')
+        worker = BudgetImageWorker(b64, bytes(buf.data()))
+        prog = QProgressDialog('캡처한 표를 읽는 중…', '취소', 0, 0, self)
+        prog.setWindowTitle('캡처 정리')
+        prog.setWindowModality(Qt.WindowModal)
+        prog.setMinimumDuration(0)
+        prog.setAutoClose(False)
+        prog.setAutoReset(False)
+        prog.setStyleSheet(STYLE)
+
+        def finish():
+            prog.reset()
+            prog.close()
+
+        def on_done(cats, method):
+            finish()
+            self._import_parsed(cats, f'캡처 이미지 · {_IMAGE_METHOD.get(method, method)}')
+
+        def on_fail(msg):
+            finish()
+            QMessageBox.warning(self, '캡처 정리 실패', msg)
+        prog.canceled.connect(lambda: setattr(worker, 'cancelled', True))
+        worker.progress.connect(prog.setLabelText)
+        worker.done.connect(on_done)
+        worker.failed.connect(on_fail)
+        self._img_worker = worker
+        worker.start()
+        prog.show()
 
     def _import_parsed(self, parsed, source_text, parent=None):
         parent = parent or self
@@ -1152,25 +1297,26 @@ class BudgetWindow(QMainWindow):
                                 '예산 데이터를 찾지 못했습니다.\n'
                                 "사업관리카드(예산) 형식('예산현액', '산출내역' 열)인지 확인해주세요.")
             return
-        has_existing = bool(self.categories or self.items)
-        dlg = _ImportPreviewDialog(source_text, parsed, has_existing, parent)
+        existing = {c['name'] for c in self.categories}
+        dlg = _ImportPreviewDialog(source_text, parsed, bool(self.categories or self.items), existing, parent)
         if dlg.exec_() != QDialog.Accepted:
             return
-        replace = (dlg.mode == 'replace')
-        self._apply_import(parsed, replace)
-        n_cat = len(parsed)
-        n_item = sum(len(c['items']) for c in parsed)
-        action = '교체' if replace else '추가'
-        QMessageBox.information(
-            parent, '가져오기 완료',
-            f'세부항목 {n_cat}개, 예산 항목 {n_item}개를 {action}했습니다.')
+        self._apply_import(dlg.categories, dlg.mode)
+        n_cat = len(dlg.categories)
+        n_item = sum(len(c['items']) for c in dlg.categories)
+        action = {'replace': '교체했어요', 'update': '반영했어요', 'append': '추가했어요'}[dlg.mode]
+        QMessageBox.information(parent, '가져오기 완료', f'세부항목 {n_cat}개, 예산 항목 {n_item}개를 {action}.')
 
-    def _apply_import(self, categories, replace):
-        if replace:
+    def _apply_import(self, categories, mode):
+        """mode: append(모두 추가) · update(같은 이름의 세부항목은 새 내용으로 바꿈) · replace(전부 지우고 교체)."""
+        if mode == 'replace':
             clear_budget_data()
         existing = {c['name']: c['id'] for c in get_budget_categories()}
         for cat in categories:
             cid = existing.get(cat['name'])
+            if cid is not None and mode == 'update':
+                for it in get_budget_items(cid):
+                    delete_budget_item(it['id'])
             if cid is None:
                 cid = add_budget_category(cat['name'])
                 if cid is None:
@@ -1180,36 +1326,49 @@ class BudgetWindow(QMainWindow):
                     continue
                 existing[cat['name']] = cid
             for it in cat['items']:
-                add_budget_item(cid, it['cost_type'], it['description'],
-                                it['budget'], it['spent'])
+                add_budget_item(cid, it['cost_type'], it['description'], it['budget'], it['spent'])
         self.active_tab = 'ALL'
         self.refresh(keep_scroll=False)
 
-    # ── 드래그 & 드롭 ─────────────────────────────────────────────
+    # ── 끌어다 놓기 · Ctrl+V ───────────────────────────────────────
+    @staticmethod
+    def _accepts(md):
+        if md.hasImage():
+            return True
+        return md.hasUrls() and any(u.toLocalFile().lower().endswith(_EXCEL_EXTS + _IMAGE_EXTS) for u in md.urls())
+
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                if url.toLocalFile().lower().endswith(_EXCEL_EXTS):
-                    event.acceptProposedAction()
-                    return
-        event.ignore()
+        if self._accepts(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
 
     def dragMoveEvent(self, event):
         self.dragEnterEvent(event)
 
     def dropEvent(self, event):
-        for url in event.mimeData().urls():
-            path = url.toLocalFile()
-            if path.lower().endswith(_EXCEL_EXTS):
-                event.acceptProposedAction()
-                self._import_excel(path)
-                return
+        md = event.mimeData()
+        if md.hasUrls():
+            for url in md.urls():
+                path = url.toLocalFile()
+                low = path.lower()
+                if low.endswith(_EXCEL_EXTS):
+                    event.acceptProposedAction()
+                    self._import_excel(path)
+                    return
+                if low.endswith(_IMAGE_EXTS):
+                    event.acceptProposedAction()
+                    self._import_image(QImage(path))
+                    return
+        if md.hasImage():
+            event.acceptProposedAction()
+            self._import_image(QImage(md.imageData()))
+            return
         event.ignore()
 
-    # ── Ctrl+V 붙여넣기 ────────────────────────────────────────────
     def keyPressEvent(self, event):
         if event.matches(QKeySequence.Paste) and self._can_paste_import():
-            self._paste_from_clipboard()
+            self._paste()
             return
         super().keyPressEvent(event)
 
@@ -1226,7 +1385,7 @@ class BudgetWindow(QMainWindow):
             self.setGeometry(*fit_to_screen(s['x'], s['y'], s['width'], s['height'], min_w=640, min_h=420))
         except Exception:
             from ui.common import default_geometry
-            self.setGeometry(*default_geometry(1120, 720, frac_w=0.85))
+            self.setGeometry(*default_geometry(1180, 760, frac_w=0.85))
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1237,132 +1396,182 @@ class BudgetWindow(QMainWindow):
             os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
             g = self.geometry()
             with open(_STATE_FILE, 'w', encoding='utf-8') as f:
-                json.dump({'x': g.x(), 'y': g.y(),
-                           'width': g.width(), 'height': g.height()}, f)
+                json.dump({'x': g.x(), 'y': g.y(), 'width': g.width(), 'height': g.height()}, f)
         except Exception:
             pass
         super().closeEvent(event)
 
 
-# ── 엑셀 가져오기 미리보기 다이얼로그 ────────────────────────────
+# ── 가져오기 확인 (세부항목별로 보고 고친 뒤 가져오기) ───────────────
 class _ImportPreviewDialog(QDialog):
-    def __init__(self, source_text, categories, has_existing, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle('엑셀 가져오기 미리보기')
-        self.setStyleSheet(STYLE)
-        self.setMinimumSize(760, 560)
-        self.mode = None
+    """가져올 내용을 세부항목별로 보여 준다. 칸을 두 번 눌러 고칠 수 있고, 확인이 필요한 줄은 노란색.
 
-        total_budget = sum(it['budget'] for c in categories for it in c['items'])
-        total_spent = sum(it['spent'] for c in categories for it in c['items'])
-        n_items = sum(len(c['items']) for c in categories)
+    결과: self.categories (고친 내용), self.mode ('append' | 'update' | 'replace')
+    """
+    _COLS = ('원가통계비목', '산출내역', '예산현액', '집행액', '잔액')
+
+    def __init__(self, source_text, categories, has_existing, existing_names=(), parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('가져오기 확인')
+        self.setStyleSheet(STYLE)
+        self.setMinimumSize(860, 620)
+        self.mode = None
+        self.categories = []
+        self._src = categories
+        self._existing = set(existing_names)
 
         v = QVBoxLayout(self)
-        v.setContentsMargins(20, 18, 20, 18)
-        v.setSpacing(10)
+        v.setContentsMargins(22, 18, 22, 18)
+        v.setSpacing(8)
+        title = QLabel('가져올 내용을 확인하세요')
+        title.setObjectName('SectionTitle')
+        src = QLabel(source_text)
+        src.setObjectName('Meta')
+        self.lbl_sum = QLabel()
+        self.lbl_sum.setTextFormat(Qt.RichText)
+        hint = QLabel('칸을 두 번 눌러 고칠 수 있어요 (세부항목 이름도). 노란 줄은 숫자를 다시 확인해 주세요.')
+        hint.setObjectName('Muted')
+        for w in (title, src, self.lbl_sum, hint):
+            v.addWidget(w)
 
-        lbl_file = QLabel(source_text)
-        lbl_file.setStyleSheet(f'font-size: 10pt; font-weight: 700; color: {T.INDIGO_950};')
-        v.addWidget(lbl_file)
-
-        lbl_sum = QLabel(
-            f"세부항목 <b>{len(categories)}</b>개 · 예산 항목 <b>{n_items}</b>개 · "
-            f"예산합계 <b>{_fmt(total_budget)}원</b> · 집행합계 <b>{_fmt(total_spent)}원</b> · "
-            f"잔액 <b>{_fmt(total_budget - total_spent)}원</b>")
-        lbl_sum.setTextFormat(Qt.RichText)
-        lbl_sum.setStyleSheet(f'color: {T.SLATE_600}; font-size: 9.5pt;')
-        v.addWidget(lbl_sum)
-
-        table = QTableWidget()
-        table.setColumnCount(5)
-        table.setHorizontalHeaderLabels(['구분', '원가통계비목', '산출내역 (내용)',
-                                         '예산현액', '집행액'])
-        table.verticalHeader().setVisible(False)
-        table.setSelectionMode(QAbstractItemView.NoSelection)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        table.setFocusPolicy(Qt.NoFocus)
-        table.setShowGrid(False)
-        table.setFont(QFont('Pretendard', 9))
-        hdr = table.horizontalHeader()
+        t = self.table = QTableWidget()
+        t.setColumnCount(len(self._COLS))
+        t.setHorizontalHeaderLabels(list(self._COLS))
+        t.verticalHeader().setVisible(False)
+        t.setShowGrid(False)
+        t.setSelectionMode(QAbstractItemView.SingleSelection)
+        t.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed
+                          | QAbstractItemView.SelectedClicked)
+        hdr = t.horizontalHeader()
         hdr.setHighlightSections(False)
         hdr.setSectionsClickable(False)
-        for col in range(5):
-            hdr.setSectionResizeMode(col, QHeaderView.Interactive)
-        hdr.setSectionResizeMode(2, QHeaderView.Stretch)
-        table.setColumnWidth(0, 70)
-        table.setColumnWidth(1, 150)
-        table.setColumnWidth(3, 110)
-        table.setColumnWidth(4, 110)
-        table.setStyleSheet(
-            f'QTableWidget {{ background: white; border: 1px solid {T.SLATE_200}; border-radius: 8px; }}'
-            f'QTableWidget::item {{ border-bottom: 1px solid {T.SLATE_100}; padding: 3px 6px; }}'
-            f'QHeaderView::section {{ background: {T.SLATE_200}; color: {T.SLATE_700}; padding: 5px;'
-            f' border: none; border-right: 1px solid {T.SLATE_300}; font-weight: 700; }}')
-
+        for col in range(len(self._COLS)):
+            hdr.setSectionResizeMode(col, QHeaderView.Fixed)
+            t.horizontalHeaderItem(col).setTextAlignment(
+                (Qt.AlignRight if col >= 2 else Qt.AlignLeft) | Qt.AlignVCenter)
+        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+        for col, wd in ((0, 150), (2, 112), (3, 112), (4, 112)):
+            t.setColumnWidth(col, wd)
+        t.setStyleSheet(f'QTableWidget {{ border: 1px solid {C.BORDER}; border-radius: 10px; }}')
+        self._map = []
         rows = []
-        for cat in categories:
-            cat_budget = sum(it['budget'] for it in cat['items'])
-            cat_spent = sum(it['spent'] for it in cat['items'])
-            rows.append(('cat', cat['name'], f"항목 {len(cat['items'])}개", cat_budget, cat_spent))
-            for it in cat['items']:
-                rows.append(('item', it['cost_type'], it['description'],
-                             it['budget'], it['spent']))
+        for ci, cat in enumerate(categories):
+            rows.append(('cat', ci, None))
+            for ii in range(len(cat['items'])):
+                rows.append(('item', ci, ii))
+        t.setRowCount(len(rows))
+        R, L = Qt.AlignRight | Qt.AlignVCenter, Qt.AlignLeft | Qt.AlignVCenter
+        for r, (kind, ci, ii) in enumerate(rows):
+            self._map.append((kind, ci, ii))
+            cat = categories[ci]
+            if kind == 'cat':
+                it = QTableWidgetItem(cat['name'])
+                f = QFont(t.font())
+                f.setBold(True)
+                it.setFont(f)
+                it.setForeground(QColor(C.ACCENT_HI))
+                it.setBackground(QColor(C.ACCENT_SOFT))
+                it.setToolTip('이미 있는 세부항목이에요' if cat['name'] in self._existing else '새 세부항목')
+                t.setItem(r, 0, it)
+                t.setSpan(r, 0, 1, len(self._COLS))
+                t.setRowHeight(r, 34)
+                continue
+            item = cat['items'][ii]
+            warn = item.get('warn') or []
+            vals = (item['cost_type'], item['description'], _fmt(item['budget']), _fmt(item['spent']),
+                    _fmt(item['budget'] - item['spent']))
+            for col, text in enumerate(vals):
+                it = QTableWidgetItem(text)
+                it.setTextAlignment(R if col >= 2 else L)
+                if col == 4:
+                    it.setFlags(Qt.ItemIsEnabled)
+                    it.setForeground(QColor(C.NEG if item['budget'] - item['spent'] < 0 else C.MUTED))
+                if warn:
+                    it.setBackground(QColor(C.WARN_BG))
+                    it.setToolTip('\n'.join(warn))
+                t.setItem(r, col, it)
+            t.setRowHeight(r, 30)
+        t.itemChanged.connect(self._on_changed)
+        v.addWidget(t, 1)
 
-        table.setRowCount(len(rows))
-        for r, (kind, c0, c1, c2, c3) in enumerate(rows):
-            texts = (['[세부항목]', c0, c1, f'{_fmt(c2)}원', f'{_fmt(c3)}원']
-                     if kind == 'cat' else
-                     ['', c0, c1, f'{_fmt(c2)}원', f'{_fmt(c3)}원'])
-            for col, text in enumerate(texts):
-                cell = QTableWidgetItem(text)
-                cell.setFlags(Qt.ItemIsEnabled)
-                if col >= 3:
-                    cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                f = QFont(table.font())
-                if kind == 'cat':
-                    f.setBold(True)
-                    cell.setBackground(QColor('#eef2ff'))
-                    cell.setForeground(QColor('#3730a3'))
-                cell.setFont(f)
-                table.setItem(r, col, cell)
-            table.setRowHeight(r, 26)
-        v.addWidget(table, stretch=1)
-
-        mode_row = QVBoxLayout()
-        mode_row.setSpacing(4)
-        self.cb_replace = QCheckBox('기존 데이터를 모두 지우고 교체')
-        self.cb_append = QCheckBox('기존 데이터에 추가')
-        self._mode_group = QButtonGroup(self)
-        self._mode_group.setExclusive(True)
-        self._mode_group.addButton(self.cb_replace)
-        self._mode_group.addButton(self.cb_append)
-        mode_row.addWidget(self.cb_replace)
-        mode_row.addWidget(self.cb_append)
-        if not has_existing:
-            self.cb_append.setEnabled(False)
-        v.addLayout(mode_row)
+        self._radios = {}
+        box = QVBoxLayout()
+        box.setSpacing(4)
+        if has_existing:
+            group = QButtonGroup(self)
+            for key, text in (('update', '같은 이름의 세부항목은 새 내용으로 바꾸고, 나머지는 추가 (추천)'),
+                              ('append', '지금 있는 내용은 그대로 두고 모두 추가'),
+                              ('replace', '지금 있는 예산을 모두 지우고 이것으로 교체')):
+                rb = QRadioButton(text)
+                group.addButton(rb)
+                box.addWidget(rb)
+                self._radios[key] = rb
+            self._radios['update'].setChecked(True)
+        v.addLayout(box)
 
         btns = QHBoxLayout()
         btns.addStretch()
-        btn_cancel = QPushButton('취소')
-        btn_cancel.setObjectName('Ghost')
-        btn_cancel.clicked.connect(self.reject)
-        btn_import = QPushButton('가져오기')
-        btn_import.setObjectName('Primary')
-        btn_import.clicked.connect(self._accept)
-        btns.addWidget(btn_cancel)
-        btns.addWidget(btn_import)
+        b_cancel = QPushButton('취소')
+        b_cancel.clicked.connect(self.reject)
+        b_ok = QPushButton('가져오기')
+        b_ok.setObjectName('Primary')
+        b_ok.setDefault(True)
+        b_ok.clicked.connect(self._accept)
+        btns.addWidget(b_cancel)
+        btns.addWidget(b_ok)
         v.addLayout(btns)
+        self._update_sum()
+
+    def _read(self):
+        """표 → 세부항목 목록 (고친 내용 반영)."""
+        cats = []
+        for r, (kind, ci, ii) in enumerate(self._map):
+            if kind == 'cat':
+                cats.append({'name': (self.table.item(r, 0).text() or '').strip() or '미분류', 'items': []})
+                continue
+            txt = [(self.table.item(r, c).text() if self.table.item(r, c) else '').strip() for c in range(4)]
+            if not txt[1] and not _parse_amount(txt[2]):
+                continue                     # 내용도 금액도 지운 줄은 뺀다
+            cats[-1]['items'].append({'cost_type': txt[0] or '일반', 'description': txt[1] or '(내용 없음)',
+                                      'budget': _parse_amount(txt[2]), 'spent': _parse_amount(txt[3])})
+        return [c for c in cats if c['items']]
+
+    def _on_changed(self, it):
+        r = it.row()
+        kind = self._map[r][0] if r < len(self._map) else None
+        if kind == 'item' and it.column() in (2, 3):
+            t = self.table
+            t.blockSignals(True)
+            b, s = _parse_amount(t.item(r, 2).text()), _parse_amount(t.item(r, 3).text())
+            t.item(r, 2).setText(_fmt(b))
+            t.item(r, 3).setText(_fmt(s))
+            t.item(r, 4).setText(_fmt(b - s))
+            t.item(r, 4).setForeground(QColor(C.NEG if b - s < 0 else C.MUTED))
+            t.blockSignals(False)
+        self._update_sum()
+
+    def _update_sum(self):
+        cats = self._read()
+        b = sum(i['budget'] for c in cats for i in c['items'])
+        s = sum(i['spent'] for c in cats for i in c['items'])
+        n = sum(len(c['items']) for c in cats)
+        warn = sum(1 for c in self._src for i in c['items'] if i.get('warn'))
+        same = sum(1 for c in cats if c['name'] in self._existing)
+        parts = [f'세부항목 <b>{len(cats)}</b>개', f'항목 <b>{n}</b>개', f'예산현액 <b>{_fmt(b)}원</b>',
+                 f'집행액 <b>{_fmt(s)}원</b>', f'잔액 <b>{_fmt(b - s)}원</b>']
+        if same:
+            parts.append(f'이미 있는 세부항목 <b>{same}</b>개')
+        if warn:
+            parts.append(f'<span style="color:#B45309">확인 필요 <b>{warn}</b>줄</span>')
+        self.lbl_sum.setText(' · '.join(parts))
 
     def _accept(self):
-        if self.cb_append.isChecked():
-            self.mode = 'append'
-        elif self.cb_replace.isChecked():
-            self.mode = 'replace'
-        else:
-            QMessageBox.warning(self, '가져오기 방식 선택',
-                                '기존 데이터를 교체할지 추가할지 먼저 선택해주세요.')
+        cats = self._read()
+        if not cats:
+            QMessageBox.warning(self, '가져오기', '가져올 항목이 없습니다.')
             return
+        self.categories = cats
+        self.mode = next((k for k, rb in self._radios.items() if rb.isChecked()), 'append')
         self.accept()
 
 
@@ -1441,7 +1650,7 @@ class _ItemDialog(QDialog):
     @staticmethod
     def _label(text):
         lbl = QLabel(text)
-        lbl.setStyleSheet(f'font-size: 9.5pt; font-weight: 700; color: {T.SLATE_600};')
+        lbl.setStyleSheet(f'font-size: 9pt; font-weight: 700; color: {C.MUTED};')
         return lbl
 
     def _save(self):
@@ -1475,7 +1684,7 @@ class _CategoryManagerDialog(QDialog):
         v.setSpacing(10)
 
         lbl = QLabel('추경 발생 시 세부항목을 새로 추가하거나 명칭 변경, 삭제가 가능합니다.')
-        lbl.setStyleSheet(f'color: {T.SLATE_500}; font-size: 9pt;')
+        lbl.setObjectName('Muted')
         v.addWidget(lbl)
 
         add_row = QHBoxLayout()
@@ -1493,7 +1702,7 @@ class _CategoryManagerDialog(QDialog):
         self.list_scroll = QScrollArea()
         self.list_scroll.setWidgetResizable(True)
         self.list_scroll.setStyleSheet(
-            f'QScrollArea {{ border: 1px solid {T.SLATE_200}; border-radius: 8px; background: white; }}')
+            f'QScrollArea {{ border: 1px solid {C.BORDER}; border-radius: 10px; background: {C.SURFACE}; }}')
         self.list_container = QWidget()
         self.list_layout = QVBoxLayout(self.list_container)
         self.list_layout.setContentsMargins(6, 6, 6, 6)
@@ -1504,7 +1713,7 @@ class _CategoryManagerDialog(QDialog):
         btns = QHBoxLayout()
         self.btn_import = QPushButton('엑셀 가져오기')
         self.btn_import.setObjectName('Ghost')
-        self.btn_import.setIcon(qta.icon('fa5s.file-import', color=T.SLATE_700))
+        self.btn_import.setIcon(qta.icon('fa5s.file-import', color=C.MUTED))
         self.btn_import.setIconSize(QSize(14, 14))
         self.btn_import.setToolTip('사업관리카드(예산) 엑셀 파일(.xls/.xlsx)을 가져와 '
                                    '세부항목을 자동 생성합니다.')
@@ -1512,7 +1721,6 @@ class _CategoryManagerDialog(QDialog):
         btns.addWidget(self.btn_import)
         btns.addStretch()
         btn_close = QPushButton('닫기')
-        btn_close.setObjectName('Dark')
         btn_close.clicked.connect(self.accept)
         btns.addWidget(btn_close)
         v.addLayout(btns)
@@ -1539,7 +1747,7 @@ class _CategoryManagerDialog(QDialog):
                            '아래 [엑셀 가져오기]로 사업관리카드 파일을 불러오거나,\n'
                            '위에서 직접 추가하세요.')
             empty.setAlignment(Qt.AlignCenter)
-            empty.setStyleSheet(f'color: {T.SLATE_400}; padding: 20px;')
+            empty.setStyleSheet(f'color: {C.FAINT}; padding: 20px;')
             self.list_layout.addWidget(empty)
         for cat in cats:
             row = QWidget()
@@ -1549,7 +1757,7 @@ class _CategoryManagerDialog(QDialog):
             edit = QLineEdit(cat['name'])
             edit.editingFinished.connect(
                 lambda cid=cat['id'], e=edit, old=cat['name']: self._rename_category(cid, e, old))
-            btn_del = _icon_btn('fa5s.trash-alt', '세부항목 삭제', color='#e11d48')
+            btn_del = _icon_btn('fa5s.trash-alt', '세부항목 삭제', color='#E11D48', size=13)
             btn_del.clicked.connect(lambda _, cid=cat['id']: self._delete_category(cid))
             rl.addWidget(edit, stretch=1)
             rl.addWidget(btn_del)
