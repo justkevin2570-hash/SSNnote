@@ -11,7 +11,14 @@ ai_client.py — AI 제공자 추상화 레이어
 """
 
 import os
+import sys
+import json
 import base64
+import atexit
+import shutil
+import subprocess
+import tempfile
+import threading
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap
 
@@ -31,6 +38,8 @@ OPENCODE_MODELS_FILE = os.path.join(APPDATA_DIR, 'opencode_models.json')   # {id
 EXAONE_KEY_FILE     = os.path.join(APPDATA_DIR, 'exaone_key.txt')
 EXAONE_MODEL_FILE   = os.path.join(APPDATA_DIR, 'exaone_model.txt')
 EXAONE_KEY_DATE_FILE = os.path.join(APPDATA_DIR, 'exaone_key_date.txt')     # 키를 넣은 날 (30일 안내용)
+CLAUDE_CODE_PATH_FILE  = os.path.join(APPDATA_DIR, 'claude_code_path.txt')  # 사용자가 지정한 claude 경로 (비우면 자동)
+CLAUDE_CODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'claude_code_model.txt')
 
 # 접속 주소 (None = 각 SDK 기본 주소). 시험에서만 바꾼다.
 CLAUDE_BASE_URL = None
@@ -61,8 +70,9 @@ def _write_secret(path: str, val: str):
 _session_keys: dict[str, str] = {}
 
 # AI 모드
-_AI_MODES = ('none', 'claude', 'openai', 'opencode', 'exaone')
-PROVIDER_LABELS = {'opencode': 'OpenCode', 'claude': 'Claude', 'openai': 'ChatGPT', 'exaone': 'EXAONE'}
+_AI_MODES = ('none', 'claude', 'openai', 'opencode', 'exaone', 'claude_code')
+PROVIDER_LABELS = {'opencode': 'OpenCode', 'claude': 'Claude', 'openai': 'ChatGPT', 'exaone': 'EXAONE',
+                   'claude_code': 'Claude 구독'}
 # 예전 버전에서 쓰던(지금은 지원하지 않는) 모드 → 안내용 이름
 _LEGACY_MODES = {'external': 'Gemini', 'gemini': 'Gemini', 'nvidia': 'NVIDIA', 'internal': 'Ollama(내부 AI)'}
 
@@ -357,6 +367,29 @@ def load_claude_model() -> str:
 
 def save_claude_model(model: str):
     _save_text(CLAUDE_MODEL_FILE, model)
+
+
+# ── Claude 구독(Claude Code) 설정 ─────────────────────────────────
+# 키가 없다: 로그인은 Claude Code가 자기 자리에 보관한다. 여기서는 실행 파일 경로와 모델 이름만 저장한다.
+CLAUDE_CODE_MODELS = (('', '기본 모델'), ('sonnet', 'Sonnet'), ('opus', 'Opus'), ('haiku', 'Haiku'))
+
+
+def load_claude_code_path() -> str:
+    return _load_text(CLAUDE_CODE_PATH_FILE, '')
+
+
+def save_claude_code_path(path: str):
+    _save_text(CLAUDE_CODE_PATH_FILE, path)
+
+
+def load_claude_code_model() -> str:
+    """CLI 별칭(sonnet·opus·haiku) 또는 '' (CLI 기본 모델)."""
+    v = _load_text(CLAUDE_CODE_MODEL_FILE, '')
+    return v if v in ('sonnet', 'opus', 'haiku') else ''
+
+
+def save_claude_code_model(model: str):
+    _save_text(CLAUDE_CODE_MODEL_FILE, model if model in ('sonnet', 'opus', 'haiku') else '')
 
 
 # ── EXAONE 키·모델 ───────────────────────────────────────────────
@@ -675,10 +708,24 @@ def test_exaone(key: str, model: str):
         return False, friendly_error(e, model, 'exaone')
 
 
+def test_claude_code(model: str = None):
+    """짧은 질문 한 번으로 Claude 구독 연결을 확인한다. (ok, 한국어 메시지 — 성공이면 걸린 시간 포함)."""
+    import time
+    t0 = time.monotonic()
+    try:
+        _claude_ask('간단히 답하세요.', '안녕이라고만 답해', model=model, timeout=CLAUDE_CODE_TIMEOUT)
+        return True, f'연결 성공 ({time.monotonic() - t0:.1f}초)'
+    except ClaudeCodeError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f'연결 실패: {e}'
+
+
 def load_external_model_name() -> str:
     """현재 AI 제공자의 모델 이름 ('' = AI 꺼짐)."""
     return {'claude': load_claude_model, 'openai': load_openai_model,
-            'opencode': load_opencode_model, 'exaone': load_exaone_model}.get(load_ai_mode(), lambda: '')()
+            'opencode': load_opencode_model, 'exaone': load_exaone_model,
+            'claude_code': lambda: load_claude_code_model() or '기본 모델'}.get(load_ai_mode(), lambda: '')()
 
 
 def ai_status_text() -> str:
@@ -823,6 +870,191 @@ class ClaudeAdapter:
         """한 번에 응답 전체를 받는다 (이미지 선택). 실패 시 예외."""
         return _messages_complete(cls._client(), load_claude_model(), cls._system(system), prompt,
                                   image_b64=image_b64, max_tokens=max_tokens)
+
+
+# ── Claude 구독 (이 PC의 Claude Code CLI를 자식 프로세스로 실행) ──────
+# 앱은 로그인 파일·토큰을 열거나 저장하지 않는다. --bare는 쓰지 않는다(OAuth 로그인을 읽지 않음).
+CLAUDE_CODE_TIMEOUT = 120            # 한 번 묻는 제한 시간(초)
+CLAUDE_CODE_LOGIN_TIMEOUT = 600      # 브라우저에서 승인할 시간(초)
+CLAUDE_CODE_INSTALL_PAGE = 'https://code.claude.com/docs'
+_SYSTEM_ARG_MAX = 16000              # 명령줄 길이 제한(Windows 32K) 안에 두려고, 이보다 길면 질문 앞에 붙여 보냄
+_CLAUDE_DROP_ENV = ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN')
+_CLAUDE_MSG_NOT_INSTALLED = 'Claude Code가 설치돼 있지 않아요. AI 설정 → Claude 구독 → [설치]를 눌러 주세요.'
+_CLAUDE_MSG_LOGIN = 'Claude에 로그인돼 있지 않아요. [Claude로 로그인]을 눌러 주세요.'
+_CLAUDE_MSG_LIMIT = '구독 사용 한도에 도달했어요. 잠시 후 다시 시도하세요.'
+_CLAUDE_MSG_TIMEOUT = 'Claude 응답이 너무 오래 걸려요. 다시 시도해 주세요.'
+_CLAUDE_MSG_CANCEL = '취소했어요.'
+_claude_procs: dict = {}             # 실행 중인 claude 프로세스 → 취소 여부
+_claude_lock = threading.Lock()
+
+
+class ClaudeCodeError(RuntimeError):
+    """사용자에게 그대로 보여 줄 한국어 오류."""
+
+
+def find_claude_cli():
+    """claude 실행 파일 경로 (없으면 None). 지정 경로 → PATH → 흔한 설치 위치 순."""
+    custom = load_claude_code_path()
+    if custom and os.path.isfile(custom):
+        return custom
+    found = shutil.which('claude')
+    if found:
+        return found
+    home = os.path.expanduser('~')
+    local = os.environ.get('LOCALAPPDATA', os.path.join(home, 'AppData', 'Local'))
+    appdata = os.environ.get('APPDATA', os.path.join(home, 'AppData', 'Roaming'))
+    for c in (os.path.join(home, '.local', 'bin', 'claude.exe'),
+              os.path.join(appdata, 'npm', 'claude.cmd'),
+              os.path.join(local, 'Programs', 'claude', 'claude.exe')):
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def cancel_claude_code():
+    """실행 중인 Claude Code 프로세스를 끊는다 (취소 버튼·앱 종료)."""
+    with _claude_lock:
+        for p in list(_claude_procs):
+            _claude_procs[p] = True
+            try:
+                p.terminate()
+            except OSError:
+                pass
+
+
+atexit.register(cancel_claude_code)
+
+
+def _run_claude(args, stdin_text=None, timeout=CLAUDE_CODE_TIMEOUT) -> subprocess.CompletedProcess:
+    """claude를 앱 전용 빈 폴더에서 실행한다. 구독 로그인을 쓰도록 API 키 환경변수는 뺀다.
+    실행 파일이 없거나 시간이 넘으면 ClaudeCodeError, 취소하면 취소 오류."""
+    exe = find_claude_cli()
+    if not exe:
+        raise ClaudeCodeError(_CLAUDE_MSG_NOT_INSTALLED)
+    env = {k: v for k, v in os.environ.items() if k not in _CLAUDE_DROP_ENV}
+    kw = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
+    workdir = tempfile.mkdtemp(prefix='ssnnote_claude_')     # 메모 DB 폴더·사용자 프로젝트 설정을 읽지 않도록
+    try:
+        try:
+            proc = subprocess.Popen([exe, *args], cwd=workdir, env=env, stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    encoding='utf-8', errors='replace', **kw)
+        except FileNotFoundError:
+            raise ClaudeCodeError(_CLAUDE_MSG_NOT_INSTALLED)
+        with _claude_lock:
+            _claude_procs[proc] = False
+        try:
+            out, err = proc.communicate(stdin_text or '', timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise ClaudeCodeError(_CLAUDE_MSG_TIMEOUT)
+        finally:
+            with _claude_lock:
+                cancelled = _claude_procs.pop(proc, False)
+        if cancelled:
+            raise ClaudeCodeError(_CLAUDE_MSG_CANCEL)
+        return subprocess.CompletedProcess(args, proc.returncode, out or '', err or '')
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _claude_friendly(text: str) -> str:
+    """Claude Code 출력에서 알아볼 수 있는 오류(로그인·한도)를 찾는다. 모르면 ''."""
+    low = (text or '').lower()
+    if any(w in low for w in ('usage limit', 'rate limit', 'rate_limit', '429', 'limit reached')):
+        return _CLAUDE_MSG_LIMIT
+    if any(w in low for w in ('/login', 'log in', 'login', 'not logged', 'authenticate', '401', 'unauthorized')):
+        return _CLAUDE_MSG_LOGIN
+    return ''
+
+
+def _claude_result_text(p: subprocess.CompletedProcess) -> str:
+    """--output-format json 결과에서 답 글(result)만 꺼낸다. 실패면 ClaudeCodeError."""
+    raw = (p.stdout or '').strip()
+    try:
+        data = json.loads(raw) if raw else None
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or p.returncode != 0 or data.get('is_error') is True:
+        detail = str((data or {}).get('result') or '') or (p.stderr or '').strip() or raw
+        raise ClaudeCodeError(_claude_friendly(detail) or f'Claude 연결 실패: {detail[-300:]}')
+    return str(data.get('result') or '').strip()
+
+
+def _claude_ask(system: str, prompt: str, model: str = None, timeout: int = CLAUDE_CODE_TIMEOUT) -> str:
+    """질문 한 번 → 답 글. 도구는 모두 끄고, 질문은 표준입력으로 보낸다."""
+    args = ['-p', '--output-format', 'json', '--no-session-persistence', '--tools', '']
+    model = load_claude_code_model() if model is None else model
+    if model:
+        args += ['--model', model]
+    stdin_text = prompt
+    if len(system) > _SYSTEM_ARG_MAX:
+        stdin_text = system + '\n\n' + prompt
+    else:
+        args += ['--system-prompt', system]
+    return _claude_result_text(_run_claude(args, stdin_text, timeout=timeout))
+
+
+class ClaudeCodeAdapter:
+    """이 PC에 설치된 Claude Code로 Claude 구독(Pro/Max)을 쓴다. 본인 전용, 사용량은 구독 한도에서 차감."""
+    requires_api_key = False     # 키가 없다: 로그인 여부는 호출할 때 Claude Code가 확인한다
+    supports_image = False       # 이미지는 보내지 않고 PC에서 읽은 글자로 대신 보낸다
+
+    @staticmethod
+    def get_api_key() -> str:
+        return 'subscription'    # 화면 표시용 표식일 뿐, 키가 아니다
+
+    @classmethod
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
+        """한 번에 답 전체를 받는다. 글 한도(max_tokens)는 CLI에 대응 옵션이 없어 무시한다."""
+        return _claude_ask(system, prompt)
+
+    @classmethod
+    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
+        """1차 구현: 답을 다 받은 뒤 한 번에 보낸다 (동작 우선)."""
+        try:
+            full = cls.complete(system, prompt)
+        except ClaudeCodeError as e:
+            on_error(str(e))
+            return
+        except Exception as e:
+            on_error(f'Claude 구독 연결에 실패했어요: {e}')
+            return
+        if full:
+            on_chunk(full)
+        on_done(full)
+
+
+def claude_code_status() -> dict:
+    """{'installed', 'logged_in', 'email', 'plan', 'path'}. claude auth status --json 결과로 판단한다 (토큰은 읽지 않음)."""
+    path = find_claude_cli()
+    st = {'installed': bool(path), 'logged_in': False, 'email': '', 'plan': '', 'path': path or ''}
+    if not path:
+        return st
+    try:
+        p = _run_claude(['auth', 'status', '--json'], timeout=30)
+        data = json.loads(p.stdout or '{}')
+    except (ClaudeCodeError, ValueError):
+        return st
+    if p.returncode == 0 and isinstance(data, dict) and data.get('loggedIn') is True \
+            and data.get('authMethod') == 'claude.ai':
+        st.update(logged_in=True, email=str(data.get('email') or ''),
+                  plan=str(data.get('subscriptionType') or data.get('planTier') or ''))
+    return st
+
+
+def claude_code_login():
+    """claude auth login --claudeai: 브라우저에서 Claude 공식 페이지로 로그인한다. 끝날 때까지 기다린다 (뒤 스레드에서 호출)."""
+    p = _run_claude(['auth', 'login', '--claudeai'], timeout=CLAUDE_CODE_LOGIN_TIMEOUT)
+    if p.returncode != 0:
+        raise ClaudeCodeError('Claude 로그인이 끝나지 않았어요. 브라우저에서 승인했는지 확인하고 다시 시도해 주세요.')
+
+
+def claude_code_logout():
+    p = _run_claude(['auth', 'logout'], timeout=30)
+    if p.returncode != 0:
+        raise ClaudeCodeError('Claude 로그아웃에 실패했어요. ' + ((p.stderr or p.stdout or '').strip()[-200:]))
 
 
 # ── OpenAIAdapter (ChatGPT, Responses API) ───────────────────────
@@ -1015,7 +1247,7 @@ class ExaoneAdapter:
 # ── 어댑터 선택 ──────────────────────────────────────────────────
 
 _ADAPTERS = {'claude': ClaudeAdapter, 'openai': OpenAIAdapter, 'opencode': OpenCodeAdapter,
-             'exaone': ExaoneAdapter}
+             'exaone': ExaoneAdapter, 'claude_code': ClaudeCodeAdapter}
 
 
 def get_adapter():
@@ -1066,6 +1298,7 @@ class AiStreamThread(QThread):
 
     def stop(self):
         self._is_running = False
+        cancel_claude_code()      # Claude 구독을 쓰는 중이면 실행 중인 claude도 끊는다
 
     def _retry_prompt(self, error_msg: str) -> str:
         return (
