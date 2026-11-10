@@ -38,3 +38,27 @@ def test_no_text_smaller_than_10pt():
     src = open(__import__('budget').__file__, encoding='utf-8').read()
     sizes = [float(x) for x in re.findall(r'font-size:\s*([\d.]+)pt', src)]
     assert sizes and min(sizes) >= 10.0       # 힌팅 없는 Pretendard는 12px 안팎에서 가장 흐려 보인다
+
+
+def test_budget_window_uses_malgun_gothic_first():
+    import budget
+    assert budget._UI_FONTS[0] == 'Malgun Gothic' and 'Pretendard' in budget._UI_FONTS     # 없는 PC는 Pretendard로
+    assert "font-family: 'Malgun Gothic', 'Pretendard'" in budget.STYLE
+
+
+def test_budget_widgets_get_the_font(tmp_path, monkeypatch):
+    import os
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+    import db
+    monkeypatch.setenv('APPDATA', str(tmp_path))
+    monkeypatch.setattr(db, 'DB_DIR', str(tmp_path))
+    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 'ssnnote.db'))
+    db.init_db()
+    from PyQt5.QtWidgets import QApplication
+    global _APP
+    _APP = QApplication.instance() or QApplication([])
+    import budget
+    monkeypatch.setattr(budget, '_STATE_FILE', str(tmp_path / 'state.json'))
+    w = budget.BudgetWindow()
+    assert 'Malgun Gothic' in w.styleSheet()
+    w.close()

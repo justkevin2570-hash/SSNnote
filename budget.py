@@ -32,7 +32,15 @@ from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
 from ui.common import px
 
 
-# ── 번들 Pretendard 등록 ──────────────────────────────────────────
+# ── 예산 창 글꼴 ──────────────────────────────────────────────────
+# 예산 창은 작은 글자가 많아서 Windows에서 글자를 픽셀에 맞춰 또렷하게 그려 주는(힌팅된) 맑은 고딕을 쓴다.
+# 번들 Pretendard는 힌팅 정보가 없어 12px 안팎에서 흐려 보였다. 맑은 고딕이 없는 PC에서만 Pretendard로 보인다.
+# (되돌리려면 이 목록의 순서를 'Pretendard', 'Malgun Gothic'으로 바꾸면 됨)
+_UI_FONTS = ('Malgun Gothic', 'Pretendard', 'Apple SD Gothic Neo')
+_UI_FONT_QSS = ', '.join(f"'{f}'" for f in _UI_FONTS)
+
+
+# ── 번들 Pretendard 등록 (맑은 고딕이 없는 PC의 대체 글꼴) ───────────────
 # Pretendard가 설치되지 않은 PC에서도 예산 창이 Pretendard로 보이도록
 # assets의 정적 폰트(여러 굵기)를 앱 폰트로 등록한다. QSS의
 # font-family: 'Pretendard' 가 이 등록된 패밀리를 사용한다.
@@ -81,7 +89,7 @@ class C:
 # ── 전체 QSS ─────────────────────────────────────────────────────
 STYLE = f"""
     QMainWindow, QDialog {{ background: {C.BG}; }}
-    QWidget {{ font-family: 'Pretendard', 'Malgun Gothic'; font-size: 10pt; color: {C.TEXT}; }}
+    QWidget {{ font-family: {_UI_FONT_QSS}; font-size: 10pt; color: {C.TEXT}; }}
     QLabel {{ background: transparent; }}
     QScrollArea {{ border: none; background: transparent; }}
     QScrollArea > QWidget > QWidget {{ background: transparent; }}
@@ -499,10 +507,23 @@ def _sizes():
         btn_wide = max(btn_w, fs.horizontalAdvance('완료 취소') + px(36))    # 완료한 줄의 [완료 취소]
         btn_h = max(px(28), fs.height() + px(12))
         act_col = btn_w + btn_wide + px(6) + px(16) + pad
-        w = tuple(px(x) for x in _COL_W[:5]) + (max(px(_COL_W[5]), pct_col), act_col)
-        m = tuple(px(x) for x in _COL_MIN[:5]) + (pct_col, act_col)
+        # 금액 칸: 글꼴이 바뀌어도(맑은 고딕 ↔ Pretendard) 9자리 금액까지 안 잘리게 실제 글꼴로 잰다
+        num_w = fm.horizontalAdvance('999,999,999') + pad + px(6)       # 넉넉할 때: 9자리 금액
+        num_min = fm.horizontalAdvance('99,999,999') + pad              # 줄여도 이 아래로는 안 줄임: 8자리 금액
+        w = [px(x) for x in _COL_W[:5]]
+        m = [px(x) for x in _COL_MIN[:5]]
+        for i in (2, 3, 4):
+            w[i], m[i] = max(w[i], num_w), max(m[i], num_min)
+        w, m = tuple(w) + (max(px(_COL_W[5]), pct_col), act_col), tuple(m) + (pct_col, act_col)
+        # 왼쪽 세부항목 목록: 가장 긴 보조 글과 퍼센트가 안 잘리게
+        meta = QLabel('잔액 99,999,999원 · 2개 세부항목')
+        meta.setObjectName('NavMeta')
+        meta.setStyleSheet(STYLE)
+        meta.ensurePolished()
+        nav_pct = fm.horizontalAdvance('100%') + px(10)
+        nav_w = max(px(220), meta.fontMetrics().horizontalAdvance(meta.text()) + px(40))
         _SIZES = {'w': w, 'min': m, 'pct_lbl': pct_lbl, 'btn_w': btn_w, 'btn_wide': btn_wide, 'btn_h': btn_h,
-                  'row_h': max(px(_ROW_H), btn_h + px(12))}
+                  'row_h': max(px(_ROW_H), btn_h + px(12)), 'nav_w': nav_w, 'nav_pct': nav_pct}
     return _SIZES
 
 
@@ -699,7 +720,7 @@ class _NavItem(QFrame):
         self.lbl_pct = QLabel()
         self.lbl_pct.setObjectName('NavMeta')
         self.lbl_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.lbl_pct.setFixedWidth(46)
+        self.lbl_pct.setFixedWidth(_sizes()['nav_pct'])
         row.addWidget(self.bar, 1)
         row.addWidget(self.lbl_pct)
         self.lbl_meta = QLabel()
@@ -865,7 +886,7 @@ class BudgetWindow(QMainWindow):
         bl.setSpacing(14)
         self.nav_card = QFrame()
         self.nav_card.setObjectName('Card')
-        self.nav_card.setFixedWidth(px(220))
+        self.nav_card.setFixedWidth(_sizes()['nav_w'])
         nl = QVBoxLayout(self.nav_card)
         nl.setContentsMargins(8, 12, 8, 8)
         nl.setSpacing(4)
