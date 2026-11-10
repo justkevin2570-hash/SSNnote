@@ -12,3 +12,29 @@ pytest.importorskip('PyQt5')
 def test_level(pct, done, expected):
     from budget import _level
     assert _level(pct, done) == expected
+
+
+# ── 선명하게 보이는 기준: 작은 글자·연한 글자 없애기 ──
+
+def _contrast(a, b='#FFFFFF'):
+    def lum(h):
+        h = h.lstrip('#')
+        r, g, bl = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+        f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(bl)
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_secondary_text_colors_are_readable():
+    from budget import C
+    assert _contrast(C.MUTED) >= 6.0          # 보조 글 (예전 4.8)
+    assert _contrast(C.FAINT) >= 4.5          # 가장 연한 글도 기준 이상 (예전 #94A3B8은 2.6 → 흐려 보였음)
+    assert _contrast(C.MUTED, C.BG) >= 5.5
+
+
+def test_no_text_smaller_than_10pt():
+    import re
+    src = open(__import__('budget').__file__, encoding='utf-8').read()
+    sizes = [float(x) for x in re.findall(r'font-size:\s*([\d.]+)pt', src)]
+    assert sizes and min(sizes) >= 10.0       # 힌팅 없는 Pretendard는 12px 안팎에서 가장 흐려 보인다

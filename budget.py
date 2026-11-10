@@ -67,8 +67,8 @@ class C:
     LINE        = '#EEF0F3'    # 표 줄 구분
     TEXT        = '#1E293B'
     BODY        = '#334155'
-    MUTED       = '#64748B'
-    FAINT       = '#94A3B8'
+    MUTED       = '#4F5F76'    # 보조 글 (흰 바탕 대비 6.5:1)
+    FAINT       = '#64748B'    # 흐린 글·완료 항목 (4.8:1 — 예전 #94A3B8은 2.6:1이라 흐려 보였음)
     HOVER       = '#F1F3F6'
     ACCENT      = '#4F46E5'
     ACCENT_HI   = '#4338CA'
@@ -88,11 +88,11 @@ STYLE = f"""
     QFrame#Card {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 12px; }}
     QFrame#VSep {{ background: {C.BORDER}; border: none; }}
     QLabel#Title {{ font-size: 16pt; font-weight: 800; }}
-    QLabel#Meta {{ color: {C.MUTED}; font-size: 9.5pt; }}
-    QLabel#StatLabel {{ color: {C.MUTED}; font-size: 9pt; font-weight: 600; }}
+    QLabel#Meta {{ color: {C.MUTED}; font-size: 10pt; }}
+    QLabel#StatLabel {{ color: {C.MUTED}; font-size: 10pt; font-weight: 600; }}
     QLabel#StatValue {{ font-size: 15pt; font-weight: 800; }}
     QLabel#SectionTitle {{ font-size: 12pt; font-weight: 800; }}
-    QLabel#SectionMeta {{ color: {C.MUTED}; font-size: 9.5pt; }}
+    QLabel#SectionMeta {{ color: {C.MUTED}; font-size: 10pt; }}
     QLabel#Muted {{ color: {C.MUTED}; }}
     QLabel#EmptyTitle {{ font-size: 13pt; font-weight: 800; }}
 
@@ -112,12 +112,12 @@ STYLE = f"""
     QPushButton#IconBtn:disabled {{ background: transparent; }}
     QPushButton#RowBtn {{
         background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 7px;
-        padding: 0 10px; font-size: 9pt; font-weight: 600; color: {C.BODY};
+        padding: 0 10px; font-size: 10pt; font-weight: 600; color: {C.BODY};
     }}
     QPushButton#RowBtn:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
     QPushButton#RowDone {{
         background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 7px;
-        padding: 0 10px; font-size: 9pt; font-weight: 700; color: #047857;
+        padding: 0 10px; font-size: 10pt; font-weight: 700; color: #047857;
     }}
     QPushButton#RowDone:hover {{ background: #D1FAE5; border-color: #6EE7B7; }}
     QPushButton#Danger {{ background: {C.SURFACE}; border: 1px solid #FBCFD8; color: #E11D48; font-weight: 700; }}
@@ -126,7 +126,7 @@ STYLE = f"""
     QPushButton#Link:hover {{ color: {C.TEXT}; }}
     QPushButton#QuickBtn {{
         background: {C.BG}; border: 1px solid {C.BORDER}; border-radius: 11px; padding: 3px 11px;
-        font-size: 9pt; font-weight: 600; color: {C.BODY};
+        font-size: 10pt; font-weight: 600; color: {C.BODY};
     }}
     QPushButton#QuickBtn:hover {{ border-color: {C.ACCENT_LINE}; color: {C.ACCENT_HI}; background: {C.ACCENT_SOFT}; }}
     QTextBrowser#Answer {{
@@ -139,7 +139,7 @@ STYLE = f"""
     QFrame#Nav[active="true"] {{ background: {C.ACCENT_SOFT}; }}
     QLabel#NavName {{ font-weight: 700; }}
     QFrame#Nav[active="true"] QLabel#NavName {{ color: {C.ACCENT_HI}; }}
-    QLabel#NavMeta {{ color: {C.MUTED}; font-size: 8.5pt; }}
+    QLabel#NavMeta {{ color: {C.MUTED}; font-size: 10pt; }}
 
     QTableWidget {{
         background: {C.SURFACE}; border: none; gridline-color: transparent;
@@ -150,7 +150,7 @@ STYLE = f"""
     QTableWidget QLineEdit {{ border: 1px solid {C.ACCENT}; border-radius: 4px; padding: 2px 6px; }}
     QHeaderView::section {{
         background: {C.SURFACE}; color: {C.MUTED}; padding: 8px 10px; border: none;
-        border-bottom: 1px solid {C.BORDER}; font-weight: 700; font-size: 9pt;
+        border-bottom: 1px solid {C.BORDER}; font-weight: 700; font-size: 10pt;
     }}
     QLineEdit, QComboBox {{
         background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 6px 9px;
@@ -635,7 +635,7 @@ def _cost_chip_qss(budget, spent, selector='QPushButton'):
     neg = budget - spent < 0
     return (f'{selector} {{ background: {_LEVEL_SOFT[lvl]}; color: {C.NEG if neg else _LEVEL_TEXT[lvl]};'
             f' border: 1px solid transparent; border-radius: 11px; padding: 4px 11px;'
-            f' font-weight: 600; font-size: 9pt; }}'
+            f' font-weight: 600; font-size: 10pt; }}'
             f'{selector}:hover {{ border-color: {C.BORDER_HI}; }}'
             f'{selector}:checked {{ background: {C.SURFACE}; border: 1px solid {C.ACCENT}; }}')
 
@@ -1811,11 +1811,11 @@ class BudgetWindow(QMainWindow):
                 s = json.load(f)
             from ui.common import fit_to_screen
             # 예전 창 크기가 새 화면(왼쪽 목록·버튼)에 좁으면 넓혀 준다
-            self.setGeometry(*fit_to_screen(s['x'], s['y'], max(s['width'], px(1180)), s['height'],
+            self.setGeometry(*fit_to_screen(s['x'], s['y'], max(s['width'], px(1240)), s['height'],
                                             min_w=640, min_h=420))
         except Exception:
             from ui.common import default_geometry
-            self.setGeometry(*default_geometry(px(1180), px(760), frac_w=0.9))
+            self.setGeometry(*default_geometry(px(1240), px(780), frac_w=0.92))
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -2072,7 +2072,7 @@ class _ItemDialog(QDialog):
         self.edit_spend_now = None
         if item:
             lbl_now = QLabel('이번에 쓴 금액')
-            lbl_now.setStyleSheet(f'font-size: 9pt; font-weight: 700; color: {C.ACCENT};')
+            lbl_now.setStyleSheet(f'font-size: 10pt; font-weight: 700; color: {C.ACCENT};')
             v.addWidget(lbl_now)
             self.edit_spend_now = QLineEdit()
             self.edit_spend_now.setAlignment(Qt.AlignRight)
@@ -2084,7 +2084,7 @@ class _ItemDialog(QDialog):
             v.addWidget(self.edit_spend_now)
             self.lbl_spend_preview = QLabel()
             self.lbl_spend_preview.setTextFormat(Qt.RichText)
-            self.lbl_spend_preview.setStyleSheet(f'color: {C.MUTED}; font-size: 9pt;')
+            self.lbl_spend_preview.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt;')
             v.addWidget(self.lbl_spend_preview)
 
         amount_row = QHBoxLayout()
@@ -2164,7 +2164,7 @@ class _ItemDialog(QDialog):
     @staticmethod
     def _label(text):
         lbl = QLabel(text)
-        lbl.setStyleSheet(f'font-size: 9pt; font-weight: 700; color: {C.MUTED};')
+        lbl.setStyleSheet(f'font-size: 10pt; font-weight: 700; color: {C.MUTED};')
         return lbl
 
     def _save(self):
