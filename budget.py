@@ -777,7 +777,8 @@ class BudgetWindow(QMainWindow):
         self._ask_worker = None
         self._ask_history = []            # [(질문, 답)] — 이어지는 질문에 쓰려고 최근 것만
         self._ask_q = ''
-        self._pending_spend = []          # AI가 제안한 지출 (사용자가 [넣기]를 눌러야 반영)
+        self._pending_changes = []        # AI가 제안한 변경 (사용자가 [넣기]를 눌러야 반영)
+        self._undo_snapshot = None        # 마지막 [넣기] 전 집행액 {item_id: spent} (되돌리기용, 1회분)
         self._restore_window_state()
         self._init_ui()
         self.refresh()
@@ -948,6 +949,7 @@ class BudgetWindow(QMainWindow):
         b_apply.setObjectName('Primary')
         b_apply.setCursor(Qt.PointingHandCursor)
         b_apply.clicked.connect(self._apply_spend)
+        self.btn_apply_spend = b_apply
         b_skip = QPushButton('취소')
         b_skip.setCursor(Qt.PointingHandCursor)
         b_skip.clicked.connect(self._hide_proposal)
@@ -979,6 +981,13 @@ class BudgetWindow(QMainWindow):
         self.ask_status = QLabel()
         self.ask_status.setObjectName('Muted')
         quick.addWidget(self.ask_status)
+        self.btn_undo_apply = QPushButton('되돌리기')
+        self.btn_undo_apply.setObjectName('QuickBtn')
+        self.btn_undo_apply.setCursor(Qt.PointingHandCursor)
+        self.btn_undo_apply.setToolTip('방금 [넣기]로 바꾼 집행액을 전 값으로 되돌립니다')
+        self.btn_undo_apply.clicked.connect(self._undo_apply)
+        self.btn_undo_apply.hide()
+        quick.addWidget(self.btn_undo_apply)
         v.addLayout(quick)
 
         row = QHBoxLayout()
@@ -1011,7 +1020,7 @@ class BudgetWindow(QMainWindow):
         for w in [self.ask_input, self.ask_send] + self.quick_buttons:
             w.setEnabled(ready and not busy)
         self.ask_input.setPlaceholderText(
-            '예산에 대해 묻거나, "교과융합캠프 간식비 5만원 썼어"처럼 쓴 돈을 알려 주세요'
+            '예산에 대해 묻거나 지시하세요 — 예: 협의회비 잔액 30만원으로 맞춰줘'
             if ready else 'AI가 꺼져 있어요 — 공문 작성 창 → [AI 설정]에서 연결하면 쓸 수 있어요')
 
     def _ask(self, question):
@@ -1044,7 +1053,7 @@ class BudgetWindow(QMainWindow):
                 pass
         self._set_answer(text)
         self.ask_status.setText('')
-        self._show_proposal(reply.get('spend') or [])
+        self._show_proposal(reply.get('changes') or [], reply.get('rejected') or [])
 
     def _on_ask_failed(self, msg):
         self._set_answer(f'Q. {self._ask_q}\n\n⚠ {msg}')
@@ -1060,37 +1069,74 @@ class BudgetWindow(QMainWindow):
         a.setFixedHeight(int(min(170, max(52, doc.size().height() + 20))))
 
     # ── 말로 지출 입력: AI가 제안 → [넣기]를 눌러야 반영 ─────────────
-    def _show_proposal(self, spend):
-        self._pending_spend = list(spend)
-        if not spend:
+    def _show_proposal(self, changes, rejected=()):
+        """AI가 제안한 변경을 표로 보여 준다. 제외된 제안은 회색 줄로 이유와 함께."""
+        self._pending_changes = list(changes)
+        self.btn_apply_spend.setEnabled(bool(changes))
+        if not changes and not rejected:
             self.ask_proposal.hide()
             return
-        lines = []
-        for sp in spend:
-            it = self._items_by_id.get(sp['item_id']) or sp['item']
-            new = it['spent'] + sp['amount']
-            rem = it['budget'] - new
-            rem_html = f'<span style="color:{C.NEG}">{_fmt(rem)}원</span>' if rem < 0 else f'{_fmt(rem)}원'
-            lines.append(f"<b>{it['description']}</b> <span style='color:{C.MUTED}'>({it['cost_type']})</span> "
-                         f"<b style='color:{C.ACCENT}'>+{_fmt(sp['amount'])}원</b> → 집행 {_fmt(new)}원 · 잔액 {rem_html}")
-        self.lbl_proposal.setText('이번에 쓴 금액으로 넣을까요?<br>' + '<br>'.join(lines))
+
+        def rem_html(r):
+            return f'<span style="color:{C.NEG}">{_fmt(r)}원</span>' if r < 0 else f'{_fmt(r)}원'
+
+        cats = {c['id']: c['name'] for c in self.categories}
+        parts = []
+        if changes:
+            parts.append('<b>이렇게 바꿀까요?</b>')
+            parts.append("<table width='100%' cellspacing='0' cellpadding='3'>"
+                         f"<tr style='color:{C.MUTED}'><td>산출내역</td><td>세부항목</td>"
+                         "<td>집행액 (기존 → 변경)</td><td>잔액 (기존 → 변경)</td></tr>")
+            for ch in changes:
+                it = self._items_by_id.get(ch['item_id']) or ch['item']
+                delta = (f" <span style='color:{C.MUTED}'>(+{_fmt(ch['value'])}원)</span>"
+                         if ch['kind'] == 'spend' else '')
+                parts.append(f"<tr><td><b>{it['description']}</b></td><td>{cats.get(it['category_id'], '')}</td>"
+                             f"<td>{_fmt(ch['old_spent'])} → <b style='color:{C.ACCENT}'>{_fmt(ch['new_spent'])}원</b>{delta}</td>"
+                             f"<td>{rem_html(ch['old_remaining'])} → {rem_html(ch['new_remaining'])}</td></tr>")
+            parts.append('</table>')
+        for rj in rejected:
+            name = rj['item']['description'] if rj.get('item') else '알 수 없는 항목'
+            parts.append(f"<span style='color:{C.FAINT}'>제외: {name} — {rj['reason']}</span>")
+        if changes:
+            parts.append(f"<span style='color:{C.MUTED}'>실제 집행 내역과 맞는지 확인하세요.</span>")
+        self.lbl_proposal.setText('<br>'.join(parts))
         self.ask_proposal.show()
 
     def _hide_proposal(self):
-        self._pending_spend = []
+        self._pending_changes = []
         self.ask_proposal.hide()
 
     def _apply_spend(self):
-        done = 0
-        for sp in self._pending_spend:
-            cur = self._items_by_id.get(sp['item_id'])          # 지금 값 기준으로 더한다
+        """[넣기]: 바꾸기 전 집행액을 보관한 뒤 반영한다. 되돌리기는 마지막 1회분만."""
+        from budget_ai import target_spent
+        snapshot, done = {}, 0
+        for ch in self._pending_changes:
+            cur = self._items_by_id.get(ch['item_id'])          # 지금 값 기준으로 계산
             if not cur or cur['completed']:
                 continue
-            set_budget_item_spent(cur['id'], cur['spent'] + sp['amount'])
+            new = target_spent(ch['kind'], ch['value'], cur)
+            if new < 0 or new == cur['spent']:
+                continue
+            snapshot[cur['id']] = cur['spent']
+            set_budget_item_spent(cur['id'], new)
             done += 1
         self._hide_proposal()
+        self._undo_snapshot = snapshot or None
         self.refresh()
+        self.btn_undo_apply.setVisible(bool(snapshot))
         self.ask_status.setText(f'{done}개 항목에 넣었어요.' if done else '넣을 항목이 없어요.')
+
+    def _undo_apply(self):
+        snapshot, self._undo_snapshot = self._undo_snapshot or {}, None
+        n = 0
+        for iid, old in snapshot.items():
+            if iid in self._items_by_id:
+                set_budget_item_spent(iid, old)
+                n += 1
+        self.btn_undo_apply.hide()
+        self.refresh()
+        self.ask_status.setText(f'{n}개 항목을 넣기 전 값으로 되돌렸어요.' if n else '되돌릴 항목이 없어요.')
 
     def _make_empty(self):
         card = QFrame()

@@ -1,11 +1,14 @@
 """budget_ai.py — 예산 창에서 AI에게 묻고 답 듣기 (UI 없음 + 뒤에서 실행할 일꾼).
 
   · 지금 예산 표(세부항목·원가통계비목·산출내역·금액)를 함께 보내 질문에 답한다.
-  · "간식비 5만원 썼어"처럼 쓴 돈을 말하면, 어느 항목에 얼마를 넣을지 '제안'만 돌려준다.
-    실제 반영은 사용자가 [넣기]를 눌러야 한다 (AI가 예산 데이터를 직접 고치지 않음).
+  · "간식비 5만원 썼어"처럼 쓴 돈, "협의회비 잔액 30만원으로 맞춰줘"처럼 목표 잔액,
+    "간식비 집행액을 12만원으로 고쳐줘"처럼 집행액을 말하면, AI는 항목과 목표값만 정한다.
+    잔액·집행액 계산과 검증은 앱이 한다 (parse_reply). 실제 반영은 사용자가 [넣기]를 눌러야 한다.
   · 개인정보 보호 모드면 보내는 글의 개인정보를 가린다 (school_profile.mask_for_ai).
 
-응답 형식 (JSON): {"answer": "답", "spend": [{"item_id": 12, "amount": 50000}]}
+응답 형식 (JSON):
+  {"answer": "답", "spend": [{"item_id": 12, "amount": 50000}],
+   "set_remaining": [{"item_id": 12, "remaining": 300000}], "set_spent": [{"item_id": 7, "spent": 120000}]}
 """
 
 import json
@@ -17,15 +20,23 @@ SYSTEM = (
     "- 금액은 '1,234,000원'처럼 쉼표와 '원'을 붙이고, 계산은 정확히 합니다. 표에 없는 내용은 지어내지 않습니다.\n"
     "- 답은 짧고 분명하게, 목록이 필요하면 '- '로 시작하는 줄로. 마크다운(**, ##, 표)은 쓰지 않습니다.\n"
     "- 학교회계연도는 3월 1일부터 다음 해 2월 말일까지입니다.\n"
-    "- 사용자가 돈을 썼다고 말하면(예: '간식비 5만원 썼어', '강사수당 32만원 지급') spend에 항목 id와 금액을 넣고,\n"
-    "  answer에는 어느 항목에 얼마를 넣을지 한 줄로 확인하듯 적습니다. 실제 반영은 사용자가 확인한 뒤에 합니다.\n"
-    "- 어느 항목인지 애매하면 spend는 비우고 answer에서 후보를 보여 주며 되묻습니다.\n"
+    "- 사용자가 돈을 썼다고 말하면(예: '간식비 5만원 썼어', '강사수당 32만원 지급') spend에 항목 id와 쓴 금액(amount)을 넣습니다.\n"
+    "- 잔액을 특정 금액으로 맞추라고 하면(예: '협의회비 잔액 30만원으로 맞춰줘') set_remaining에 항목 id와 목표 잔액(remaining)을 넣습니다.\n"
+    "- 집행액을 특정 금액으로 고치라고 하면(예: '간식비 집행액을 12만원으로 고쳐줘') set_spent에 항목 id와 집행액(spent)을 넣습니다.\n"
+    "- 계산은 하지 마세요. 목표값(금액)만 정하면, 잔액·집행액 계산과 확인은 앱이 합니다.\n"
+    "- answer에는 어느 항목에 얼마를 바꿀지 한 줄로 확인하듯 적습니다. 실제 반영은 사용자가 확인한 뒤에 합니다.\n"
+    "- 어느 항목인지 애매하면 spend·set_remaining·set_spent를 모두 비우고 answer에서 후보를 보여 주며 되묻습니다.\n"
     "- 완료된 항목에는 지출을 넣지 않습니다.\n"
-    "- 항목 id는 spend에만 쓰고, answer에는 id를 절대 쓰지 마세요. 항목은 산출내역(이름)으로 말합니다.\n"
+    "- 항목 id는 spend·set_remaining·set_spent에만 쓰고, answer에는 id를 절대 쓰지 마세요. 항목은 산출내역(이름)으로 말합니다.\n"
     "반드시 JSON만 출력합니다."
 )
 
-_FORMAT = '{"answer": "답", "spend": [{"item_id": 12, "amount": 50000}]}'
+_FORMAT = ('{"answer": "답", "spend": [{"item_id": 12, "amount": 50000}], '
+           '"set_remaining": [{"item_id": 12, "remaining": 300000}], '
+           '"set_spent": [{"item_id": 7, "spent": 120000}]}')
+
+# AI 응답의 세 종류: (응답 키, 값 키, 뜻)
+_KINDS = (('spend', 'amount'), ('set_remaining', 'remaining'), ('set_spent', 'spent'))
 
 # 자주 묻는 질문 (버튼 글자, 실제 질문)
 QUICK = (
@@ -84,26 +95,75 @@ def _to_int(v):
     return int(digits) if digits else None
 
 
-def parse_reply(raw: str, items_by_id: dict) -> dict:
-    """AI 응답 → {'answer': 글, 'spend': [{'item_id', 'amount', 'item'}]}.
+def target_spent(kind: str, value: int, item: dict) -> int:
+    """바꿀 집행액. 계산은 여기서만 한다 (AI는 목표값만 정한다)."""
+    if kind == 'spend':
+        return int(item['spent']) + value                  # 쓴 금액을 더함
+    if kind == 'set_remaining':
+        return int(item['budget']) - value                 # 목표 잔액 → 집행액
+    return value                                           # set_spent: 집행액 그대로
 
-    JSON이 아니면 글 전체를 답으로 쓴다. 지출 제안은 있는 항목·완료 안 된 항목·0보다 큰 금액만 남긴다.
+
+def _check(kind: str, value, item) -> tuple:
+    """(바꿀 값 또는 None, 이유). 이유가 None이면 바꾸지 않아도 되는 경우(0원·변화 없음)."""
+    if value is None:
+        return None, '금액을 읽지 못했어요'
+    if value < 0:
+        return None, '금액이 0원보다 작아요'
+    if kind == 'spend' and value == 0:
+        return None, None
+    if kind == 'set_remaining' and value > int(item['budget']):
+        return None, '잔액 목표가 예산보다 커요'
+    new = target_spent(kind, value, item)
+    if new < 0:
+        return None, '집행액이 0원보다 작아져요'
+    if new == int(item['spent']):
+        return None, None
+    if kind == 'set_remaining' and int(item['budget']) - new != value:
+        return None, '계산이 맞지 않아요'
+    return new, None
+
+
+def parse_reply(raw: str, items_by_id: dict) -> dict:
+    """AI 응답 → {'answer': 글, 'changes': [...], 'rejected': [...]}.
+
+    changes: 앱이 검증을 통과한 변경 (항목·종류·기존/변경 집행액·잔액). 중복·완료·없는 항목·음수 등은 rejected에 이유와 함께 남긴다.
+    JSON이 아니면 글 전체를 답으로 쓴다.
     """
     data = _extract_json(raw)
     if not isinstance(data, dict):
-        return {'answer': (raw or '').strip(), 'spend': []}
+        return {'answer': (raw or '').strip(), 'changes': [], 'rejected': []}
     answer = str(data.get('answer') or '').strip()
-    spend, seen = [], set()
-    for s in data.get('spend') or []:
-        if not isinstance(s, dict):
-            continue
-        iid, amount = _to_int(s.get('item_id')), _to_int(s.get('amount'))
-        item = items_by_id.get(iid)
-        if not item or item.get('completed') or not amount or amount <= 0 or iid in seen:
-            continue
-        seen.add(iid)
-        spend.append({'item_id': iid, 'amount': amount, 'item': item})
-    return {'answer': answer, 'spend': spend}
+    changes, rejected, done_ids = [], [], set()
+    for key, value_key in _KINDS:
+        for s in data.get(key) or []:
+            if not isinstance(s, dict):
+                continue
+            iid = _to_int(s.get('item_id'))
+            value = _to_int(s.get(value_key))
+            item = items_by_id.get(iid)
+            if item is None:
+                rejected.append({'item_id': iid, 'item': None, 'kind': key, 'reason': '없는 항목이에요'})
+                continue
+            if item.get('completed'):
+                rejected.append({'item_id': iid, 'item': item, 'kind': key, 'reason': '완료된 항목이에요'})
+                continue
+            if iid in done_ids:
+                rejected.append({'item_id': iid, 'item': item, 'kind': key,
+                                 'reason': '같은 항목이 여러 번 나와 첫 번째만 써요'})
+                continue
+            new, reason = _check(key, value, item)
+            if reason:
+                rejected.append({'item_id': iid, 'item': item, 'kind': key, 'reason': reason})
+                continue
+            if new is None:
+                continue                                    # 0원·변화 없음: 조용히 뺌
+            done_ids.add(iid)
+            budget, spent = int(item['budget']), int(item['spent'])
+            changes.append({'item_id': iid, 'item': item, 'kind': key, 'value': value,
+                            'old_spent': spent, 'new_spent': new,
+                            'old_remaining': budget - spent, 'new_remaining': budget - new})
+    return {'answer': answer, 'changes': changes, 'rejected': rejected}
 
 
 # ── 실행 (뒤에서) ────────────────────────────────────────────────
@@ -150,7 +210,7 @@ class BudgetAskWorker(QThread):
                 pass
             raw = adapter.complete(SYSTEM, prompt, max_tokens=2000)
             reply = parse_reply(raw, {it['id']: it for it in self._items})
-            if not reply['answer'] and not reply['spend']:
+            if not reply['answer'] and not reply['changes'] and not reply['rejected']:
                 self.failed.emit('AI가 빈 답을 보냈어요. 다시 물어봐 주세요.')
                 return
             self.done.emit(reply, masked or {})

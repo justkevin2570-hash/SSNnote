@@ -356,3 +356,43 @@ def test_save_left_cancel_right(win):
         assert left.mapTo(dlg, left.rect().topLeft()).x() < right.mapTo(dlg, right.rect().topLeft()).x()
         assert left.isDefault() and not right.autoDefault()
         dlg.close()
+
+
+def _item_id(db, desc):
+    return next(i['id'] for i in db.get_budget_items() if i['description'] == desc)
+
+
+def test_target_balance_shows_table_then_apply_and_undo(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    iid = _item_id(db, '강사 수당')                          # 예산 1,000 · 집행 200
+    _ai(monkeypatch, lambda p: json.dumps({'answer': '강사 수당 잔액을 300원으로 맞출게요.',
+                                           'set_remaining': [{'item_id': iid, 'remaining': 300}]}, ensure_ascii=False))
+    w.refresh()
+    w._ask('강사 수당 잔액 300원으로 맞춰줘')
+    text = w.lbl_proposal.text()
+    assert not w.ask_proposal.isHidden() and '이렇게 바꿀까요' in text and '실제 집행 내역과 맞는지' in text
+    assert '200' in text and '700' in text                  # 집행액 200 → 700 (앱이 계산)
+    w._apply_spend()
+    assert _spent(db, iid) == 700
+    assert not w.btn_undo_apply.isHidden() and '1개 항목' in w.ask_status.text()
+    w._undo_apply()
+    assert _spent(db, iid) == 200 and w.btn_undo_apply.isHidden()
+
+
+def test_rejected_suggestion_is_grey_and_cannot_be_applied(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    iid = _item_id(db, '강사 수당')
+    _ai(monkeypatch, lambda p: json.dumps({'answer': '잔액을 맞출게요.',
+                                           'set_remaining': [{'item_id': iid, 'remaining': 99999}]}))
+    w.refresh()
+    w._ask('잔액 99999원으로')
+    assert '제외: 강사 수당' in w.lbl_proposal.text() and '예산보다' in w.lbl_proposal.text()
+    assert not w.btn_apply_spend.isEnabled()
+    w._apply_spend()
+    assert _spent(db, iid) == 200
+
+
+def _spent(db, iid):
+    return next(i for i in db.get_budget_items() if i['id'] == iid)['spent']
