@@ -10,9 +10,9 @@ import qtawesome as qta
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QPushButton,
     QVBoxLayout, QHBoxLayout, QGridLayout, QWidget, QLabel, QLineEdit,
-    QMessageBox, QInputDialog, QFrame, QSpinBox, QCheckBox, QDialog,
+    QMessageBox, QInputDialog, QFrame, QSpinBox, QCheckBox, QDialog, QComboBox,
 )
-from PyQt5.QtCore import Qt, QTimer, QSize, QEvent
+from PyQt5.QtCore import Qt, QTimer, QSize, QEvent, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat
 from ai_client import (AiStreamThread, PROVIDER_LABELS,
                         load_ai_mode, save_ai_mode, legacy_ai_name, load_external_model_name,
@@ -25,7 +25,11 @@ from ai_client import (AiStreamThread, PROVIDER_LABELS,
                         OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
                         fetch_opencode_models, save_opencode_model_info, test_opencode,
                         load_exaone_key, save_exaone_key, load_exaone_model, save_exaone_model,
-                        test_exaone, exaone_key_notice, EXAONE_SIGNUP_URL, EXAONE_KEY_DAYS)
+                        test_exaone, exaone_key_notice, EXAONE_SIGNUP_URL, EXAONE_KEY_DAYS,
+                        ClaudeCodeError, claude_code_status, claude_code_login, claude_code_logout,
+                        install_claude_code, test_claude_code, CLAUDE_CODE_MODELS, CLAUDE_CODE_INSTALL_PAGE,
+                        load_claude_code_model, save_claude_code_model,
+                        load_claude_code_path, save_claude_code_path)
 from db import save_official_document, get_official_documents
 import doc_style   # 내 공문 스타일: 비슷한 저장 공문 + 나만의 작성 규칙을 AI에 함께 보냄
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
@@ -483,10 +487,241 @@ class ApiKeyDialog(QDialog):
         return self._save_cb.isChecked()
 
 
+class _BgCall(QThread):
+    """오래 걸리는 일(claude 실행 등)을 뒤 스레드에서 한다. 끝나면 done(결과), 실패하면 failed(메시지)."""
+    done = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, fn, *args):
+        super().__init__()
+        self._fn, self._args = fn, args
+
+    def run(self):
+        try:
+            self.done.emit(self._fn(*self._args))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
+class ClaudeCodeDialog(QDialog):
+    """Claude 구독 연결: 설치 → 로그인 → 모델 → 연결 확인 → 저장. 모든 claude 호출은 뒤 스레드에서."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._job = None
+        self._st = None
+        self.setWindowTitle('Claude 구독 연결')
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setStyleSheet(_style())
+        self.setFixedWidth(px(480))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(10)
+
+        head = QLabel('Claude 구독 연결')
+        head.setObjectName('DialogTitle')
+        layout.addWidget(head)
+        intro = QLabel('Claude Pro/Max 구독으로 동작합니다 · 사용량은 Claude 채팅·Claude Code와 같은 한도에서 차감 · '
+                       '본인만 사용하세요 · 로그인 정보는 Claude Code가 보관하며 서서니노트는 저장하지 않습니다.')
+        intro.setObjectName('Hint')
+        intro.setWordWrap(True)
+        intro.ensurePolished()                                 # 줄바꿈 높이를 미리 계산해 잘리지 않게
+        intro.setMinimumHeight(intro.heightForWidth(px(480) - 44))
+        layout.addWidget(intro)
+
+        self.lbl_status = QLabel('확인 중…')
+        self.lbl_status.setStyleSheet(f'color: {C.TEXT}; font-weight: 700;')
+        self.lbl_status.setWordWrap(True)
+        layout.addWidget(self.lbl_status)
+        self.lbl_progress = QLabel()
+        self.lbl_progress.setObjectName('Hint')
+        self.lbl_progress.setWordWrap(True)
+        layout.addWidget(self.lbl_progress)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self.btn_install = QPushButton('설치')
+        self.btn_install.setIcon(qta.icon('fa5s.download', color=C.ACCENT))
+        self.btn_install.setCursor(Qt.PointingHandCursor)
+        self.btn_install.clicked.connect(self._install)
+        self.btn_account = QPushButton('Claude로 로그인')
+        self.btn_account.setCursor(Qt.PointingHandCursor)
+        self.btn_account.clicked.connect(self._login_or_logout)
+        row.addWidget(self.btn_install)
+        row.addWidget(self.btn_account)
+        row.addStretch()
+        layout.addLayout(row)
+
+        self.lbl_link = QLabel(f'설치가 안 되면 공식 설치 안내를 보세요: '
+                               f'<a href="{CLAUDE_CODE_INSTALL_PAGE}">{CLAUDE_CODE_INSTALL_PAGE}</a>')
+        self.lbl_link.setObjectName('Hint')
+        self.lbl_link.setOpenExternalLinks(True)
+        layout.addWidget(self.lbl_link)
+
+        layout.addSpacing(4)
+        lbl_model = QLabel('AI 모델')
+        lbl_model.setObjectName('FieldLabel')
+        layout.addWidget(lbl_model)
+        self.cmb_model = QComboBox()
+        for value, label in CLAUDE_CODE_MODELS:
+            self.cmb_model.addItem(label, value)
+        self.cmb_model.setCurrentIndex(max(0, self.cmb_model.findData(load_claude_code_model())))
+        layout.addWidget(self.cmb_model)
+
+        lbl_path = QLabel('claude 실행 파일 (비우면 자동으로 찾아요)')
+        lbl_path.setObjectName('FieldLabel')
+        layout.addWidget(lbl_path)
+        self.edit_path = QLineEdit(load_claude_code_path())
+        self.edit_path.setPlaceholderText('예: C:\\Users\\내이름\\.local\\bin\\claude.exe')
+        self.edit_path.setMinimumHeight(34)
+        layout.addWidget(self.edit_path)
+
+        test_row = QHBoxLayout()
+        test_row.setSpacing(8)
+        self.btn_test = QPushButton('연결 확인')
+        self.btn_test.clicked.connect(self._test)
+        self.lbl_test = QLabel()
+        self.lbl_test.setWordWrap(True)
+        test_row.addWidget(self.btn_test)
+        test_row.addWidget(self.lbl_test, 1)
+        layout.addLayout(test_row)
+        layout.addSpacing(6)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self.btn_save = QPushButton('저장')
+        self.btn_save.setObjectName('Primary')
+        self.btn_save.setMinimumHeight(34)
+        self.btn_save.setDefault(True)
+        self.btn_save.clicked.connect(self._save)
+        btn_cancel = QPushButton('취소')
+        btn_cancel.setMinimumHeight(34)
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self.btn_save)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+        keep_light(self)
+        self.btn_install.hide()
+        self.btn_account.hide()
+        self.lbl_link.hide()
+
+        self._refresh_status()
+
+    # ── 뒤 스레드 실행: 한 번에 하나만, 끝나면 on_done / 실패하면 on_fail ──
+    def _run(self, fn, *args, progress='', on_done, on_fail=None):
+        if self._job is not None and self._job.isRunning():
+            return False
+        self._set_busy(True, progress)
+        job = _BgCall(fn, *args)
+        job.done.connect(lambda r: self._finish(on_done, r))
+        job.failed.connect(lambda m: self._finish_fail(on_fail, m))
+        self._job = job
+        job.start()
+        return True
+
+    def _set_busy(self, busy, progress=''):
+        self.lbl_progress.setText(progress)
+        for w in (self.btn_install, self.btn_account, self.btn_test, self.btn_save):
+            w.setEnabled(not busy)
+
+    def _finish(self, on_done, result):
+        self._set_busy(False)
+        on_done(result)
+
+    def _finish_fail(self, on_fail, msg):
+        self._set_busy(False)
+        if on_fail:
+            on_fail(msg)
+        else:
+            self._show_error('Claude 구독', msg)
+
+    def _show_error(self, title, msg):
+        self.lbl_progress.setText('')
+        QMessageBox.warning(self, title, msg)
+
+    # ── 상태 ──
+    def _refresh_status(self, note=''):
+        self.lbl_status.setText('확인 중…')
+        self._run(claude_code_status, on_done=lambda st: self._after_status(st, note))
+
+    def _after_status(self, st, note=''):
+        self._show_status(st)
+        self.lbl_progress.setText(note)
+
+    def _show_status(self, st):
+        self._st = st
+        if not st['installed']:
+            text, color = '설치 안 됨 — [설치]를 눌러 주세요.', C.WARN
+        elif st['logged_in']:
+            plan = st['plan'].capitalize() if st['plan'] else ''
+            who = ' · '.join(x for x in (st['email'], f'{plan} 구독' if plan else '') if x)
+            text, color = f'✓ 로그인됨 ({who})', C.OK
+        else:
+            text, color = '로그인 필요 — [Claude로 로그인]을 눌러 주세요.', C.WARN
+        self.lbl_status.setText(text)
+        self.lbl_status.setStyleSheet(f'color: {color}; font-weight: 700;')
+        self.btn_install.setVisible(not st['installed'])
+        self.lbl_link.setVisible(not st['installed'])
+        self.btn_account.setVisible(st['installed'])
+        self.btn_account.setText('로그아웃' if st['logged_in'] else 'Claude로 로그인')
+
+    # ── 동작 ──
+    def _install(self):
+        self._run(install_claude_code, progress='Claude Code를 설치하는 중… (1~2분 걸릴 수 있어요)',
+                  on_done=lambda _: self._refresh_status('설치했어요.'),
+                  on_fail=lambda m: self._show_error('설치 실패', m))
+
+    def _login_or_logout(self):
+        if self._st and self._st.get('logged_in'):
+            ans = QMessageBox.question(self, 'Claude 로그아웃', 'Claude 구독 로그인을 끊을까요?',
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ans != QMessageBox.Yes:
+                return
+            self._run(claude_code_logout, progress='로그아웃하는 중…',
+                      on_done=lambda _: self._refresh_status('로그아웃했어요.'),
+                      on_fail=lambda m: self._show_error('로그아웃 실패', m))
+            return
+        self._run(claude_code_login, progress='브라우저에서 Claude 로그인 후 승인해 주세요…',
+                  on_done=lambda _: self._refresh_status('로그인했어요.'),
+                  on_fail=lambda m: self._show_error('로그인 실패', m))
+
+    def _test(self):
+        self._save_path_and_model()
+        self.lbl_test.setText('확인하는 중… (몇 초 걸려요)')
+        self._run(test_claude_code, self.cmb_model.currentData() or '',
+                  on_done=self._show_test, on_fail=lambda m: self._show_test((False, m)))
+
+    def _show_test(self, result):
+        ok, msg = result
+        self.lbl_test.setText(('✓ ' if ok else '⚠ ') + msg)
+        self.lbl_test.setStyleSheet(f'color: {C.OK if ok else C.WARN};')
+
+    def _save_path_and_model(self):
+        save_claude_code_path(self.edit_path.text().strip())
+        save_claude_code_model(self.cmb_model.currentData() or '')
+
+    def _save(self):
+        path = self.edit_path.text().strip()
+        if path and not os.path.isfile(path):
+            QMessageBox.warning(self, 'Claude 구독', '그 경로에 claude 파일이 없어요. 경로를 확인하거나 비워 두세요.')
+            return
+        if not (self._st and self._st.get('installed')):
+            QMessageBox.warning(self, 'Claude 구독', '먼저 [설치]를 눌러 Claude Code를 설치해 주세요.')
+            return
+        if not self._st.get('logged_in'):
+            QMessageBox.warning(self, 'Claude 구독', '먼저 [Claude로 로그인]을 눌러 로그인해 주세요.')
+            return
+        self._save_path_and_model()
+        save_ai_mode('claude_code')
+        self.accept()
+
+
 # AI 제공자별 설정 정보
 _PROVIDERS = {
     'opencode': {'desc': 'Go·Zen 요금제'},
     'exaone':   {'desc': 'LG AI연구원 · 현재 무료'},
+    'claude_code': {'desc': '내 PC의 Claude Code · 구독 사용량 차감'},
     'claude':   {'desc': 'Anthropic API 키',
                  'key_label': 'Anthropic(Claude) API 키를 입력하세요.',
                  'hint': '키 발급: console.anthropic.com → API Keys (사용한 만큼 결제)',
@@ -557,7 +792,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_apikey.setObjectName('Chip')
         self.btn_apikey.setCursor(Qt.PointingHandCursor)
         self.btn_apikey.setMinimumHeight(30)
-        self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · EXAONE)')
+        self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · EXAONE · Claude 구독)')
         self.btn_apikey.clicked.connect(self._show_ai_settings_menu)
         hl.addWidget(self.btn_apikey)
         self.btn_help = QPushButton()
@@ -1184,7 +1419,7 @@ class DocumentEditorWindow(QMainWindow):
             self.btn_apikey.setText(f'{PROVIDER_LABELS[mode]} · {model}')
             notice = exaone_key_notice() if mode == 'exaone' else ''
             self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.WARN if notice else C.OK))
-            self.btn_apikey.setToolTip(notice or 'AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · EXAONE)')
+            self.btn_apikey.setToolTip(notice or 'AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · EXAONE · Claude 구독)')
             if notice:
                 self.statusBar().showMessage(notice)
             self.ai_input.setPlaceholderText('AI에게 요청  (예: 장소를 시청각실로 바꾸고 일시는 11월 10일로 해줘)')
@@ -1196,7 +1431,7 @@ class DocumentEditorWindow(QMainWindow):
             self.btn_apikey.setIcon(qta.icon('fa5s.exclamation-circle', color=C.WARN))
             self.ai_input.setPlaceholderText(
                 f'이전에 쓰던 {legacy}는 더 이상 지원하지 않아요 — 위의 [AI 다시 연결 필요]를 눌러 '
-                'OpenCode·Claude·ChatGPT·EXAONE 중 하나를 연결하세요.')
+                'OpenCode·Claude·ChatGPT·EXAONE·Claude 구독 중 하나를 연결하세요.')
         else:
             self.btn_apikey.setText('AI 꺼짐 · 연결하기')
             self.ai_input.setPlaceholderText('AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]에서 연결하면 쓸 수 있어요.')
@@ -1211,7 +1446,7 @@ class DocumentEditorWindow(QMainWindow):
         title = menu.addAction('AI 연결')
         title.setEnabled(False)
         acts = {}
-        for key in ('opencode', 'claude', 'openai', 'exaone'):
+        for key in ('opencode', 'claude', 'openai', 'exaone', 'claude_code'):
             mark = '✓  ' if mode == key else '     '
             a = menu.addAction(f'{mark}{PROVIDER_LABELS[key]}\t{_PROVIDERS[key]["desc"]}')
             acts[a] = key
@@ -1238,6 +1473,8 @@ class DocumentEditorWindow(QMainWindow):
             self._setup_openai_ai()
         elif acts.get(action) == 'exaone':
             self._setup_exaone_ai()
+        elif acts.get(action) == 'claude_code':
+            self._setup_claude_code_ai()
 
     def _edit_style_notes(self):
         """나만의 작성 규칙 — 자동 초안·AI 대화 때마다 AI에 함께 보낸다."""
@@ -1364,6 +1601,14 @@ class DocumentEditorWindow(QMainWindow):
         save_ai_mode('exaone')
         self._apply_ai_mode()
         self.statusBar().showMessage(f'EXAONE · {model} 연결 완료.')
+
+    def _setup_claude_code_ai(self):
+        """Claude 구독: 이 PC의 Claude Code로 구독 사용 (설치·로그인·확인·저장은 대화상자 안에서)."""
+        dlg = ClaudeCodeDialog(self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        self._apply_ai_mode()
+        self.statusBar().showMessage(f'Claude 구독 · {load_external_model_name()} 연결 완료.')
 
     def _setup_claude_ai(self):
         self._setup_keyed_ai('claude')

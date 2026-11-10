@@ -246,3 +246,24 @@ def test_path_setting_is_used_first(cc, tmp_path):
     assert cc.find_claude_cli() == str(exe)
     cc.save_claude_code_path(str(tmp_path / 'nope.exe'))
     assert cc.find_claude_cli() != str(tmp_path / 'nope.exe')           # 없는 경로는 무시
+
+
+def test_install_runs_official_command_hidden(cc, monkeypatch):
+    seen = {}
+
+    def fake_run(args, **kw):
+        seen['args'], seen['kw'] = args, kw
+        return subprocess.CompletedProcess(args, 0, '', '')
+
+    monkeypatch.setattr(cc.subprocess, 'run', fake_run)
+    cc.install_claude_code()
+    assert seen['args'][0] == 'powershell' and '-NoProfile' in seen['args']
+    assert seen['args'][-1] == 'irm https://claude.ai/install.ps1 | iex'      # 공식 Windows 설치 명령
+    assert seen['kw']['timeout'] >= 300 and seen['kw']['stdin'] == subprocess.DEVNULL
+
+
+def test_install_failure_is_explained(cc, monkeypatch):
+    monkeypatch.setattr(cc.subprocess, 'run',
+                        lambda args, **kw: subprocess.CompletedProcess(args, 1, '', 'network down'))
+    with pytest.raises(cc.ClaudeCodeError, match='설치에 실패'):
+        cc.install_claude_code()

@@ -1044,6 +1044,25 @@ def claude_code_status() -> dict:
     return st
 
 
+def install_claude_code():
+    """Claude Code 공식 Windows 설치 명령(PowerShell)을 숨김 창에서 실행하고 끝날 때까지 기다린다.
+    출처: code.claude.com/docs 설치 안내 — irm https://claude.ai/install.ps1 | iex"""
+    kw = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
+    try:
+        p = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+                            'irm https://claude.ai/install.ps1 | iex'],
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace', timeout=900, **kw)
+    except FileNotFoundError:
+        raise ClaudeCodeError('PowerShell을 찾지 못했어요. 공식 설치 안내를 보고 직접 설치해 주세요.')
+    except subprocess.TimeoutExpired:
+        raise ClaudeCodeError('설치가 너무 오래 걸려요. 인터넷 연결을 확인하고 다시 시도해 주세요.')
+    if p.returncode != 0 or not find_claude_cli():
+        tail = ((p.stderr or p.stdout or '').strip())[-200:]
+        raise ClaudeCodeError('설치에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.'
+                              + (f'\n{tail}' if tail else ''))
+
+
 def claude_code_login():
     """claude auth login --claudeai: 브라우저에서 Claude 공식 페이지로 로그인한다. 끝날 때까지 기다린다 (뒤 스레드에서 호출)."""
     p = _run_claude(['auth', 'login', '--claudeai'], timeout=CLAUDE_CODE_LOGIN_TIMEOUT)
@@ -1311,7 +1330,7 @@ class AiStreamThread(QThread):
     def run(self):
         adapter = get_adapter()
         if adapter is None:
-            self.error_signal.emit("AI가 꺼져 있습니다. [AI 설정]에서 OpenCode·Claude·ChatGPT·EXAONE 중 하나를 연결하세요.")
+            self.error_signal.emit("AI가 꺼져 있습니다. [AI 설정]에서 OpenCode·Claude·ChatGPT·EXAONE·Claude 구독 중 하나를 연결하세요.")
             return
         if not adapter.get_api_key():
             self.error_signal.emit("API 키가 설정되지 않았습니다. [AI 설정]을 눌러 키를 입력하세요.")
