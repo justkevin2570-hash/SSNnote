@@ -188,10 +188,10 @@ def test_cost_chips_totals_and_filter(win):
     table = w._sec_refs[cid]['tables'][0]
     h_all = table.height()
     chips['운영수당'].click()                                    # 운영수당 줄만
-    assert [table.isRowHidden(r) for r in range(3)] == [True, False, True]
+    assert [table.isRowHidden(2 * i) for i in range(3)] == [True, False, True]   # 항목 줄 (2칸씩 — 사이에 사용 내역 줄)
     assert table.height() < h_all
     chips['운영수당'].click()                                    # 다시 누르면 전부
-    assert not any(table.isRowHidden(r) for r in range(3))
+    assert not any(table.isRowHidden(2 * i) for i in range(3))
     table.item(0, budget._COL_SPENT).setText('900')             # 집행액 고치면 칩도 다시 계산
     assert '잔액 100원' in chips['교육운영비'].text()
 

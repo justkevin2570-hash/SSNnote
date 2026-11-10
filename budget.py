@@ -27,7 +27,8 @@ from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QImage, QPix
 from db import (get_budget_categories, add_budget_category, rename_budget_category,
                 delete_budget_category, get_budget_items, add_budget_item,
                 update_budget_item, delete_budget_item, set_budget_item_spent,
-                toggle_budget_item_completed, clear_budget_data)
+                toggle_budget_item_completed, clear_budget_data,
+                get_budget_expenses, add_budget_expense, save_budget_item_edit, delete_budget_expense)
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
 from ui.common import px
 
@@ -778,7 +779,9 @@ class BudgetWindow(QMainWindow):
         self._ask_history = []            # [(질문, 답)] — 이어지는 질문에 쓰려고 최근 것만
         self._ask_q = ''
         self._pending_changes = []        # AI가 제안한 변경 (사용자가 [넣기]를 눌러야 반영)
-        self._undo_snapshot = None        # 마지막 [넣기] 전 집행액 {item_id: spent} (되돌리기용, 1회분)
+        self._undo_snapshot = None        # 마지막 [넣기] 전 (집행액 {item_id: spent}, 새로 적은 사용 내역 id들) (되돌리기용, 1회분)
+        self._expenses_by_item = {}       # 항목별 사용 내역 (최근 날짜 먼저)
+        self._expense_ui = {}             # 이번 창을 여는 동안만 기억: 펼침 · 더 보기 (창을 닫으면 사라짐)
         self._restore_window_state()
         self._init_ui()
         self.refresh()
@@ -1089,7 +1092,8 @@ class BudgetWindow(QMainWindow):
                          "<td>집행액 (기존 → 변경)</td><td>잔액 (기존 → 변경)</td></tr>")
             for ch in changes:
                 it = self._items_by_id.get(ch['item_id']) or ch['item']
-                delta = (f" <span style='color:{C.MUTED}'>(+{_fmt(ch['value'])}원)</span>"
+                delta = (f" <span style='color:{C.MUTED}'>(+{_fmt(ch['value'])}원"
+                         + (f" · {ch['purpose']}" if ch.get('purpose') else '') + ")</span>"
                          if ch['kind'] == 'spend' else '')
                 parts.append(f"<tr><td><b>{it['description']}</b></td><td>{cats.get(it['category_id'], '')}</td>"
                              f"<td>{_fmt(ch['old_spent'])} → <b style='color:{C.ACCENT}'>{_fmt(ch['new_spent'])}원</b>{delta}</td>"
@@ -1108,9 +1112,11 @@ class BudgetWindow(QMainWindow):
         self.ask_proposal.hide()
 
     def _apply_spend(self):
-        """[넣기]: 바꾸기 전 집행액을 보관한 뒤 반영한다. 되돌리기는 마지막 1회분만."""
+        """[넣기]: 바꾸기 전 집행액을 보관한 뒤 반영한다. 쓴 곳이 있는 지출은 사용 내역에도 남긴다.
+        되돌리기는 마지막 1회분만."""
         from budget_ai import target_spent
-        snapshot, done = {}, 0
+        from datetime import date
+        snapshot, expense_ids, done = {}, [], 0
         for ch in self._pending_changes:
             cur = self._items_by_id.get(ch['item_id'])          # 지금 값 기준으로 계산
             if not cur or cur['completed']:
@@ -1119,17 +1125,24 @@ class BudgetWindow(QMainWindow):
             if new < 0 or new == cur['spent']:
                 continue
             snapshot[cur['id']] = cur['spent']
-            set_budget_item_spent(cur['id'], new)
+            if ch['kind'] == 'spend':
+                expense_ids.append(add_budget_expense(cur['id'], ch['value'], ch.get('purpose', ''),
+                                                      date.today().isoformat()))
+            else:
+                set_budget_item_spent(cur['id'], new)
             done += 1
         self._hide_proposal()
-        self._undo_snapshot = snapshot or None
+        self._undo_snapshot = (snapshot, expense_ids) if snapshot else None
         self.refresh()
         self.btn_undo_apply.setVisible(bool(snapshot))
         self.ask_status.setText(f'{done}개 항목에 넣었어요.' if done else '넣을 항목이 없어요.')
 
     def _undo_apply(self):
-        snapshot, self._undo_snapshot = self._undo_snapshot or {}, None
+        snapshot, expense_ids = self._undo_snapshot or ({}, [])
+        self._undo_snapshot = None
         n = 0
+        for eid in expense_ids:
+            delete_budget_expense(eid, adjust_spent=False)     # 기록만 지우고, 집행액은 아래에서 맞춤
         for iid, old in snapshot.items():
             if iid in self._items_by_id:
                 set_budget_item_spent(iid, old)
@@ -1214,6 +1227,9 @@ class BudgetWindow(QMainWindow):
         self.categories = get_budget_categories()
         self.items = get_budget_items()
         self._items_by_id = {it['id']: it for it in self.items}
+        self._expenses_by_item = {}
+        for ex in get_budget_expenses():
+            self._expenses_by_item.setdefault(ex['item_id'], []).append(ex)
         if self.active_tab != 'ALL' and self.active_tab not in {c['id'] for c in self.categories}:
             self.active_tab = 'ALL'
         has = bool(self.categories)
@@ -1392,8 +1408,10 @@ class BudgetWindow(QMainWindow):
         for c, b in refs['chips'].items():
             b.setChecked(c == cost)
         for t in refs['tables']:
-            for r, rc in enumerate(t.row_costs):
-                t.setRowHidden(r, cost is not None and rc != cost)
+            for i, rc in enumerate(t.row_costs):
+                hidden = cost is not None and rc != cost
+                t.setRowHidden(2 * i, hidden)
+                t.setRowHidden(2 * i + 1, hidden or not t.detail_open[i])
             t.sync_geometry()
 
     def _make_cost_overview(self):
@@ -1460,12 +1478,13 @@ class BudgetWindow(QMainWindow):
         hdr.setStretchLastSection(True)          # 반올림으로 남는 몇 px까지 채움 (오른쪽 끝 틈 없게)
         if finished:
             hdr.hide()
-        t.setRowCount(len(items))
-        t.action_buttons = [None] * len(items)
+        t.setRowCount(2 * len(items))                               # 항목마다 줄 + 사용 내역 숨은 줄
+        t.action_buttons = [None] * (2 * len(items))
         t.row_costs = [it['cost_type'] or '일반' for it in items]     # 비목 칩으로 거를 때
+        t.detail_open = [False] * len(items)
         t.blockSignals(True)
-        for r, item in enumerate(items):
-            self._fill_row(t, r, item)
+        for i, item in enumerate(items):
+            self._fill_row(t, 2 * i, item)
         t.blockSignals(False)
         t.itemChanged.connect(lambda it, tb=t: self._on_cell_changed(tb, it))
         t.sync_geometry()
@@ -1492,9 +1511,12 @@ class BudgetWindow(QMainWindow):
             return it
 
         t.setItem(r, 0, cell(item['cost_type'], L, C.MUTED))
-        desc = cell(item['description'], L, C.TEXT, bold=True, strike=done)
-        desc.setToolTip(item['description'])
-        t.setItem(r, 1, desc)
+        t.setItem(r, 1, cell('', L))                               # 글자는 아래의 산출내역 칸(_DescCell)이 그린다
+        dcell = _DescCell(t, r, item, self._expense_ui.setdefault(item['id'], {}),
+                          self._expenses_by_item.get(item['id'], []), self._delete_expense, done)
+        t.setCellWidget(r, 1, dcell)
+        t.setSpan(r + 1, 1, 1, 4)                                  # 숨은 줄: 산출내역 ~ 집행률 칸을 하나로
+        t.setCellWidget(r + 1, 1, dcell.detail)
         t.setItem(r, 2, cell(_fmt(item['budget']), R))
         sp = cell(_fmt(item['spent']), R, C.ACCENT_HI, bold=not done, editable=not done)
         sp.setData(Qt.UserRole, item['id'])
@@ -1549,7 +1571,8 @@ class BudgetWindow(QMainWindow):
         t.setCellWidget(r, 6, acts)
         t.action_buttons[r] = (b_edit, b_done)
         t.setRowHeight(r, sz['row_h'])
-        self._row_refs[item['id']] = {'rem': rem_it, 'bar': bar, 'pct': lbl}
+        self._row_refs[item['id']] = {'rem': rem_it, 'bar': bar, 'pct': lbl, 'desc': dcell}
+        dcell._fit_row()                                   # 펼쳐 둔 줄은 다시 펼친 높이로
 
     @staticmethod
     def _set_pct(bar, lbl, pct, done=False):
@@ -1592,6 +1615,7 @@ class BudgetWindow(QMainWindow):
         f.setBold(rem < 0)
         refs['rem'].setFont(f)
         self._set_pct(refs['bar'], refs['pct'], _pct(item['spent'], item['budget']))
+        refs['desc'].set_expenses(self._expenses_by_item.get(item_id, []))
 
     # ── 합계 ───────────────────────────────────────────────────────
     def _cat_totals(self, cat_id):
@@ -1668,9 +1692,23 @@ class BudgetWindow(QMainWindow):
             self.refresh()
         elif dlg.result_data:
             d = dlg.result_data
-            update_budget_item(item_id, d['category_id'], d['cost_type'],
-                               d['description'], d['budget'], d['spent'])
+            save_budget_item_edit(item_id, d['category_id'], d['cost_type'],
+                                  d['description'], d['budget'], d['spent'], d.get('expense'))
             self.refresh()
+
+    def _delete_expense(self, expense_id):
+        """사용 내역 한 건 지우기 — 집행액도 그만큼 줄어든다. 펼쳐 둔 줄은 그대로 펼쳐 둔다."""
+        ex = next((e for es in self._expenses_by_item.values() for e in es if e['id'] == expense_id), None)
+        if not ex:
+            return
+        name = ex['purpose'] or '쓴 곳 미입력'
+        ans = QMessageBox.question(self, '사용 내역 삭제',
+                                   f"'{name}' {_fmt(ex['amount'])}원 기록을 지울까요?\n집행액도 그만큼 줄어듭니다.",
+                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ans != QMessageBox.Yes:
+            return
+        delete_budget_expense(expense_id)
+        self.refresh()
 
     def _open_category_manager(self):
         _CategoryManagerDialog(self, self.refresh).exec_()
@@ -2075,6 +2113,163 @@ class _ImportPreviewDialog(QDialog):
 
 
 # ── 예산 항목 추가/수정 다이얼로그 ────────────────────────────────
+class _DescCell(QWidget):
+    """산출내역 칸: 이름 한 줄 + 사용 내역 요약. 누르면 명목별 사용 내역이 펼쳐진다.
+    펼침·더 보기 상태는 state(창을 여는 동안만 유지)에 둔다."""
+    SHOW = 5                                       # 펼쳤을 때 먼저 보여 줄 건수
+
+    def __init__(self, table, row, item, state, expenses, on_delete, done=False):
+        super().__init__()
+        self._table, self._row, self._item = table, row, item
+        self._state, self._on_delete, self._done = state, on_delete, done
+        self.setStyleSheet('background: transparent;')
+        v = QVBoxLayout(self)
+        v.setContentsMargins(6, 0, 6, 0)
+        v.setSpacing(2)
+
+        head = QVBoxLayout()
+        head.setSpacing(0)
+        self.btn_toggle = QPushButton()
+        self.btn_toggle.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle.setFlat(True)
+        self.btn_toggle.setStyleSheet(
+            f'QPushButton {{ text-align: left; border: none; background: transparent; padding: 0; '
+            f'color: {C.FAINT if done else C.TEXT}; font-weight: 700; }} '
+            f'QPushButton:hover {{ color: {C.ACCENT}; }}')
+        self.btn_toggle.clicked.connect(self._toggle)
+        self.btn_toggle.setToolTip(item['description'])
+        name_font = self.btn_toggle.font()
+        name_font.setStrikeOut(done)
+        self.btn_toggle.setFont(name_font)
+        self.lbl_sum = QLabel()
+        self.lbl_sum.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt; background: transparent;')
+        head.addWidget(self.btn_toggle)
+        head.addWidget(self.lbl_sum)
+        v.addLayout(head)
+
+        self.detail = QWidget()                    # 항목 줄 아래의 숨은 줄에 들어간다 (_fill_row)
+        self.detail.setStyleSheet('background: transparent;')
+        self._dv = QVBoxLayout(self.detail)
+        self._dv.setContentsMargins(px(14), px(2), px(6), px(6))
+        self._dv.setSpacing(px(3))
+        self.set_expenses(expenses)
+
+    def _open(self):
+        return bool(self._state.get('open'))
+
+    def set_expenses(self, expenses):
+        """사용 내역이 바뀌면 요약과 펼친 내용을 새로 그린다."""
+        self._expenses = list(expenses)
+        used = sum(e['amount'] for e in self._expenses)
+        unassigned = int(self._item['spent']) - used
+        n = len(self._expenses)
+        if n:
+            summary = f'사용 {n}건'
+        elif unassigned:
+            summary = f'명목 없음 {_fmt(unassigned)}원'
+        else:
+            summary = '사용 내역 없음'
+        self.lbl_sum.setText(summary)
+        self.btn_toggle.setText(self._item['description'])
+        self.btn_toggle.setIcon(qta.icon('fa5s.chevron-down' if self._open() else 'fa5s.chevron-right', color=C.MUTED))
+        self.btn_toggle.setIconSize(QSize(9, 9))
+        self._rebuild_detail(unassigned)
+        self.detail.setVisible(self._open())
+        self._fit_row()
+
+    @staticmethod
+    def _clear_layout(layout):
+        while layout.count():
+            it = layout.takeAt(0)
+            w = it.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+            elif it.layout() is not None:
+                _DescCell._clear_layout(it.layout())
+
+    def _rebuild_detail(self, unassigned):
+        self._clear_layout(self._dv)
+        if not self._expenses:
+            hint = QLabel('아직 쓴 곳을 적은 사용 내역이 없어요. [수정]에서 이번에 쓴 금액과 쓴 곳을 넣으면 여기에 쌓입니다.')
+            hint.setWordWrap(True)
+            hint.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt; background: transparent;')
+            self._dv.addWidget(hint)
+        more = bool(self._state.get('more'))
+        shown = self._expenses if more else self._expenses[:self.SHOW]
+        for ex in shown:
+            self._dv.addLayout(self._entry_row(ex))
+        if len(self._expenses) > self.SHOW:
+            left = len(self._expenses) - self.SHOW
+            btn = QPushButton('접기' if more else f'더 보기 ({left}건 더)')
+            btn.setFlat(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(f'QPushButton {{ text-align: left; border: none; background: transparent; '
+                              f'padding: 0; color: {C.ACCENT_HI}; font-size: 10pt; }}')
+            btn.clicked.connect(self._toggle_more)
+            self._dv.addWidget(btn)
+        if unassigned:
+            color = C.NEG if unassigned < 0 else C.MUTED
+            lb = QLabel(f'명목 없음 {_fmt(unassigned)}원' + ('' if unassigned >= 0 else '  (기록보다 집행액이 작아요)'))
+            lb.setStyleSheet(f'color: {color}; font-size: 10pt; background: transparent;')
+            self._dv.addWidget(lb)
+        if unassigned < 0:
+            warn = QLabel('⚠ 기록 합계가 집행액보다 큽니다. 집행액을 직접 낮췄다면 기록을 확인하세요.')
+            warn.setWordWrap(True)
+            warn.setStyleSheet(f'color: {C.NEG}; font-size: 10pt; background: transparent;')
+            self._dv.addWidget(warn)
+
+    def _entry_row(self, ex):
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        d = QLabel(ex['spent_on'] or '-')
+        d.setFixedWidth(88)
+        d.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt; background: transparent;')
+        p = QLabel(ex['purpose'] or '(쓴 곳 미입력)')
+        p.setStyleSheet(f'color: {C.TEXT if ex["purpose"] else C.FAINT}; font-size: 10pt; background: transparent;')
+        a = QLabel(f"{_fmt(ex['amount'])}원")
+        a.setStyleSheet(f'color: {C.TEXT}; font-size: 10pt; font-weight: 700; background: transparent;')
+        a.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        x = QPushButton('✕')
+        x.setFlat(True)
+        x.setFixedSize(20, 20)
+        x.setCursor(Qt.PointingHandCursor)
+        x.setToolTip('이 사용 내역을 지웁니다 (집행액도 그만큼 줄어요)')
+        x.setStyleSheet(f'QPushButton {{ border: none; background: transparent; color: {C.FAINT}; }} '
+                        f'QPushButton:hover {{ color: {C.NEG}; }}')
+        x.clicked.connect(lambda _, eid=ex['id']: self._on_delete(eid))
+        row.addWidget(d)
+        row.addWidget(p, 1)
+        row.addWidget(a)
+        row.addWidget(x)
+        return row
+
+    def _toggle(self):
+        self._state['open'] = not self._open()
+        self.set_expenses(self._expenses)
+
+    def _toggle_more(self):
+        self._state['more'] = not self._state.get('more')
+        self._rebuild_detail(int(self._item['spent']) - sum(e['amount'] for e in self._expenses))
+        self._fit_row()
+
+    def _fit_row(self):
+        """펼치면 항목 줄 아래의 숨은 줄이 나타나 사용 내역을 보여 주고, 접으면 숨긴다.
+        숨은 줄은 항목을 비목 칩으로 거르면 함께 숨는다."""
+        t, r = self._table, self._row
+        open_ = self._open()
+        t.detail_open[r // 2] = open_
+        hidden = (not open_) or t.isRowHidden(r)
+        t.setRowHidden(r + 1, hidden)
+        if not hidden:
+            span = sum(t.columnWidth(c) for c in range(1, 5))          # 산출내역 ~ 집행률 칸 폭
+            h = self.detail.heightForWidth(span)
+            if h < 0:
+                h = self.detail.sizeHint().height()
+            t.setRowHeight(r + 1, h + px(8))
+        t.sync_geometry()
+
+
 class _ItemDialog(QDialog):
     def __init__(self, categories, item, default_cat_id, parent=None):
         super().__init__(parent)
@@ -2137,6 +2332,8 @@ class _ItemDialog(QDialog):
 
         # 이번에 쓴 금액 (수정할 때만): 적으면 집행액에 더해지고 잔액이 준다 — 따로 계산할 필요 없게
         self.edit_spend_now = None
+        self.edit_purpose = None
+        self.edit_spend_date = None
         if item:
             lbl_now = QLabel('이번에 쓴 금액')
             lbl_now.setStyleSheet(f'font-size: 10pt; font-weight: 700; color: {C.ACCENT};')
@@ -2149,6 +2346,17 @@ class _ItemDialog(QDialog):
                 f'QLineEdit:focus {{ border: 1px solid {C.ACCENT}; }}')
             _attach_amount_format(self.edit_spend_now)
             v.addWidget(self.edit_spend_now)
+            from datetime import date
+            where = QHBoxLayout()
+            where.setSpacing(8)
+            self.edit_purpose = QLineEdit()
+            self.edit_purpose.setPlaceholderText('쓴 곳 (예: 체육대회 협의회비)')
+            self.edit_spend_date = QLineEdit(date.today().isoformat())
+            self.edit_spend_date.setFixedWidth(px(120))
+            self.edit_spend_date.setToolTip('사용한 날짜 (예: 2026-11-10)')
+            where.addWidget(self.edit_purpose, 1)
+            where.addWidget(self.edit_spend_date)
+            v.addLayout(where)
             self.lbl_spend_preview = QLabel()
             self.lbl_spend_preview.setTextFormat(Qt.RichText)
             self.lbl_spend_preview.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt;')
@@ -2240,12 +2448,24 @@ class _ItemDialog(QDialog):
             QMessageBox.warning(self, '저장 실패', '산출내역(내용)을 입력해주세요.')
             return
         cost = self.edit_cost.text().strip() or '일반'
+        expense = None
+        add = _parse_amount(self.edit_spend_now.text()) if self.edit_spend_now else 0
+        if add > 0:
+            from datetime import datetime
+            spent_on = self.edit_spend_date.text().strip()
+            try:
+                datetime.strptime(spent_on, '%Y-%m-%d')
+            except ValueError:
+                QMessageBox.warning(self, '저장 실패', '날짜를 2026-11-10처럼 적어 주세요.')
+                return
+            expense = {'amount': add, 'purpose': self.edit_purpose.text().strip(), 'spent_on': spent_on}
         self.result_data = {
             'category_id': self.combo_cat.currentData(),
             'cost_type': cost,
             'description': desc,
             'budget': _parse_amount(self.edit_budget.text()),
             'spent': self._final_spent(),
+            'expense': expense,
         }
         self.accept()
 

@@ -20,7 +20,8 @@ SYSTEM = (
     "- 금액은 '1,234,000원'처럼 쉼표와 '원'을 붙이고, 계산은 정확히 합니다. 표에 없는 내용은 지어내지 않습니다.\n"
     "- 답은 짧고 분명하게, 목록이 필요하면 '- '로 시작하는 줄로. 마크다운(**, ##, 표)은 쓰지 않습니다.\n"
     "- 학교회계연도는 3월 1일부터 다음 해 2월 말일까지입니다.\n"
-    "- 사용자가 돈을 썼다고 말하면(예: '간식비 5만원 썼어', '강사수당 32만원 지급') spend에 항목 id와 쓴 금액(amount)을 넣습니다.\n"
+    "- 사용자가 돈을 썼다고 말하면(예: '간식비 5만원 썼어', '강사수당 32만원 지급') spend에 항목 id, 쓴 금액(amount),\n"
+    "  쓴 곳(purpose: 무엇에 썼는지 짧게, 예: '체육대회', '교육반성회 식사비')을 넣습니다. 쓴 곳을 말하지 않았으면 purpose는 빈 글로 둡니다.\n"
     "- 잔액을 특정 금액으로 맞추라고 하면(예: '협의회비 잔액 30만원으로 맞춰줘') set_remaining에 항목 id와 목표 잔액(remaining)을 넣습니다.\n"
     "- 집행액을 특정 금액으로 고치라고 하면(예: '간식비 집행액을 12만원으로 고쳐줘') set_spent에 항목 id와 집행액(spent)을 넣습니다.\n"
     "- 계산은 하지 마세요. 목표값(금액)만 정하면, 잔액·집행액 계산과 확인은 앱이 합니다.\n"
@@ -31,9 +32,11 @@ SYSTEM = (
     "반드시 JSON만 출력합니다."
 )
 
-_FORMAT = ('{"answer": "답", "spend": [{"item_id": 12, "amount": 50000}], '
+_FORMAT = ('{"answer": "답", "spend": [{"item_id": 12, "amount": 50000, "purpose": "쓴 곳"}], '
            '"set_remaining": [{"item_id": 12, "remaining": 300000}], '
            '"set_spent": [{"item_id": 7, "spent": 120000}]}')
+
+PURPOSE_MAX = 40                 # 쓴 곳 글자 수 한도
 
 # AI 응답의 세 종류: (응답 키, 값 키, 뜻)
 _KINDS = (('spend', 'amount'), ('set_remaining', 'remaining'), ('set_spent', 'spent'))
@@ -160,7 +163,8 @@ def parse_reply(raw: str, items_by_id: dict) -> dict:
                 continue                                    # 0원·변화 없음: 조용히 뺌
             done_ids.add(iid)
             budget, spent = int(item['budget']), int(item['spent'])
-            changes.append({'item_id': iid, 'item': item, 'kind': key, 'value': value,
+            purpose = str(s.get('purpose') or '').strip()[:PURPOSE_MAX] if key == 'spend' else ''
+            changes.append({'item_id': iid, 'item': item, 'kind': key, 'value': value, 'purpose': purpose,
                             'old_spent': spent, 'new_spent': new,
                             'old_remaining': budget - spent, 'new_remaining': budget - new})
     return {'answer': answer, 'changes': changes, 'rejected': rejected}
