@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QInputDialog, QFrame, QSpinBox, QCheckBox, QDialog, QComboBox,
 )
 from PyQt5.QtCore import Qt, QTimer, QSize, QEvent, QThread, pyqtSignal
-from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat
+from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QColor
 from ai_client import (AiStreamThread, PROVIDER_LABELS,
                         load_ai_mode, save_ai_mode, legacy_ai_name, load_external_model_name,
                         load_claude_key, save_claude_key, load_claude_model, save_claude_model,
@@ -29,7 +29,9 @@ from ai_client import (AiStreamThread, PROVIDER_LABELS,
                         ClaudeCodeError, claude_code_status, claude_code_login, claude_code_logout,
                         install_claude_code, test_claude_code, CLAUDE_CODE_MODELS, CLAUDE_CODE_INSTALL_PAGE,
                         load_claude_code_model, save_claude_code_model,
-                        load_claude_code_path, save_claude_code_path)
+                        load_claude_code_path, save_claude_code_path, masking_required)
+from school_profile import mask_for_ai
+from doc_polish import (POLISH_SYSTEM, build_polish_prompt, diff_spans, restore_masked, leftover_masks)
 from db import save_official_document, get_official_documents
 import doc_style   # 내 공문 스타일: 비슷한 저장 공문 + 나만의 작성 규칙을 AI에 함께 보냄
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
@@ -717,6 +719,95 @@ class ClaudeCodeDialog(QDialog):
         self.accept()
 
 
+class PolishDialog(QDialog):
+    """선택 부분 다듬기 비교: 왼쪽 원문 · 오른쪽 다듬은 글(고칠 수 있음). 바뀐 단어는 색으로 표시."""
+    _DEL = QColor('#FDE2E2')      # 원문에서 빠진 단어
+    _INS = QColor('#DCFCE7')      # 다듬은 글에서 새로 들어간 단어
+
+    def __init__(self, original: str, polished: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('선택 부분 다듬기')
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setStyleSheet(_style())
+        self.setMinimumSize(px(780), px(440))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(10)
+        head = QLabel('선택 부분 다듬기')
+        head.setObjectName('DialogTitle')
+        layout.addWidget(head)
+        hint = QLabel('왼쪽은 원래 글, 오른쪽은 다듬은 글입니다. 오른쪽 글은 직접 고칠 수 있어요. '
+                      '바뀐 단어는 색으로 표시됩니다.')
+        hint.setObjectName('Hint')
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        cols = QHBoxLayout()
+        cols.setSpacing(12)
+        left = QVBoxLayout()
+        lbl_l = QLabel('원문')
+        lbl_l.setObjectName('FieldLabel')
+        left.addWidget(lbl_l)
+        self._left = QTextEdit()
+        self._left.setReadOnly(True)
+        self._left.setPlainText(original)
+        left.addWidget(self._left, 1)
+        right = QVBoxLayout()
+        lbl_r = QLabel('다듬은 글 (고칠 수 있어요)')
+        lbl_r.setObjectName('FieldLabel')
+        right.addWidget(lbl_r)
+        self._right = QTextEdit()
+        self._right.setPlainText(polished)
+        self._right.textChanged.connect(self._highlight)
+        right.addWidget(self._right, 1)
+        cols.addLayout(left, 1)
+        cols.addLayout(right, 1)
+        layout.addLayout(cols, 1)
+
+        self._warn = QLabel('⚠ 가린 표시(○○·***)가 남아 있어요. 원래 값으로 고친 뒤 적용하세요.')
+        self._warn.setStyleSheet(f'color: {C.WARN}; font-weight: 600;')
+        layout.addWidget(self._warn)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self._btn_apply = QPushButton('적용')
+        self._btn_apply.setObjectName('Primary')
+        self._btn_apply.setMinimumHeight(34)
+        self._btn_apply.setDefault(True)
+        self._btn_apply.clicked.connect(self.accept)
+        btn_cancel = QPushButton('취소')
+        btn_cancel.setMinimumHeight(34)
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self._btn_apply)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+        keep_light(self)
+        self._highlight()
+
+    def result_text(self) -> str:
+        return self._right.toPlainText().strip()
+
+    def _highlight(self):
+        left_spans, right_spans = diff_spans(self._left.toPlainText(), self._right.toPlainText())
+        self._left.setExtraSelections(self._selections(self._left, left_spans, self._DEL))
+        self._right.setExtraSelections(self._selections(self._right, right_spans, self._INS))
+        self._warn.setVisible(leftover_masks(self._right.toPlainText()))
+
+    @staticmethod
+    def _selections(edit, spans, color):
+        out = []
+        for s, e in spans:
+            cur = QTextCursor(edit.document())
+            cur.setPosition(s)
+            cur.setPosition(e, QTextCursor.KeepAnchor)
+            sel = QTextEdit.ExtraSelection()
+            sel.cursor = cur
+            sel.format.setBackground(color)
+            out.append(sel)
+        return out
+
+
 # AI 제공자별 설정 정보
 _PROVIDERS = {
     'opencode': {'desc': 'Go·Zen 요금제'},
@@ -741,6 +832,8 @@ class DocumentEditorWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ai_thread = None
+        self._polish = None            # 다듬기 중인 글 정보 (None = 다듬는 중 아님)
+        self._polish_undo = None       # 마지막 다듬기 적용 (되돌리기용)
         self._capturing = False
         DocumentEditorWindow._instance = self
         self.init_ui()
@@ -915,6 +1008,8 @@ class DocumentEditorWindow(QMainWindow):
         self.editor.setPlaceholderText(
             "제목을 넣고 [자동 초안]을 누르거나, 아래에 AI에게 부탁할 내용을 적어 보세요."
         )
+        self.editor.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.editor.customContextMenuRequested.connect(self._show_editor_menu)
         layout.addWidget(self.editor, stretch=1)
 
         # ── AI 요청 칸 ──
@@ -975,11 +1070,159 @@ class DocumentEditorWindow(QMainWindow):
 
         self.setStyleSheet(_style())
         self.statusBar().setSizeGripEnabled(False)
+        self._polish_link = QLabel()                         # 다듬기 적용 뒤 [되돌리기] 링크
+        self._polish_link.setTextFormat(Qt.RichText)
+        self._polish_link.linkActivated.connect(lambda _: self._undo_polish())
+        self._polish_link.hide()
+        self.statusBar().addPermanentWidget(self._polish_link)
         self.statusBar().showMessage("준비 완료")
         self._apply_ai_mode()
         self._update_draft_button()  # 초기 상태: 빈칸이면 비활성
         self._update_doc_type_chip()
         self._apply_editor_line_height()
+
+    # ── 선택 부분 다듬기 ──
+    def _show_editor_menu(self, pos):
+        from PyQt5.QtWidgets import QMenu, QAction
+        menu = self.editor.createStandardContextMenu()
+        first = menu.actions()[0] if menu.actions() else None
+        act = QAction('선택 부분 다듬기  (선택이 없으면 본문 전체)', menu)
+        act.setEnabled(bool(self.editor.toPlainText().strip()) and self._polish is None)
+        act.triggered.connect(self.polish_selection)
+        menu.insertAction(first, act)
+        menu.insertSeparator(first)
+        menu.exec_(self.editor.mapToGlobal(pos))
+
+    def polish_selection(self):
+        """선택한 글(없으면 본문 전체)을 AI가 공문 문체로 다듬는다. 결과는 비교 창에서 확인한 뒤 적용."""
+        if self._polish is not None or (self.ai_thread and self.ai_thread.isRunning()):
+            return
+        if load_ai_mode() == 'none':
+            self.statusBar().showMessage('AI가 꺼져 있어요. [AI 설정]에서 연결하면 다듬을 수 있어요.')
+            return
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            start, end = cursor.selectionStart(), cursor.selectionEnd()
+            text = cursor.selectedText().replace('\u2029', '\n')
+        else:
+            start, end = 0, self.editor.document().characterCount() - 1
+            text = self.editor.toPlainText()
+        if not text.strip():
+            self.statusBar().showMessage('다듬을 글이 없습니다. 글을 선택하거나 본문을 써 주세요.')
+            return
+
+        counts = {}
+        masked = text
+        if masking_required():
+            masked, counts = mask_for_ai(text)      # 가린 채로 보내고, 답이 오면 되살린다 (doc_polish)
+        title = self.title_input.text().strip()
+        examples = []
+        try:
+            docs = get_official_documents()
+            for d in docs:
+                d['doc_type'] = d.get('doc_type') or _detect_doc_type(d.get('title', ''))
+            examples = doc_style.search_similar(title, docs, doc_type=self._current_doc_type(), top_k=2) if title else []
+        except Exception:
+            pass
+        prompt = build_polish_prompt(masked, doc_style.style_notes_prompt(), doc_style.examples_prompt(examples))
+
+        self._polish = {'start': start, 'end': end, 'original': text, 'masked': masked, 'counts': counts}
+        self._set_polish_busy(True)
+        self.statusBar().showMessage('선택한 글을 AI가 다듬는 중… (Esc: 멈추기)')
+        self.ai_thread = AiStreamThread(prompt, system=POLISH_SYSTEM, structured=False)
+        self.ai_thread.finished_signal.connect(self._on_polish_done)
+        self.ai_thread.error_signal.connect(self._on_polish_error)
+        self.ai_thread.start()
+
+    def _set_polish_busy(self, busy: bool):
+        self.editor.setReadOnly(busy)           # 다듬는 동안 본문은 고정 (선택 위치가 어긋나지 않게)
+        self._set_controls_enabled(not busy)
+        if busy:
+            self._hide_polish_link()
+
+    def _cancel_polish(self):
+        if self.ai_thread and self.ai_thread.isRunning():
+            self.ai_thread.stop()
+        self._polish = None
+        self._set_polish_busy(False)
+        self.statusBar().showMessage('다듬기를 멈췄어요. 원래 글 그대로예요.')
+
+    def _on_polish_error(self, msg):
+        if self._polish is None:
+            return
+        self._polish = None
+        self._set_polish_busy(False)
+        self.statusBar().showMessage(f'다듬기 오류: {msg}')
+
+    def _on_polish_done(self, result):
+        ctx, self._polish = self._polish, None
+        self._set_polish_busy(False)
+        if ctx is None:
+            return
+        polished = (result or '').strip()
+        if not polished:
+            self.statusBar().showMessage('AI가 빈 답을 보냈어요. 원래 글 그대로예요. 다시 시도해 주세요.')
+            return
+        if ctx['counts']:
+            polished, restored = restore_masked(polished, ctx['original'], ctx['masked'])
+            if not restored:
+                self.statusBar().showMessage('가린 개인정보를 되살릴 수 없어 적용하지 않았어요. '
+                                             '개인정보가 든 부분을 빼고 다시 다듬어 주세요.')
+                return
+        dlg = PolishDialog(ctx['original'], polished, self)
+        if dlg.exec_() != QDialog.Accepted:
+            self.statusBar().showMessage('다듬기를 취소했어요. 원래 글 그대로예요.')
+            return
+        self._apply_polish(ctx['start'], ctx['end'], ctx['original'], dlg.result_text())
+
+    def _apply_polish(self, start, end, original, new_text) -> bool:
+        if self.editor.toPlainText()[start:end] != original:
+            self.statusBar().showMessage('그 사이 본문이 바뀌어서 적용하지 못했어요. 다시 선택해 주세요.')
+            return False
+        self._replace_range(start, end, new_text)
+        self._polish_undo = {'start': start, 'old': original, 'new': new_text}
+        self.statusBar().showMessage('다듬은 글을 적용했어요. Ctrl+Z를 누르면 원래 글로 돌아갑니다.')
+        self._polish_link.setText('<a href="undo" style="color:%s;">되돌리기</a>' % C.ACCENT)
+        self._polish_link.show()
+        return True
+
+    def _undo_polish(self):
+        info = self._polish_undo
+        if not info:
+            return
+        self._polish_undo = None
+        self._hide_polish_link()
+        cur = self.editor.toPlainText()
+        s, new = info['start'], info['new']
+        if cur[s:s + len(new)] != new:
+            self.statusBar().showMessage('적용한 뒤 글이 더 바뀌어서 되돌리지 못했어요. Ctrl+Z를 써 주세요.')
+            return
+        self._replace_range(s, s + len(new), info['old'])
+        self.statusBar().showMessage('다듬기 전 글로 되돌렸어요.')
+
+    def _hide_polish_link(self):
+        self._polish_link.hide()
+
+    def _replace_range(self, start, end, text):
+        """본문의 [start, end) 글을 text로 바꾼다 — 편집 한 번이라 Ctrl+Z 한 번이면 원래대로."""
+        from PyQt5.QtGui import QTextBlockFormat
+        cursor = self.editor.textCursor()
+        self._bulk_edit = True
+        try:
+            cursor.beginEditBlock()
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.KeepAnchor)
+            cursor.insertText(text)
+            cursor.setPosition(start)
+            cursor.setPosition(start + len(text), QTextCursor.KeepAnchor)
+            fmt = QTextBlockFormat()
+            fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
+            cursor.mergeBlockFormat(fmt)
+            cursor.endEditBlock()
+        finally:
+            self._bulk_edit = False
+        cursor.setPosition(start + len(text))
+        self.editor.setTextCursor(cursor)
 
     # ── AI 초안 생성 ──
     def generate_draft(self):
@@ -1309,7 +1552,9 @@ class DocumentEditorWindow(QMainWindow):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
-            if self.ai_thread and self.ai_thread.isRunning():
+            if self._polish is not None:
+                self._cancel_polish()          # 다듬기 중이면 본문은 건드리지 않고 멈추기만
+            elif self.ai_thread and self.ai_thread.isRunning():
                 self._cancel_ai()          # AI가 쓰는 중이면 먼저 멈추기만
             elif self._confirm_discard():
                 self.close()
@@ -1337,6 +1582,9 @@ class DocumentEditorWindow(QMainWindow):
              '제목을 넣고 Enter나 [자동 초안]을 누르면 공문 뼈대가 들어가고, '
              'AI가 연결되어 있으면 내용까지 채웁니다. 공문 종류는 제목으로 정해져 버튼 옆에 보이고, '
              '눌러서 직접 고를 수 있습니다. 쓰던 본문은 Ctrl+Z로 되찾을 수 있습니다.'),
+            ('fa5s.pen', '선택 부분 다듬기',
+             '본문 글을 드래그한 뒤 우클릭 → 「선택 부분 다듬기」 (선택이 없으면 본문 전체). '
+             '원문과 나란히 비교하고 고쳐서 [적용]하세요. 적용 후 Ctrl+Z나 상태 줄의 [되돌리기]로 원래 글에 돌아갑니다.'),
             ('fa5s.user-edit', '내 스타일로',
              '[저장 후 나가기]로 저장한 공문 중 제목이 비슷한 것을 AI가 예시로 보고 같은 말투로 씁니다. '
              '저장할수록 더 닮아 갑니다. 꼭 지킬 규칙은 [AI 설정] → 나만의 작성 규칙에 적어 두세요.'),
