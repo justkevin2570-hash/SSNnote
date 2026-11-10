@@ -819,22 +819,22 @@ class BudgetWindow(QMainWindow):
         self.btn_import.setIconSize(QSize(13, 13))
         self.btn_import.setToolTip('엑셀 파일, 엑셀에서 복사한 표, 예산 화면 캡처를 가져와 세부항목별로 정리')
         self.btn_import.clicked.connect(lambda: self._exec_menu(self._import_menu(), self.btn_import))
-        self.btn_add_item = QPushButton('항목 추가')
-        self.btn_add_item.setObjectName('Primary')
-        self.btn_add_item.setIcon(qta.icon('fa5s.plus', color='white'))
-        self.btn_add_item.setIconSize(QSize(11, 11))
-        self.btn_add_item.clicked.connect(lambda: self._open_add_item())
+        self.btn_manage = QPushButton('세부항목 관리')
+        self.btn_manage.setIcon(qta.icon('fa5s.folder-open', color=C.MUTED))
+        self.btn_manage.setIconSize(QSize(11, 11))
+        self.btn_manage.setToolTip('세부항목을 만들고 이름을 바꾸거나 지웁니다')
+        self.btn_manage.clicked.connect(lambda: self._open_category_manager())
         self.btn_more = QPushButton()
         self.btn_more.setObjectName('IconBtn')
         self.btn_more.setIcon(qta.icon('fa5s.ellipsis-h', color=C.MUTED))
         self.btn_more.setFixedSize(34, 34)
-        self.btn_more.setToolTip('세부항목 관리 · 원가통계비목 목록 · 전체 지우기')
+        self.btn_more.setToolTip('원가통계비목 목록 · 전체 지우기')
         self.btn_more.clicked.connect(lambda: self._exec_menu(self._more_menu(), self.btn_more))
-        for b in (self.btn_import, self.btn_add_item):
+        for b in (self.btn_import, self.btn_manage):
             b.setFixedHeight(34)
             b.setCursor(Qt.PointingHandCursor)
         header.addWidget(self.btn_import)
-        header.addWidget(self.btn_add_item)
+        header.addWidget(self.btn_manage)
         header.addWidget(self.btn_more)
         root.addLayout(header)
 
@@ -1207,7 +1207,6 @@ class BudgetWindow(QMainWindow):
 
     def _more_menu(self):
         m = self._menu()
-        m.addAction('세부항목 관리…', lambda: self._open_category_manager())
         m.addAction('원가통계비목 목록…', lambda: _CostTypeDialog(self).exec_())
         m.addSeparator()
         a = m.addAction('전체 지우기…', lambda: self._reset_all())
@@ -1238,7 +1237,6 @@ class BudgetWindow(QMainWindow):
         self.empty.setVisible(not has)
         self.ask_card.setVisible(has)
         self._update_ask_enabled()
-        self.btn_add_item.setEnabled(has)
         self._rebuild_nav()
         self._rebuild_sections()
         self._update_summary()
@@ -1327,10 +1325,14 @@ class BudgetWindow(QMainWindow):
         chip = QLabel()
         add = _icon_btn('fa5s.plus', '이 세부항목에 항목 추가', color=C.MUTED, size=12)
         add.clicked.connect(lambda _, cid=cat['id']: self._open_add_item(cid))
+        drop = _icon_btn('fa5s.trash-alt', '이 세부항목 지우기 (안의 항목과 사용 내역도 함께 지워요)',
+                         color='#E11D48', size=12)
+        drop.clicked.connect(lambda _, cid=cat['id']: self._delete_category(cid))
         hl.addWidget(name, 1)
         hl.addWidget(meta)
         hl.addWidget(chip)
         hl.addWidget(add)
+        hl.addWidget(drop)
         v.addWidget(head)
 
         # 원가통계비목별 잔액 (누르면 그 비목의 줄만 보기)
@@ -1708,6 +1710,28 @@ class BudgetWindow(QMainWindow):
         if ans != QMessageBox.Yes:
             return
         delete_budget_expense(expense_id)
+        self.refresh()
+
+    def _delete_category(self, cat_id):
+        """세부항목 지우기 — 안의 항목과 사용 내역도 함께 지운다. 항목·금액을 보여 주고 한 번 더 확인."""
+        cat = next((c for c in self.categories if c['id'] == cat_id), None)
+        if not cat:
+            return
+        inside = [it for it in self.items if it['category_id'] == cat_id]
+        if inside:
+            spent = sum(it['spent'] for it in inside)
+            detail = (f"안의 항목 {len(inside)}개와 집행액 {_fmt(spent)}원, 사용 내역이 함께 지워집니다.\n"
+                      "되돌릴 수 없습니다.")
+        else:
+            detail = '안에 항목은 없습니다.'
+        ans = QMessageBox.question(self, '세부항목 지우기', f"'{cat['name']}' 세부항목을 지울까요?\n{detail}",
+                                   QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ans != QMessageBox.Yes:
+            return
+        delete_budget_category(cat_id)
+        self._cost_filter.pop(cat_id, None)
+        if self.active_tab == cat_id:
+            self.active_tab = 'ALL'
         self.refresh()
 
     def _open_category_manager(self):

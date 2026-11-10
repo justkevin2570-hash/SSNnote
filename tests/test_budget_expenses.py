@@ -126,6 +126,35 @@ def _open_one_item(w, db, desc='협의회비', spent=0, budget_amt=1150000):
     return iid
 
 
+def test_header_has_manage_button_and_no_add_button(win):
+    w, db, budget, app = win
+    _open_one_item(w, db)
+    assert not hasattr(w, 'btn_add_item')
+    assert w.btn_manage.text() == '세부항목 관리' and w.btn_manage.isEnabled()
+    texts = [a.text() for a in w._more_menu().actions()]
+    assert not any('세부항목 관리' in t for t in texts)                 # ⋯에서는 빠짐 (중복 제거)
+    assert any('원가통계비목 목록' in t for t in texts) and any('전체 지우기' in t for t in texts)
+
+
+def test_delete_category_asks_then_removes_items_and_records(win, monkeypatch):
+    w, db, budget, app = win
+    from PyQt5.QtWidgets import QMessageBox
+    asked = []
+    monkeypatch.setattr(QMessageBox, 'question', lambda *a, **k: asked.append(a[2]) or QMessageBox.No)
+    iid = _open_one_item(w, db, spent=0)
+    db.add_budget_expense(iid, 150000, '체육대회', '2026-09-12')
+    w.refresh()
+    cid = db.get_budget_items()[0]['category_id']
+    w._delete_category(cid)                                              # 아니요 → 그대로
+    assert '항목 1개' in asked[0] and '150,000원' in asked[0] and '되돌릴 수 없습니다' in asked[0]
+    assert db.get_budget_items() and db.get_budget_expenses()
+    monkeypatch.setattr(QMessageBox, 'question', lambda *a, **k: QMessageBox.Yes)
+    w.active_tab = cid
+    w._delete_category(cid)                                              # 예 → 세부항목·항목·사용 내역 모두 삭제
+    assert db.get_budget_categories() == [] and db.get_budget_items() == [] and db.get_budget_expenses() == []
+    assert w.active_tab == 'ALL'
+
+
 def _cell(w, iid):
     return w._row_refs[iid]['desc']
 
