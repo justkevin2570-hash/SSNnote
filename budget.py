@@ -1941,15 +1941,17 @@ class _ImportPreviewDialog(QDialog):
 
         btns = QHBoxLayout()
         btns.addStretch()
-        b_cancel = QPushButton('취소')
-        b_cancel.clicked.connect(self.reject)
         b_ok = QPushButton('가져오기')
         b_ok.setObjectName('Primary')
         b_ok.setDefault(True)
         b_ok.clicked.connect(self._accept)
+        b_cancel = QPushButton('취소')
+        b_cancel.setAutoDefault(False)
+        b_cancel.clicked.connect(self.reject)
+        btns.addWidget(b_ok)                              # 가져오기 왼쪽 · 취소 오른쪽
         btns.addWidget(b_cancel)
-        btns.addWidget(b_ok)
         v.addLayout(btns)
+        self.btn_import, self.btn_cancel = b_ok, b_cancel
         self._update_sum()
 
     def _read(self):
@@ -2031,6 +2033,7 @@ class _ItemDialog(QDialog):
             self.btn_delete.setIcon(qta.icon('fa5s.trash-alt', color='#E11D48'))
             self.btn_delete.setIconSize(QSize(11, 11))
             self.btn_delete.setCursor(Qt.PointingHandCursor)
+            self.btn_delete.setAutoDefault(False)         # Enter로 삭제되는 일이 없게
             self.btn_delete.setToolTip('이 예산 항목을 지웁니다')
             self.btn_delete.clicked.connect(self._delete)
             head.addWidget(self.btn_delete)
@@ -2106,14 +2109,15 @@ class _ItemDialog(QDialog):
 
         btns = QHBoxLayout()
         btns.addStretch()
-        btn_cancel = QPushButton('취소')
-        btn_cancel.setObjectName('Ghost')
-        btn_cancel.clicked.connect(self.reject)
-        btn_save = QPushButton('저장')
-        btn_save.setObjectName('Primary')
-        btn_save.clicked.connect(self._save)
-        btns.addWidget(btn_cancel)
-        btns.addWidget(btn_save)
+        self.btn_save = QPushButton('저장')
+        self.btn_save.setObjectName('Primary')
+        self.btn_save.setDefault(True)                    # 입력 칸에서 Enter → 저장
+        self.btn_save.clicked.connect(self._save)
+        self.btn_cancel = QPushButton('취소')
+        self.btn_cancel.setAutoDefault(False)             # Enter가 취소를 누르는 일이 없게 (취소는 Esc나 직접 클릭)
+        self.btn_cancel.clicked.connect(self.reject)
+        btns.addWidget(self.btn_save)                     # 저장 왼쪽 · 취소 오른쪽
+        btns.addWidget(self.btn_cancel)
         v.addLayout(btns)
 
         if item:

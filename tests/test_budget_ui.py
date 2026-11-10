@@ -266,3 +266,93 @@ def test_ask_disabled_when_ai_off(win, monkeypatch):
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
     w._apply_import(CATS, 'append')
     assert not w.ask_input.isEnabled() and 'AI가 꺼져' in w.ask_input.placeholderText()
+
+
+# ── 항목 창: Enter는 저장, 저장 왼쪽 · 취소 오른쪽 ──
+
+_ITEM = {'id': 1, 'category_id': 1, 'cost_type': '교육운영비', 'description': '간식비',
+         'budget': 400000, 'spent': 115500, 'completed': 0}
+
+
+def _press_enter(app, dlg, field):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    dlg.show()
+    app.processEvents()
+    field.setFocus()
+    app.processEvents()
+    QTest.keyClick(field, Qt.Key_Return)
+    app.processEvents()
+
+
+@pytest.mark.parametrize('name', ['edit_spend_now', 'edit_desc', 'edit_budget', 'edit_spent', 'edit_cost'])
+def test_enter_saves_item_dialog(win, name):
+    w, db, budget, app = win
+    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM), 1, w)
+    _press_enter(app, dlg, getattr(dlg, name))
+    assert dlg.result() == 1 and dlg.result_data and dlg.result_data['description'] == '간식비'   # 취소가 아니라 저장
+    assert not dlg.deleted
+    dlg.close()
+
+
+def test_enter_in_add_dialog_saves_only_with_description(win, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+    w, db, budget, app = win
+    warned = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **k: warned.append(a[2]))
+    empty = budget._ItemDialog([{'id': 1, 'name': 'A'}], None, 1, w)
+    _press_enter(app, empty, empty.edit_budget)
+    assert empty.result() == 0 and empty.result_data is None and warned == ['산출내역(내용)을 입력해주세요.']
+    empty.close()
+    filled = budget._ItemDialog([{'id': 1, 'name': 'A'}], None, 1, w)
+    filled.edit_desc.setText('새 항목')
+    _press_enter(app, filled, filled.edit_desc)
+    assert filled.result() == 1 and filled.result_data['description'] == '새 항목'
+    filled.close()
+
+
+def test_enter_never_deletes_or_cancels(win, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+    w, db, budget, app = win
+    asked = []
+    monkeypatch.setattr(QMessageBox, 'question', lambda *a, **k: asked.append(1) or QMessageBox.No)
+    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM), 1, w)
+    assert dlg.btn_save.isDefault()
+    assert not dlg.btn_cancel.autoDefault() and not dlg.btn_delete.autoDefault()
+    _press_enter(app, dlg, dlg.edit_desc)
+    assert asked == [] and not dlg.deleted
+    dlg.close()
+
+
+def test_completer_enter_picks_cost_type_without_saving(win):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    w, db, budget, app = win
+    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM, cost_type=''), 1, w)
+    dlg.show()
+    app.processEvents()
+    dlg.edit_cost.setFocus()
+    dlg._cost_completer.complete()
+    app.processEvents()
+    pop = dlg._cost_completer.popup()
+    pop.setCurrentIndex(pop.model().index(0, 0))
+    QTest.keyClick(pop, Qt.Key_Return)
+    app.processEvents()
+    assert dlg.edit_cost.text() and dlg.result() == 0 and dlg.result_data is None   # 목록에서 고르기만, 저장은 안 됨
+    dlg.close()
+
+
+def test_save_left_cancel_right(win):
+    w, db, budget, app = win
+    pairs = []
+    item_dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM), 1, w)
+    pairs.append((item_dlg, item_dlg.btn_save, item_dlg.btn_cancel))
+    cats = [{'name': 'A', 'items': [{'cost_type': 'x', 'description': 'd', 'budget': 1, 'spent': 0}]}]
+    preview = budget._ImportPreviewDialog('test', cats, False, (), w)
+    pairs.append((preview, preview.btn_import, preview.btn_cancel))
+    for dlg, left, right in pairs:
+        dlg.show()
+        app.processEvents()
+        assert left.mapTo(dlg, left.rect().topLeft()).x() < right.mapTo(dlg, right.rect().topLeft()).x()
+        assert left.isDefault() and not right.autoDefault()
+        dlg.close()
