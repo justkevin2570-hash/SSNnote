@@ -1138,7 +1138,10 @@ def masking_required() -> bool:
 
 
 def text_only_required() -> bool:
-    """이미지를 AI에 보내지 않고 PC에서 읽은 글자만 보내야 하는지: 개인정보 보호 모드가 켜져 있으면 True."""
+    """이미지를 AI에 보내지 않고 PC에서 읽은 글자만 보내야 하는지: 이 AI가 이미지를 읽지 못하거나(Claude 구독),
+    개인정보 보호 모드가 켜져 있으면 True."""
+    if get_adapter() is not None and not getattr(get_adapter(), 'supports_image', True):
+        return True
     try:
         from school_profile import privacy_enabled
         return privacy_enabled()
