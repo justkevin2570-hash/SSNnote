@@ -95,7 +95,7 @@ def ai(tmp_path, monkeypatch):
 
 
 def test_only_supported_providers(ai):
-    assert ai._AI_MODES == ('none', 'claude', 'openai', 'opencode', 'exaone', 'claude_code')
+    assert ai._AI_MODES == ('none', 'claude', 'openai', 'opencode', 'claude_code')
     for gone in ('GeminiAdapter', 'NvidiaAdapter', 'OllamaAdapter', 'is_local_adapter', 'AiImageWorker'):
         assert not hasattr(ai, gone)
 

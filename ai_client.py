@@ -1,12 +1,10 @@
 """
 ai_client.py — AI 제공자 추상화 레이어
 
-지원 제공자: OpenCode(Go·Zen), Claude(Anthropic), ChatGPT(OpenAI), EXAONE(LG AI연구원) — 모두 API 키로 연결.
+지원 제공자: OpenCode(Go·Zen), Claude(Anthropic), ChatGPT(OpenAI) — API 키로 연결. Claude 구독은 내 PC의 Claude Code로 연결.
   · OpenCode  : 모델마다 OpenAI(chat-completions) 또는 Claude(messages) 방식
   · Claude    : Anthropic Messages API
   · ChatGPT   : OpenAI Responses API
-  · EXAONE    : OpenAI 호환(chat-completions). 텍스트 전용·항상 생각하는 모델 → 이미지는 보내지 않고,
-                개인정보는 항상 가려서 보낸다 (약관 7.8: 타인의 개인정보가 든 글을 넣지 말 것)
 다른 제공자로 교체 시 이 파일의 어댑터만 수정하면 됩니다.
 """
 
@@ -35,16 +33,12 @@ OPENCODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'opencode_model.txt')
 OPENCODE_PLAN_FILE  = os.path.join(APPDATA_DIR, 'opencode_plan.txt')
 OPENCODE_VISION_FILE = os.path.join(APPDATA_DIR, 'opencode_vision_models.json')
 OPENCODE_MODELS_FILE = os.path.join(APPDATA_DIR, 'opencode_models.json')   # {id: {image, protocol}}
-EXAONE_KEY_FILE     = os.path.join(APPDATA_DIR, 'exaone_key.txt')
-EXAONE_MODEL_FILE   = os.path.join(APPDATA_DIR, 'exaone_model.txt')
-EXAONE_KEY_DATE_FILE = os.path.join(APPDATA_DIR, 'exaone_key_date.txt')     # 키를 넣은 날 (30일 안내용)
 CLAUDE_CODE_PATH_FILE  = os.path.join(APPDATA_DIR, 'claude_code_path.txt')  # 사용자가 지정한 claude 경로 (비우면 자동)
 CLAUDE_CODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'claude_code_model.txt')
 
 # 접속 주소 (None = 각 SDK 기본 주소). 시험에서만 바꾼다.
 CLAUDE_BASE_URL = None
 OPENAI_BASE_URL = None
-EXAONE_BASE_URL = 'https://api.exaone.ai/v1'      # docs.exaone.ai: 기본 주소 https://api.exaone.ai, POST /v1/chat/completions
 
 # ── 자격증명 암호화 헬퍼 (Windows DPAPI, 미지원 시 평문 폴백) ──
 def _read_secret(path: str) -> str:
@@ -70,11 +64,12 @@ def _write_secret(path: str, val: str):
 _session_keys: dict[str, str] = {}
 
 # AI 모드
-_AI_MODES = ('none', 'claude', 'openai', 'opencode', 'exaone', 'claude_code')
-PROVIDER_LABELS = {'opencode': 'OpenCode', 'claude': 'Claude', 'openai': 'ChatGPT', 'exaone': 'EXAONE',
+_AI_MODES = ('none', 'claude', 'openai', 'opencode', 'claude_code')
+PROVIDER_LABELS = {'opencode': 'OpenCode', 'claude': 'Claude', 'openai': 'ChatGPT',
                    'claude_code': 'Claude 구독'}
 # 예전 버전에서 쓰던(지금은 지원하지 않는) 모드 → 안내용 이름
-_LEGACY_MODES = {'external': 'Gemini', 'gemini': 'Gemini', 'nvidia': 'NVIDIA', 'internal': 'Ollama(내부 AI)'}
+_LEGACY_MODES = {'external': 'Gemini', 'gemini': 'Gemini', 'nvidia': 'NVIDIA', 'internal': 'Ollama(내부 AI)',
+                 'exaone': 'EXAONE'}
 
 # Claude — 서버에서 목록을 못 받을 때 쓰는 예비 목록 (2026-11)
 CLAUDE_DEFAULT_MODEL = 'claude-haiku-5-5'
@@ -302,7 +297,7 @@ def _read_mode_file() -> str:
 
 
 def load_ai_mode() -> str:
-    """'opencode' | 'claude' | 'openai' | 'exaone' | 'none'. 예전 모드(Gemini·NVIDIA·Ollama)는 'none'."""
+    """'opencode' | 'claude' | 'openai' | 'claude_code' | 'none'. 지원하지 않는 예전 모드(Gemini·NVIDIA·Ollama·EXAONE)는 'none'."""
     mode = _read_mode_file()
     return mode if mode in _AI_MODES else 'none'
 
@@ -390,58 +385,6 @@ def load_claude_code_model() -> str:
 
 def save_claude_code_model(model: str):
     _save_text(CLAUDE_CODE_MODEL_FILE, model if model in ('sonnet', 'opus', 'haiku') else '')
-
-
-# ── EXAONE 키·모델 ───────────────────────────────────────────────
-# EXAONE(LG AI연구원) — K-EXAONE 2.5. 문서(docs.exaone.ai) 기준: 모델 이름은 하나, 목록 조회 주소는 없음,
-# 텍스트 전용, 항상 생각(추론)한 뒤 답함, 키는 발급 30일 뒤 자동으로 꺼짐, 현재 무료·비상업적 이용.
-EXAONE_DEFAULT_MODEL = 'k-exaone_v2.5'
-EXAONE_SIGNUP_URL = 'https://docs.exaone.ai'
-EXAONE_KEY_DAYS = 30            # 키 유효기간 (약관 3.4)
-EXAONE_NOTICE_DAYS = 25         # 이때부터 미리 알려 줌
-EXAONE_REASONING = 'low'        # 생각 정도 low/high/max (기본 max는 느림 — 공문 작성에는 low로 충분)
-EXAONE_MIN_TOKENS = 8000        # 생각 과정도 max_tokens에 들어가므로 넉넉히
-
-
-def load_exaone_key() -> str:
-    return _load_key('exaone', EXAONE_KEY_FILE)
-
-
-def save_exaone_key(key: str, persist: bool = True):
-    _save_key('exaone', EXAONE_KEY_FILE, key, persist)
-    from datetime import date
-    _save_text(EXAONE_KEY_DATE_FILE, date.today().isoformat())
-
-
-def load_exaone_model() -> str:
-    return _load_text(EXAONE_MODEL_FILE, EXAONE_DEFAULT_MODEL)
-
-
-def save_exaone_model(model: str):
-    _save_text(EXAONE_MODEL_FILE, model)
-
-
-def exaone_key_age_days(today=None):
-    """EXAONE 키를 이 앱에 넣은 지 며칠째인지 (모르면 None)."""
-    from datetime import date
-    raw = _load_text(EXAONE_KEY_DATE_FILE, '')
-    try:
-        return ((today or date.today()) - date.fromisoformat(raw)).days
-    except ValueError:
-        return None
-
-
-def exaone_key_notice(today=None) -> str:
-    """EXAONE 키가 곧(또는 이미) 꺼질 때의 안내. 해당 없으면 ''."""
-    if load_ai_mode() != 'exaone':
-        return ''
-    age = exaone_key_age_days(today)
-    if age is None or age < EXAONE_NOTICE_DAYS:
-        return ''
-    if age >= EXAONE_KEY_DAYS:
-        return (f'EXAONE 키를 넣은 지 {age}일이 지났어요. 키는 발급 후 {EXAONE_KEY_DAYS}일이 지나면 꺼지니 '
-                '안 되면 docs.exaone.ai에서 새로 발급받아 다시 연결해 주세요.')
-    return (f'EXAONE 키를 넣은 지 {age}일째예요. {EXAONE_KEY_DAYS}일이 지나면 꺼지니 곧 새로 발급받으세요.')
 
 
 # ── ChatGPT 키·모델 ──────────────────────────────────────────────
@@ -629,17 +572,10 @@ def friendly_error(e: Exception, model: str = '', provider: str = '') -> str:
     code = getattr(e, 'status_code', None)
     text = str(e)
     if code == 401:
-        if provider == 'exaone':
-            return ('EXAONE API 키가 맞지 않거나 기간이 끝났어요.\n'
-                    f'EXAONE 키는 발급 후 {EXAONE_KEY_DAYS}일이 지나면 자동으로 꺼져요. '
-                    'docs.exaone.ai에서 새로 발급받아 다시 연결해 주세요.')
         if provider == 'opencode':
             return 'API 키가 맞지 않습니다.\n키를 다시 확인하고, 요금제(Go/Zen)를 바르게 골랐는지도 확인해 주세요.'
         return 'API 키가 맞지 않습니다. 키를 다시 확인해 주세요.'
     if code in (402, 403):
-        if provider == 'exaone':
-            return ('EXAONE을 쓸 수 없어요. 키가 꺼졌거나 이용 조건(만 19세 이상 가입 등)을 확인해야 해요.\n'
-                    'docs.exaone.ai에서 키 상태를 확인해 주세요.')
         if provider == 'opencode':
             return '이 요금제에서 쓸 수 없거나 잔액·사용 한도가 부족합니다.\nOpenCode 콘솔에서 요금제와 잔액을 확인해 주세요.'
         return '이 키로는 이 모델을 쓸 수 없거나 결제(크레딧)가 필요합니다.\n제공사 콘솔에서 결제 정보와 권한을 확인해 주세요.'
@@ -647,13 +583,8 @@ def friendly_error(e: Exception, model: str = '', provider: str = '') -> str:
         return '무료 모델은 OpenCode 앱 안에서만 쓸 수 있습니다. 유료 모델을 골라 주세요.'
     if code == 429 and ('insufficient_quota' in text or 'credit balance' in text):
         return '크레딧(잔액)이 부족합니다. 제공사 콘솔에서 결제 정보를 확인해 주세요.'
-    if code == 429 and provider == 'exaone':
-        return 'EXAONE 사용 한도에 걸렸어요. 잠시(1분쯤) 뒤에 다시 시도해 주세요.'
     if code == 429:
         return '사용 한도에 걸렸습니다. 잠시 후 다시 시도하거나 다른 모델을 고르세요.'
-    if code == 404 and provider == 'exaone':
-        return (f'EXAONE 모델 "{model}"을(를) 찾을 수 없어요. 모델 이름이 바뀌었을 수 있으니 '
-                'docs.exaone.ai의 모델 목록을 확인해 주세요.')
     if code == 404:
         return f'모델 "{model}"을(를) 찾을 수 없습니다. 다른 모델을 골라 주세요.' if model else '요청한 주소를 찾을 수 없습니다.'
     if code is not None and code >= 500:
@@ -698,16 +629,6 @@ def test_openai(key: str, model: str):
         return False, friendly_error(e, model, 'openai')
 
 
-def test_exaone(key: str, model: str):
-    try:
-        ExaoneAdapter._client(key, max_retries=0, timeout=60).chat.completions.create(
-            model=model, max_tokens=512, extra_body={'reasoning_effort': EXAONE_REASONING},
-            messages=[{"role": "user", "content": _PING}])
-        return True, '연결 성공'
-    except Exception as e:
-        return False, friendly_error(e, model, 'exaone')
-
-
 def test_claude_code(model: str = None):
     """짧은 질문 한 번으로 Claude 구독 연결을 확인한다. (ok, 한국어 메시지 — 성공이면 걸린 시간 포함)."""
     import time
@@ -724,7 +645,7 @@ def test_claude_code(model: str = None):
 def load_external_model_name() -> str:
     """현재 AI 제공자의 모델 이름 ('' = AI 꺼짐)."""
     return {'claude': load_claude_model, 'openai': load_openai_model,
-            'opencode': load_opencode_model, 'exaone': load_exaone_model,
+            'opencode': load_opencode_model,
             'claude_code': lambda: load_claude_code_model() or '기본 모델'}.get(load_ai_mode(), lambda: '')()
 
 
@@ -1196,77 +1117,10 @@ class OpenCodeAdapter:
         return _chat_complete(cls._client(), model, system, prompt, image_b64=image_b64, max_tokens=max_tokens)
 
 
-# ── ExaoneAdapter (LG AI연구원 K-EXAONE, OpenAI 호환 chat-completions) ──
-
-def _exaone_stream(client, model, system, prompt, on_chunk, on_done, max_tokens=16000):
-    """EXAONE 스트리밍. 항상 먼저 '생각'하므로 생각 과정(reasoning_content)은 화면에 보내지 않고
-    답(content)만 보낸다. 답이 줄바꿈으로 시작할 수 있어 앞쪽 빈 줄은 뺀다."""
-    full, started = "", False
-    with client.chat.completions.create(
-            model=model, stream=True, max_tokens=max(max_tokens, EXAONE_MIN_TOKENS),
-            extra_body={'reasoning_effort': EXAONE_REASONING},
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}]) as stream:
-        for chunk in stream:
-            if not chunk.choices:
-                continue
-            text = chunk.choices[0].delta.content or ""
-            if not text:
-                continue
-            if not started:
-                text = text.lstrip()
-                if not text:
-                    continue
-                started = True
-            full += text
-            on_chunk(text)
-    on_done(full)
-
-
-class ExaoneAdapter:
-    requires_api_key = True
-    supports_image = False      # 텍스트 전용 모델 — 이미지는 PC에서 읽은 글자로 대신 보낸다
-    always_mask = True          # 개인정보 보호 모드와 상관없이 개인정보를 가려서 보낸다 (약관 7.8)
-
-    @staticmethod
-    def get_api_key() -> str:
-        return load_exaone_key()
-
-    @staticmethod
-    def _model() -> str:
-        return load_exaone_model()
-
-    @staticmethod
-    def _client(key: str = None, **kw):
-        from openai import OpenAI
-        return OpenAI(api_key=key if key is not None else load_exaone_key(), base_url=EXAONE_BASE_URL, **kw)
-
-    @classmethod
-    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
-        model = cls._model()
-        try:
-            _exaone_stream(cls._client(), model, system, prompt, on_chunk, on_done)
-        except Exception as e:
-            on_error(friendly_error(e, model, 'exaone'))
-
-    @classmethod
-    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
-        if image_b64:
-            raise RuntimeError('EXAONE은 이미지를 읽지 못해요. 캡처는 PC에서 읽은 글자로 보내야 해요.')
-        r = cls._client().chat.completions.create(
-            model=cls._model(), max_tokens=max(max_tokens, EXAONE_MIN_TOKENS),
-            extra_body={'reasoning_effort': EXAONE_REASONING},
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}])
-        choice = r.choices[0]
-        text = (choice.message.content or '').strip()
-        if not text and getattr(choice, 'finish_reason', '') == 'length':
-            raise RuntimeError('EXAONE이 생각하는 데 글자 한도를 다 써서 답이 비었어요. 질문을 줄이거나 다시 시도해 주세요.')
-        return text
-
-
 # ── 어댑터 선택 ──────────────────────────────────────────────────
 
 _ADAPTERS = {'claude': ClaudeAdapter, 'openai': OpenAIAdapter, 'opencode': OpenCodeAdapter,
-             'exaone': ExaoneAdapter, 'claude_code': ClaudeCodeAdapter}
+             'claude_code': ClaudeCodeAdapter}
 
 
 def get_adapter():
@@ -1275,10 +1129,7 @@ def get_adapter():
 
 
 def masking_required() -> bool:
-    """AI로 보내는 글의 개인정보를 가려야 하는지: 개인정보 보호 모드가 켜져 있거나,
-    이 AI가 항상 가려서 보내야 하는 곳(EXAONE)이면 True."""
-    if getattr(get_adapter(), 'always_mask', False):
-        return True
+    """AI로 보내는 글의 개인정보를 가려야 하는지: 개인정보 보호 모드가 켜져 있으면 True."""
     try:
         from school_profile import privacy_enabled
         return privacy_enabled()
@@ -1287,10 +1138,7 @@ def masking_required() -> bool:
 
 
 def text_only_required() -> bool:
-    """이미지를 AI에 보내지 않고 PC에서 읽은 글자만 보내야 하는지: 개인정보 보호 모드가 켜져 있거나,
-    이 AI가 이미지를 읽지 못하면(EXAONE) True."""
-    if get_adapter() is not None and not getattr(get_adapter(), 'supports_image', True):
-        return True
+    """이미지를 AI에 보내지 않고 PC에서 읽은 글자만 보내야 하는지: 개인정보 보호 모드가 켜져 있으면 True."""
     try:
         from school_profile import privacy_enabled
         return privacy_enabled()
@@ -1330,13 +1178,13 @@ class AiStreamThread(QThread):
     def run(self):
         adapter = get_adapter()
         if adapter is None:
-            self.error_signal.emit("AI가 꺼져 있습니다. [AI 설정]에서 OpenCode·Claude·ChatGPT·EXAONE·Claude 구독 중 하나를 연결하세요.")
+            self.error_signal.emit("AI가 꺼져 있습니다. [AI 설정]에서 OpenCode·Claude·ChatGPT·Claude 구독 중 하나를 연결하세요.")
             return
         if not adapter.get_api_key():
             self.error_signal.emit("API 키가 설정되지 않았습니다. [AI 설정]을 눌러 키를 입력하세요.")
             return
 
-        # 개인정보 보호 모드(또는 EXAONE처럼 항상 가려야 하는 AI): AI로 나가는 글에서 개인정보를 가린다
+        # 개인정보 보호 모드가 켜져 있으면 AI로 나가는 글에서 개인정보를 가린다
         try:
             from school_profile import mask_for_ai
             if masking_required():

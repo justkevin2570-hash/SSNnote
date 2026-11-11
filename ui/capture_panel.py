@@ -266,7 +266,7 @@ class CapturePanel(QFrame):
             if getattr(get_adapter(), 'supports_image', True):
                 hint = '메뉴 → 설정 → 개인정보 보호 모드를 끄면 이미지로 분석합니다.'
             else:
-                hint = '지금 연결한 AI(EXAONE)는 이미지를 읽지 못해 PC 글자 인식이 꼭 필요해요. 이미지를 읽는 다른 AI로 바꿔 보세요.'
+                hint = '지금 연결한 AI는 이미지를 읽지 못해 PC 글자 인식이 꼭 필요해요. 이미지를 읽는 다른 AI로 바꿔 보세요.'
             self._fail('Windows OCR을 쓸 수 없어 글자를 읽지 못했습니다.\n' + hint, gen)
             return
         from capture import run_ocr

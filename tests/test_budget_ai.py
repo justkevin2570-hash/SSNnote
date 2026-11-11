@@ -107,4 +107,4 @@ def test_quick_questions():
 
 
 def test_system_prompt_keeps_ids_out_of_answers():
-    assert 'answer에는 id를 절대 쓰지' in ba.SYSTEM            # 실제 EXAONE 시험에서 답에 'id=12'가 그대로 나왔음
+    assert 'answer에는 id를 절대 쓰지' in ba.SYSTEM

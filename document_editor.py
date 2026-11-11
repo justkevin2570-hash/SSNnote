@@ -24,8 +24,6 @@ from ai_client import (AiStreamThread, PROVIDER_LABELS,
                         load_opencode_model, save_opencode_model,
                         OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
                         fetch_opencode_models, save_opencode_model_info, test_opencode,
-                        load_exaone_key, save_exaone_key, load_exaone_model, save_exaone_model,
-                        test_exaone, exaone_key_notice, EXAONE_SIGNUP_URL, EXAONE_KEY_DAYS,
                         ClaudeCodeError, claude_code_status, claude_code_login, claude_code_logout,
                         install_claude_code, test_claude_code, CLAUDE_CODE_MODELS, CLAUDE_CODE_INSTALL_PAGE,
                         load_claude_code_model, save_claude_code_model,
@@ -810,18 +808,15 @@ class PolishDialog(QDialog):
 
 # AI 제공자별 설정 정보
 _PROVIDERS = {
-    'opencode': {'desc': 'Go·Zen 요금제'},
-    'exaone':   {'desc': 'LG AI연구원 · 현재 무료'},
-    'claude_code': {'desc': '내 PC의 Claude Code · 구독 사용량 차감'},
-    'claude':   {'desc': 'Anthropic API 키',
+    'opencode': {'desc': '해당 API키 필요'},
+    'claude_code': {'desc': '유료 구독 필요'},
+    'claude':   {'desc': '해당 API키 필요',
                  'key_label': 'Anthropic(Claude) API 키를 입력하세요.',
-                 'hint': '키 발급: console.anthropic.com → API Keys (사용한 만큼 결제)',
                  'load_key': load_claude_key, 'save_key': save_claude_key,
                  'load_model': load_claude_model, 'save_model': save_claude_model,
                  'fetch': fetch_claude_models, 'test': test_claude},
-    'openai':   {'desc': 'OpenAI API 키',
+    'openai':   {'desc': '해당 API키 필요',
                  'key_label': 'OpenAI(ChatGPT) API 키를 입력하세요.',
-                 'hint': '키 발급: platform.openai.com → API keys (ChatGPT 구독과 별도, 사용한 만큼 결제)',
                  'load_key': load_openai_key, 'save_key': save_openai_key,
                  'load_model': load_openai_model, 'save_model': save_openai_model,
                  'fetch': fetch_openai_models, 'test': test_openai},
@@ -885,7 +880,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_apikey.setObjectName('Chip')
         self.btn_apikey.setCursor(Qt.PointingHandCursor)
         self.btn_apikey.setMinimumHeight(30)
-        self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · EXAONE · Claude 구독)')
+        self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · Claude 구독)')
         self.btn_apikey.clicked.connect(self._show_ai_settings_menu)
         hl.addWidget(self.btn_apikey)
         self.btn_help = QPushButton()
@@ -1665,11 +1660,8 @@ class DocumentEditorWindow(QMainWindow):
         if ai_available:
             model = load_external_model_name()
             self.btn_apikey.setText(f'{PROVIDER_LABELS[mode]} · {model}')
-            notice = exaone_key_notice() if mode == 'exaone' else ''
-            self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.WARN if notice else C.OK))
-            self.btn_apikey.setToolTip(notice or 'AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · EXAONE · Claude 구독)')
-            if notice:
-                self.statusBar().showMessage(notice)
+            self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.OK))
+            self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · Claude 구독)')
             self.ai_input.setPlaceholderText('AI에게 요청  (예: 장소를 시청각실로 바꾸고 일시는 11월 10일로 해줘)')
             return
         self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.OFF))
@@ -1679,7 +1671,7 @@ class DocumentEditorWindow(QMainWindow):
             self.btn_apikey.setIcon(qta.icon('fa5s.exclamation-circle', color=C.WARN))
             self.ai_input.setPlaceholderText(
                 f'이전에 쓰던 {legacy}는 더 이상 지원하지 않아요 — 위의 [AI 다시 연결 필요]를 눌러 '
-                'OpenCode·Claude·ChatGPT·EXAONE·Claude 구독 중 하나를 연결하세요.')
+                'OpenCode·Claude·ChatGPT·Claude 구독 중 하나를 연결하세요.')
         else:
             self.btn_apikey.setText('AI 꺼짐 · 연결하기')
             self.ai_input.setPlaceholderText('AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]에서 연결하면 쓸 수 있어요.')
@@ -1694,7 +1686,7 @@ class DocumentEditorWindow(QMainWindow):
         title = menu.addAction('AI 연결')
         title.setEnabled(False)
         acts = {}
-        for key in ('opencode', 'claude', 'openai', 'exaone', 'claude_code'):
+        for key in ('opencode', 'claude', 'openai', 'claude_code'):
             mark = '✓  ' if mode == key else '     '
             a = menu.addAction(f'{mark}{PROVIDER_LABELS[key]}\t{_PROVIDERS[key]["desc"]}')
             acts[a] = key
@@ -1719,8 +1711,6 @@ class DocumentEditorWindow(QMainWindow):
             self._setup_claude_ai()
         elif acts.get(action) == 'openai':
             self._setup_openai_ai()
-        elif acts.get(action) == 'exaone':
-            self._setup_exaone_ai()
         elif acts.get(action) == 'claude_code':
             self._setup_claude_code_ai()
 
@@ -1786,7 +1776,7 @@ class DocumentEditorWindow(QMainWindow):
         """Claude·ChatGPT: API 키 → 모델(서버의 최신 목록) → 연결 시험 → 저장."""
         p = _PROVIDERS[mode]
         label = PROVIDER_LABELS[mode]
-        dlg = ApiKeyDialog(f'{label} 연결', p['key_label'], p['load_key'](), self, hint=p['hint'])
+        dlg = ApiKeyDialog(f'{label} 연결', p['key_label'], p['load_key'](), self)
         if dlg.exec_() != dlg.Accepted:
             return
         key = dlg.key()
@@ -1820,36 +1810,6 @@ class DocumentEditorWindow(QMainWindow):
         self._apply_ai_mode()
         self.statusBar().showMessage(f'{label} · {model} 연결 완료.')
 
-    def _setup_exaone_ai(self):
-        """EXAONE(LG AI연구원): API 키 → 연결 시험 → 저장. 모델은 하나뿐이라 고르는 단계가 없다."""
-        hint = (f'키 발급: {EXAONE_SIGNUP_URL} → 「API Key 발급하기」 (만 19세 이상, 현재 무료·비상업적 이용)\n'
-                f'· 키는 발급 후 {EXAONE_KEY_DAYS}일이 지나면 자동으로 꺼져요 — 그때 새로 발급받아 다시 연결하세요.\n'
-                '· 가입할 때 「입력·결과물을 학습에 활용」 선택 동의는 끄는 것을 권해요.\n'
-                '· 이 AI는 이미지를 읽지 못해 캡처는 PC에서 읽은 글자로 보내고, '
-                '개인정보는 보호 모드와 상관없이 항상 가려서 보냅니다.')
-        dlg = ApiKeyDialog('EXAONE 연결', 'EXAONE API 키를 입력하세요.', load_exaone_key(), self, hint=hint)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        key = dlg.key()
-        if not key:
-            self.statusBar().showMessage('EXAONE API 키가 비어 있습니다.')
-            return
-        model = load_exaone_model()
-        self._busy(f'EXAONE · {model} 연결 확인 중... (생각하는 모델이라 조금 걸려요)')
-        try:
-            ok, msg = test_exaone(key, model)
-        finally:
-            self._idle()
-        if not ok:
-            self.statusBar().showMessage('EXAONE 연결 실패')
-            QMessageBox.warning(self, 'EXAONE 연결 실패', msg)
-            return
-        save_exaone_key(key, persist=dlg.should_save())
-        save_exaone_model(model)
-        save_ai_mode('exaone')
-        self._apply_ai_mode()
-        self.statusBar().showMessage(f'EXAONE · {model} 연결 완료.')
-
     def _setup_claude_code_ai(self):
         """Claude 구독: 이 PC의 Claude Code로 구독 사용 (설치·로그인·확인·저장은 대화상자 안에서)."""
         dlg = ClaudeCodeDialog(self)
@@ -1874,8 +1834,7 @@ class DocumentEditorWindow(QMainWindow):
             return
         plan = plan_keys[labels.index(label)]
 
-        dlg = ApiKeyDialog('OpenCode 연결', 'OpenCode API 키를 입력하세요.', load_opencode_key(), self,
-                           hint='키 발급: opencode.ai 로그인 → 콘솔 → API Keys')
+        dlg = ApiKeyDialog('OpenCode 연결', 'OpenCode API 키를 입력하세요.', load_opencode_key(), self)
         if dlg.exec_() != dlg.Accepted:
             return
         key = dlg.key()

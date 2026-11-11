@@ -209,9 +209,8 @@ def test_worker_fixes_blurry_cost_type(monkeypatch):
 
 
 class _TextOnlyAI(_FakeAI):
-    """EXAONE처럼 이미지를 못 읽고 항상 개인정보를 가리는 AI."""
+    """이미지를 못 읽는 AI (글자만 보낸다)."""
     supports_image = False
-    always_mask = True
 
 
 def test_worker_text_only_ai_never_gets_the_image(monkeypatch):

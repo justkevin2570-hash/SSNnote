@@ -1,6 +1,6 @@
 """privacy.py — AI로 보내기 전 개인정보 가리기.
 
-AI(OpenCode·Claude·ChatGPT·EXAONE)로 글을 보내기 전에 주민등록번호, 전화번호, 이메일,
+AI(OpenCode·Claude·ChatGPT)로 글을 보내기 전에 주민등록번호, 전화번호, 이메일,
 계좌번호, 아파트 동·호수, 생년월일, 이름(등록한 명단 + '○○○ 학생'처럼 이름이 분명한 자리)을
 가린다. UI·DB에 의존하지 않는 순수 로직.
 

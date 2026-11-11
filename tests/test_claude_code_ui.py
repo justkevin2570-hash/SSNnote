@@ -131,5 +131,5 @@ def test_save_refuses_missing_path(ui, tmp_path):
 
 def test_settings_menu_offers_claude_code(ui):
     de = ui['de']
-    assert de._PROVIDERS['claude_code']['desc'].startswith('내 PC의 Claude Code')
+    assert de._PROVIDERS['claude_code']['desc'] == '유료 구독 필요'
     assert 'claude_code' in de._PROVIDERS and de.PROVIDER_LABELS['claude_code'] == 'Claude 구독'
