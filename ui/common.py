@@ -32,13 +32,13 @@ def _load_fluent_icons():
     base = _base_path()
     if _FI_FONT_ID == -1:
         _FI_FONT_ID = QFontDatabase.addApplicationFont(
-            os.path.join(base, 'assets', 'FluentSystemIcons-Regular.ttf'))
+            os.path.join(base, 'assets', 'font', 'FluentSystemIcons-Regular.ttf'))
     if _FI_FILLED_FONT_ID == -1:
         _FI_FILLED_FONT_ID = QFontDatabase.addApplicationFont(
-            os.path.join(base, 'assets', 'FluentSystemIcons-Filled.ttf'))
+            os.path.join(base, 'assets', 'font', 'FluentSystemIcons-Filled.ttf'))
     if _MAT_FONT_ID == -1:
         _MAT_FONT_ID = QFontDatabase.addApplicationFont(
-            os.path.join(base, 'assets', 'MaterialIcons-Regular.ttf'))
+            os.path.join(base, 'assets', 'font', 'MaterialIcons-Regular.ttf'))
 
 def mi_font(size=14):
     """Fluent System Icons Regular QFont 반환."""
@@ -59,7 +59,7 @@ def mat_font(size=14):
     return QFont(families[0] if families else 'Material Icons', size)
 
 def _load_pretendard():
-    """assets 안의 Pretendard 정적 폰트(여러 굵기)를 앱 폰트로 등록한다.
+    """assets/font 안의 Pretendard 정적 폰트(여러 굵기)를 앱 폰트로 등록한다.
 
     QSS의 font-family: 'Pretendard' 가 이 등록된 패밀리를 쓰고,
     굵은 글씨는 합성 볼드 대신 실제 굵기 파일로 그려진다.
@@ -69,7 +69,7 @@ def _load_pretendard():
     if _PRETENDARD_LOADED:
         return
     _PRETENDARD_LOADED = True
-    for dirpath, _dirs, files in os.walk(os.path.join(_base_path(), 'assets')):
+    for dirpath, _dirs, files in os.walk(os.path.join(_base_path(), 'assets', 'font')):
         for fn in sorted(files):
             low = fn.lower()
             if low.startswith('pretendard') and low.endswith(('.ttf', '.otf')):
