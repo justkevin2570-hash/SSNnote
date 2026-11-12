@@ -87,16 +87,20 @@ def pr_font(size=11):
 # ── 업무창·메모장 글꼴 (창마다 고름) ─────────────────────────────
 # 리틱체·맑은 고딕은 앱에 넣지 않고 이 PC(Windows)에 설치된 글꼴을 쓴다.
 # (리틱체 라이선스: 글꼴 파일 재배포 금지 → 설치 파일에 넣지 않음)
-NOTE_FONTS = (('pretendard', 'Pretendard'), ('reatic', '리틱체'), ('malgun', '맑은 고딕'))
+NOTE_FONTS = (('pretendard', 'Pretendard'), ('reatic', '리틱체'), ('reatic_narrow', '리틱체 Narrow'),
+              ('malgun', '맑은 고딕'))
 DEFAULT_NOTE_FONT = 'pretendard'
-_NOTE_FAMILY_NAMES = {'reatic': ('리틱체', 'REATIC'), 'malgun': ('맑은 고딕', 'Malgun Gothic')}
-# 먼저 찾아 쓸 폭 좁은 판 (리틱체 Narrow: 한글 높이는 같고 폭만 좁아 업무 이름이 덜 넘어감).
-# Windows에는 'REATIC Narrow' 같은 글꼴 이름으로, 다른 곳에서는 'REATIC'의 'Narrow' 모양으로 보인다.
-_NOTE_NARROW = {'reatic': (('REATIC Narrow', ''), ('리틱체 Narrow', ''), ('REATIC', 'Narrow'), ('리틱체', 'Narrow'))}
+# 글꼴 고르기 값 → 이 PC에서 찾을 (글꼴 이름, 모양 이름) 후보. 모양 이름이 ''이면 보통 모양.
+# 리틱체 Narrow(폭 좁은 판)는 Windows에 'REATIC Narrow' 같은 글꼴 이름으로, 다른 곳에서는 'REATIC'의 'Narrow' 모양으로 보인다.
+_NOTE_SPECS = {
+    'reatic': (('리틱체', ''), ('REATIC', '')),
+    'reatic_narrow': (('REATIC Narrow', ''), ('리틱체 Narrow', ''), ('REATIC', 'Narrow'), ('리틱체', 'Narrow')),
+    'malgun': (('맑은 고딕', ''), ('Malgun Gothic', '')),
+}
 _CURRENT_NOTE_FONT = DEFAULT_NOTE_FONT
 # 같은 pt에서도 글꼴마다 실제 글자 크기가 달라, 한글 높이를 Pretendard에 맞추는 배율
-# (리틱체: 12pt에서 한글 높이 18px ↔ Pretendard 16px → 16/18)
-NOTE_FONT_SCALE = {'reatic': 16 / 18}
+# (리틱체: 12pt에서 한글 높이 18px ↔ Pretendard 16px → 16/18. Narrow도 높이는 같고 폭만 좁음)
+NOTE_FONT_SCALE = {'reatic': 16 / 18, 'reatic_narrow': 16 / 18}
 
 
 def _pretendard_family():
@@ -114,20 +118,15 @@ def refresh_installed_fonts():
 
 
 def _installed_spec(key):
-    """이 PC에 설치된 (글꼴 이름, 모양 이름). 폭 좁은 판이 있으면 그것. 없으면 ('', '')."""
+    """이 PC에 설치된 (글꼴 이름, 모양 이름). 없으면 ('', '')."""
     if key not in _INSTALLED:
         spec = ('', '')
-        names = _NOTE_FAMILY_NAMES.get(key) or ()
-        if names:
+        cands = _NOTE_SPECS.get(key) or ()
+        if cands:
             fdb = QFontDatabase()
             have = set(fdb.families())
-            for fam, style in _NOTE_NARROW.get(key, ()):
-                if fam in have and (not style or style in fdb.styles(fam)):
-                    spec = (fam, style)
-                    break
-            else:
-                fam = next((n for n in names if n in have), '')
-                spec = (fam, '')
+            spec = next(((fam, style) for fam, style in cands
+                         if fam in have and (not style or style in fdb.styles(fam))), ('', ''))
         _INSTALLED[key] = spec
     return _INSTALLED[key]
 

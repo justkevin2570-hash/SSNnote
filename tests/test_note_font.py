@@ -29,8 +29,9 @@ def env(tmp_path, monkeypatch):
     common.refresh_installed_fonts()
     # 이 PC에 리틱체가 설치돼 있다고 치기 (실제 글꼴 대신 Pretendard 이름을 빌려 씀)
     fam = common._pretendard_family()
-    monkeypatch.setitem(common._NOTE_FAMILY_NAMES, 'reatic', ('없는글꼴', fam))
-    monkeypatch.setitem(common._NOTE_FAMILY_NAMES, 'malgun', ('없는글꼴2',))
+    monkeypatch.setitem(common._NOTE_SPECS, 'reatic', (('없는글꼴', ''), (fam, '')))
+    monkeypatch.setitem(common._NOTE_SPECS, 'reatic_narrow', (('없는 Narrow', ''),))
+    monkeypatch.setitem(common._NOTE_SPECS, 'malgun', (('없는글꼴2', ''),))
     made = []
     import window
 
@@ -75,6 +76,8 @@ def test_missing_font_falls_back_and_is_disabled_in_menu(env):
     acts = {a.text(): a for a in fm.actions()}
     assert acts['Pretendard'].isEnabled() and acts['리틱체'].isEnabled()
     assert not acts['맑은 고딕 (이 PC에 설치되지 않음)'].isEnabled()
+    assert not acts['리틱체 Narrow (이 PC에 설치되지 않음)'].isEnabled()
+    assert len(acts) == 4
 
 
 def test_memo_window_font(env):
@@ -118,20 +121,22 @@ def test_reatic_size_scaled_to_pretendard(env):
     assert abs(w._task_rows()[0].name_edit.font().pointSizeF() - 12 * 16 / 18) < 0.01
 
 
-def test_narrow_style_preferred_and_bold_uses_narrow_bold(env, monkeypatch):
-    """리틱체 Narrow가 설치돼 있으면 그것을 쓰고, 중요 표시(굵게)는 Narrow Bold 모양으로."""
+def test_narrow_is_own_choice_and_bold_uses_narrow_bold(env, monkeypatch):
+    """「리틱체 Narrow」는 따로 고르는 글꼴, 중요 표시(굵게)는 Narrow Bold 모양으로."""
     make, db, common = env
     fam = common._pretendard_family()
     styles = common.QFontDatabase().styles(fam)
     style = next((s for s in styles if s not in ('Regular', 'Bold')), None)
     if style is None:
         pytest.skip('모양 이름으로 고를 수 있는 글꼴이 없음')
-    monkeypatch.setitem(common._NOTE_NARROW, 'reatic', (('없는 Narrow', ''), (fam, style)))
+    monkeypatch.setitem(common._NOTE_SPECS, 'reatic_narrow', (('없는 Narrow', ''), (fam, style)))
     common.refresh_installed_fonts()
-    assert common._installed_spec('reatic') == (fam, style)
-    f = common.note_font(12, 'reatic')
+    assert common._installed_spec('reatic_narrow') == (fam, style)
+    assert common._installed_spec('reatic') == (fam, '')                 # 일반 리틱체는 따로
+    f = common.note_font(12, 'reatic_narrow')
     assert f.styleName() == style
-    f2 = common.set_note_bold(common.note_font(12, 'reatic'))
+    assert abs(f.pointSizeF() - 12 * 16 / 18) < 0.01
+    f2 = common.set_note_bold(common.note_font(12, 'reatic_narrow'))
     assert f2.styleName().endswith('Bold')
     g = common.set_note_bold(common.note_font(12, 'pretendard'))
     assert g.bold() and not g.styleName()
