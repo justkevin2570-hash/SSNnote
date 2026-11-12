@@ -146,7 +146,7 @@ def today_overview() -> dict:
     """
     _seen(what='today_overview')
     now = datetime.now()
-    s = dashboard.build_summary(db.get_open_tasks(), db.get_budget_items(), now=now)
+    s = dashboard.build_summary(db.get_open_tasks(), db.get_budget_items_in_total(), now=now)
     today = now.date()
     return {
         'today': today.isoformat(),

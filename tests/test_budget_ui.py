@@ -406,3 +406,88 @@ def test_rejected_suggestion_is_grey_and_cannot_be_applied(win, monkeypatch):
 
 def _spent(db, iid):
     return next(i for i in db.get_budget_items() if i['id'] == iid)['spent']
+
+
+# ── 전체 합계에서 빼기 · 세부항목 그룹 ─────────────────────────────
+def _cat_id(db, name):
+    return next(c['id'] for c in db.get_budget_categories() if c['name'] == name)
+
+
+def test_excluded_category_left_out_of_totals(win):
+    w, db, budget, _ = win
+    w._apply_import(CATS, 'replace')
+    w._set_excluded([_cat_id(db, 'B')], True)
+    assert w.stat['budget'].text() == '1,000원'               # B(500)는 빠짐
+    assert w.stat['spent'].text() == '200원'
+    assert '합계 제외 1개' in w.lbl_meta.text()
+    assert sum(i['budget'] for i in db.get_budget_items_in_total()) == 1000
+    import dashboard
+    s = dashboard.build_summary([], db.get_budget_items_in_total())
+    assert s['budget']['allocated'] == 1000
+    w._set_excluded([_cat_id(db, 'B')], False)
+    assert w.stat['budget'].text() == '1,500원'
+
+
+def test_ai_context_marks_excluded_and_groups(win):
+    w, db, budget, _ = win
+    import budget_ai
+    w._apply_import(CATS, 'replace')
+    gid = db.add_budget_group('묶음')
+    db.set_budget_category_group(_cat_id(db, 'A'), gid)
+    db.set_budget_category_group(_cat_id(db, 'B'), gid)
+    db.set_budget_category_excluded(_cat_id(db, 'B'), True)
+    ctx = budget_ai.build_context(db.get_budget_categories(), db.get_budget_items(), db.get_budget_groups())
+    assert '[세부항목] B (전체 합계에서 제외)' in ctx
+    assert '[그룹] 묶음 (A, B) — 예산 1,500 · 집행 200' in ctx      # 그룹 합은 제외 여부와 상관없이
+    assert ctx.splitlines()[-1].endswith('예산 1,000 · 집행 200 · 잔액 800')
+
+
+def test_group_nav_totals_and_tab(win):
+    w, db, budget, _ = win
+    w._apply_import(CATS + [{'name': 'C', 'items': [{'cost_type': 'x', 'description': 'y',
+                                                    'budget': 100, 'spent': 100}]}], 'replace')
+    gid = db.add_budget_group('묶음')
+    w._move_to_group(_cat_id(db, 'A'), gid)
+    w._move_to_group(_cat_id(db, 'B'), gid)
+    key = ('G', gid)
+    assert key in w._nav_refs
+    assert '잔액 1,300원' in w._nav_refs[key].lbl_meta.text()
+    w._set_tab(key)
+    assert set(w._sec_refs) == {_cat_id(db, 'A'), _cat_id(db, 'B')}
+    w._fold_group(gid, True)                                   # 접으면 안의 세부항목 줄은 숨김
+    assert _cat_id(db, 'A') not in w._nav_refs and key in w._nav_refs
+    w._delete_group(gid)                                       # 그룹을 풀어도 세부항목은 남음
+    assert len(db.get_budget_categories()) == 3 and w.active_tab == 'ALL'
+    assert all(c['group_id'] is None for c in db.get_budget_categories())
+
+
+def test_reimport_keeps_exclusion_and_group(win):
+    w, db, budget, _ = win
+    w._apply_import(CATS, 'replace')
+    gid = db.add_budget_group('묶음')
+    db.set_budget_category_group(_cat_id(db, 'A'), gid)
+    db.set_budget_category_excluded(_cat_id(db, 'B'), True)
+    w._apply_import(CATS, 'replace')
+    cats = {c['name']: c for c in db.get_budget_categories()}
+    assert cats['A']['group_id'] == gid and cats['B']['excluded'] == 1
+    db.clear_budget_data()
+    assert db.get_budget_groups() == []
+
+
+def test_add_item_from_group_tab_defaults_to_group_member(win, monkeypatch):
+    w, db, budget, _ = win
+    w._apply_import(CATS, 'replace')
+    gid = db.add_budget_group('묶음')
+    w._move_to_group(_cat_id(db, 'B'), gid)
+    w._set_tab(('G', gid))
+    seen = {}
+
+    class Fake:
+        def __init__(self, cats, item, default_cat_id, parent=None):
+            seen['cat'] = default_cat_id
+
+        def exec_(self):
+            return 0
+    monkeypatch.setattr(budget, '_ItemDialog', Fake)
+    w._open_add_item()
+    assert seen['cat'] == _cat_id(db, 'B')

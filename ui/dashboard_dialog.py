@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 )
 
 import dashboard
-from db import get_budget_items, get_open_tasks, get_setting, set_setting
+from db import get_budget_items_in_total, get_open_tasks, get_setting, set_setting
 from .common import pr_font, px
 
 SHOW_ON_START_KEY = 'dashboard_on_start'
@@ -150,7 +150,7 @@ class DashboardDialog(QDialog):
         self.setFixedWidth(px(480))
         self.tiles = []
         self.rows = []
-        s = summary if summary is not None else dashboard.build_summary(get_open_tasks(), get_budget_items())
+        s = summary if summary is not None else dashboard.build_summary(get_open_tasks(), get_budget_items_in_total())
         self._build(s)
         set_setting(LAST_SHOWN_KEY, date.today().isoformat())
         self.resize(self.width(), self.sizeHint().height())

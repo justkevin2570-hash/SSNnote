@@ -20,6 +20,8 @@ SYSTEM = (
     "- 금액은 '1,234,000원'처럼 쉼표와 '원'을 붙이고, 계산은 정확히 합니다. 표에 없는 내용은 지어내지 않습니다.\n"
     "- 답은 짧고 분명하게, 목록이 필요하면 '- '로 시작하는 줄로. 마크다운(**, ##, 표)은 쓰지 않습니다.\n"
     "- 학교회계연도는 3월 1일부터 다음 해 2월 말일까지입니다.\n"
+    "- '전체 합계에서 제외'로 표시된 세부항목은 전체 금액·전체 집행률에 넣지 않습니다. 그 세부항목을 직접 물으면 답합니다.\n"
+    "- [그룹]은 묶인 세부항목들의 합입니다. 그룹 이름으로 물으면 그 합으로 답합니다.\n"
     "- 사용자가 돈을 썼다고 말하면(예: '간식비 5만원 썼어', '강사수당 32만원 지급') spend에 항목 id, 쓴 금액(amount),\n"
     "  쓴 곳(purpose: 무엇에 썼는지 짧게, 예: '체육대회', '교육반성회 식사비')을 넣습니다. 쓴 곳을 말하지 않았으면 purpose는 빈 글로 둡니다.\n"
     "- 잔액을 특정 금액으로 맞추라고 하면(예: '협의회비 잔액 30만원으로 맞춰줘') set_remaining에 항목 id와 목표 잔액(remaining)을 넣습니다.\n"
@@ -50,21 +52,37 @@ QUICK = (
 )
 
 
-def build_context(categories, items) -> str:
-    """예산 표 → AI에 함께 보낼 글. 항목마다 id를 붙여 지출 제안 때 가리킬 수 있게."""
+def build_context(categories, items, groups=()) -> str:
+    """예산 표 → AI에 함께 보낼 글. 항목마다 id를 붙여 지출 제안 때 가리킬 수 있게.
+    전체 합계에서 뺀 세부항목은 '합계 제외'로 표시하고 [전체]에 더하지 않는다. 그룹은 묶인 세부항목의 합."""
     lines = []
     tb = ts = 0
+    sums = {}
     for cat in categories:
         cat_items = [it for it in items if it['category_id'] == cat['id']]
         b = sum(it['budget'] for it in cat_items)
         s = sum(it['spent'] for it in cat_items)
-        tb, ts = tb + b, ts + s
-        lines.append(f"[세부항목] {cat['name']} — 예산 {b:,} · 집행 {s:,} · 잔액 {b - s:,}")
+        sums[cat['id']] = (b, s)
+        excluded = bool(cat.get('excluded'))
+        if not excluded:
+            tb, ts = tb + b, ts + s
+        mark = ' (전체 합계에서 제외)' if excluded else ''
+        lines.append(f"[세부항목] {cat['name']}{mark} — 예산 {b:,} · 집행 {s:,} · 잔액 {b - s:,}")
         for it in cat_items:
             done = ' · 완료' if it.get('completed') else ''
             lines.append(f"  id={it['id']} | {it['cost_type']} | {it['description']} | 예산 {it['budget']:,} | "
                          f"집행 {it['spent']:,} | 잔액 {it['budget'] - it['spent']:,}{done}")
-    lines.append(f"[전체] 예산 {tb:,} · 집행 {ts:,} · 잔액 {tb - ts:,}")
+    for g in groups:
+        members = [c for c in categories if c.get('group_id') == g['id']]
+        if not members:
+            continue
+        b = sum(sums[c['id']][0] for c in members)
+        s = sum(sums[c['id']][1] for c in members)
+        names = ', '.join(c['name'] for c in members)
+        lines.append(f"[그룹] {g['name']} ({names}) — 예산 {b:,} · 집행 {s:,} · 잔액 {b - s:,}")
+    n_ex = sum(1 for c in categories if c.get('excluded'))
+    note = f' (합계 제외 세부항목 {n_ex}개 뺌)' if n_ex else ''
+    lines.append(f"[전체]{note} 예산 {tb:,} · 집행 {ts:,} · 잔액 {tb - ts:,}")
     return '\n'.join(lines)
 
 
@@ -186,10 +204,11 @@ class BudgetAskWorker(QThread):
     done = pyqtSignal(dict, dict)
     failed = pyqtSignal(str)
 
-    def __init__(self, question, categories, items, history=(), parent=None):
+    def __init__(self, question, categories, items, history=(), parent=None, groups=()):
         super().__init__(parent)
         self._q = question
         self._cats = [dict(c) for c in categories]
+        self._groups = [dict(g) for g in groups]
         self._items = [dict(i) for i in items]
         self._history = list(history)
 
@@ -203,7 +222,7 @@ class BudgetAskWorker(QThread):
             if not adapter.get_api_key():
                 self.failed.emit('AI API 키가 없어요. 공문 작성 창 → [AI 설정]에서 키를 넣어 주세요.')
                 return
-            prompt = build_prompt(self._q, build_context(self._cats, self._items), self._history)
+            prompt = build_prompt(self._q, build_context(self._cats, self._items, self._groups), self._history)
             masked = {}
             try:
                 from ai_client import masking_required
