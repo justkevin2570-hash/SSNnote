@@ -260,7 +260,7 @@ class MemoWindow(QMainWindow):
         self.ai_slot = QWidget()
         self.ai_slot.setStyleSheet('background: transparent;')
         _ai_slot_layout = QVBoxLayout(self.ai_slot)
-        _ai_slot_layout.setContentsMargins(0, 0, 0, 0)
+        _ai_slot_layout.setContentsMargins(1, 0, 1, 0)   # 창 테두리(1px)를 덮지 않게
         _ai_slot_layout.setSpacing(0)
         self.list_split.addWidget(self.ai_slot)
         self.list_split.setStretchFactor(0, 1)
@@ -322,11 +322,20 @@ class MemoWindow(QMainWindow):
             bottom_layout.addWidget(b)
             return b
 
+        # 아래 줄: 달력 · 공문 · 예산 · AI(아이콘만). 지난 기록은 제목줄로 옮김
         _bottom_button('달력', 'ph.calendar-blank-bold', self._show_monthly_calendar, '월간 달력 (모든 메모장의 마감 업무)')
-        _bottom_button('공문 작성', 'ph.pen-nib-bold', self._open_document_editor,
+        _bottom_button('공문', 'ph.pen-nib-bold', self._open_document_editor,
                        '공문 작성 창 (AI 초안·공문 캡처)')
-        _bottom_button('지난 기록', 'ph.clock-counter-clockwise-bold', self._show_history,
-                       '지난 업무(삭제한 업무 되살리기) · 작성 공문(저장한 공문)')
+        _bottom_button('예산', 'ph.currency-krw-bold', self._open_budget_window, '예산 관리 창')
+        from ui.chrome import ai_chat_icon
+        self.btn_ai_bottom = _bottom_button('', 'ph.chat-circle-dots-bold', self._toggle_ai_chat, 'AI 대화 열기')
+        self.btn_ai_bottom.setObjectName('btn_ai_bottom')
+        self.btn_ai_bottom.setIcon(ai_chat_icon(_btn_icon))           # 말풍선 안에 「AI」 (글자 없이)
+        self.btn_ai_bottom.setIconSize(QSize(px(20), px(20)))
+        self.btn_ai_bottom.setStyleSheet(_btn_style + f"""
+            QPushButton[active="true"] {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.18)")}; }}
+        """)
+        self.btn_ai_bottom.setFixedWidth(px(48))          # 글자 없는 버튼은 좁게
 
         # 기존 capture 메서드 호환용 더미 위젯 (숨김)
         self.lbl_capture_result = QLabel('')
@@ -378,8 +387,7 @@ class MemoWindow(QMainWindow):
                 self._flush_memo_save()
         if self._force_memo_mode:
             self.title_bar.btn_mode.hide()
-            self.title_bar.btn_budget.hide()
-            self.title_bar.btn_ai.hide()
+            self.title_bar.btn_history.hide()
 
     def _is_empty_area_click(self, obj, event=None):
         """클릭 대상이 '아무 효과 없는 빈 공간'인지 판정.
@@ -549,7 +557,8 @@ class MemoWindow(QMainWindow):
         self.title_bar.set_active(btn, on)
         if hasattr(self, 'task_list_layout'):
             self._update_urgent_badge()
-        self.title_bar.btn_ai.setVisible(not on and not self._force_memo_mode)
+        if hasattr(self, 'btn_ai_bottom'):
+            self.btn_ai_bottom.setEnabled(not on)      # 메모 모드에서는 AI 대화를 쓰지 않음
         if on:
             self.memo_editor.setFocus()
             btn.setToolTip('업무 모드로 전환')
@@ -1991,6 +2000,16 @@ class MemoWindow(QMainWindow):
         ai_chat_window.host_hidden(self)
 
     # ── AI 대화 창 (ui/ai_chat_window.py — 앱 전체에 하나, 업무창 옆에 붙음) ──
+    def set_ai_button_active(self, on):
+        """AI 대화가 열려 있으면 아래 줄 AI 버튼을 눌린 모양으로."""
+        b = getattr(self, 'btn_ai_bottom', None)
+        if b is None:
+            return
+        b.setProperty('active', bool(on))
+        b.style().unpolish(b)
+        b.style().polish(b)
+        b.setToolTip('AI 대화 숨기기' if on else 'AI 대화 열기')
+
     def _ai_chat_usable(self):
         return not (self._force_memo_mode or self._memo_mode or self.collapsed)
 

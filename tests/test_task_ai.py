@@ -232,15 +232,25 @@ def test_ai_off_disables_input(win, monkeypatch, tmp_path):
     assert c.btn_send.isEnabled()
 
 
-def test_title_bar_ai_button_shows_open_state(win):
+def test_bottom_ai_button_shows_open_state(win):
     w, acw, db, app = win
-    btn = w.title_bar.btn_ai
-    assert not btn.icon().isNull() and btn.toolTip() == 'AI 대화 열기'
+    btn = w.btn_ai_bottom
+    assert not btn.icon().isNull() and btn.text() == '' and btn.toolTip() == 'AI 대화 열기'
     w._toggle_ai_chat()
     assert btn.property('active') is True and btn.toolTip() == 'AI 대화 숨기기'
     w._toggle_ai_chat()
     assert btn.property('active') is False and btn.toolTip() == 'AI 대화 열기'
 
+
+def test_title_bar_has_history_and_bottom_order(win):
+    w, acw, db, app = win
+    bar = w.title_bar
+    assert not hasattr(bar, 'btn_ai') and not hasattr(bar, 'btn_budget') and hasattr(bar, 'btn_history')
+    from PyQt5.QtWidgets import QPushButton
+    lay = w.btn_ai_bottom.parentWidget().layout()
+    names = [lay.itemAt(i).widget().text() for i in range(lay.count())
+             if isinstance(lay.itemAt(i).widget(), QPushButton)]
+    assert names == ['달력', '공문', '예산', '']                 # AI는 아이콘만
 
 def test_ai_chat_remembers_host_window(win):
     w, acw, db, app = win

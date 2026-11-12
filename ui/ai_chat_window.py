@@ -651,9 +651,7 @@ class AiChatWindow(QWidget):
         """붙은 업무창 제목줄의 AI 버튼을 열림(옅은 바탕)/닫힘으로."""
         host = host or self.host
         try:
-            bar = host.title_bar
-            bar.set_active(bar.btn_ai, on)
-            bar.btn_ai.setToolTip('AI 대화 숨기기' if on else 'AI 대화 열기')
+            host.set_ai_button_active(on)              # 업무창 아래 줄의 AI 버튼
         except (AttributeError, RuntimeError):
             pass
 
