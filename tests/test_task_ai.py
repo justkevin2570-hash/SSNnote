@@ -251,6 +251,10 @@ def test_title_bar_has_history_and_bottom_order(win):
     names = [lay.itemAt(i).widget().text() for i in range(lay.count())
              if isinstance(lay.itemAt(i).widget(), QPushButton)]
     assert names == ['달력', '공문', '예산', '']                 # AI는 아이콘만
+    tl = bar.layout()
+    order = [tl.itemAt(i).widget() for i in range(tl.count()) if isinstance(tl.itemAt(i).widget(), QPushButton)]
+    assert order == [bar.btn_mode, bar.btn_history, bar.btn_menu, bar.btn_pin, bar.btn_close]
+    assert bar.btn_mode.width() <= bar.btn_mode.height()                 # 좌우 여백을 줄인 좁은 버튼
 
 def test_ai_chat_remembers_host_window(win):
     w, acw, db, app = win

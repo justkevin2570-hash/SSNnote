@@ -410,7 +410,7 @@ def ai_chat_icon(color, size=64) -> QIcon:
 
 
 class TitleBar(QWidget):
-    """메모 창 제목 줄: 이름 · 오늘 날짜 | 지난 기록 · 메모 모드 · 메뉴 · 항상 위 · 닫기.
+    """메모 창 제목 줄: 이름 · 오늘 날짜 | 메모 모드 · 지난 기록 · 메뉴 · 항상 위 · 닫기.
     아이콘은 모두 같은 얇은 선 아이콘(같은 크기·같은 색)이고, 켜진 버튼(메모 모드·항상 위)만 바탕을 칠한다."""
 
     _ICON_PX = 20
@@ -462,8 +462,9 @@ class TitleBar(QWidget):
         layout.addSpacing(4)
         layout.addWidget(self.badge, 0, Qt.AlignVCenter)
         layout.addStretch()
-        layout.addWidget(self.btn_history, 0, Qt.AlignVCenter)
+        # 이 창의 상태(메모 모드) → 여는 기능(지난 기록) → 메뉴 → 창 다루기(핀 · 닫기)
         layout.addWidget(self.btn_mode, 0, Qt.AlignVCenter)
+        layout.addWidget(self.btn_history, 0, Qt.AlignVCenter)
         layout.addWidget(btn_menu, 0, Qt.AlignVCenter)
         layout.addWidget(self.btn_pin, 0, Qt.AlignVCenter)
         layout.addWidget(self.btn_close, 0, Qt.AlignVCenter)
