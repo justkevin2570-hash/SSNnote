@@ -84,6 +84,9 @@ class C:
     ACCENT_LINE = '#C7CCF7'
     NEG         = '#BE123C'
     WARN_BG     = '#FFF7E0'
+    NAV_LINE    = '#FCDDB4'    # 왼쪽 세부항목 테두리 (옅은 주황)
+    NAV_LINE_HI = '#F9BE7C'
+    NAV_LINE_ON = '#F59E0B'    # 선택한 세부항목
 
 
 # ── 전체 QSS ─────────────────────────────────────────────────────
@@ -142,9 +145,9 @@ STYLE = f"""
     }}
     QFrame#Proposal {{ background: {C.ACCENT_SOFT}; border: 1px solid {C.ACCENT_LINE}; border-radius: 8px; }}
 
-    QFrame#Nav {{ background: transparent; border: none; border-radius: 10px; }}
-    QFrame#Nav:hover {{ background: {C.HOVER}; }}
-    QFrame#Nav[active="true"] {{ background: {C.ACCENT_SOFT}; }}
+    QFrame#Nav {{ background: transparent; border: 1px solid {C.NAV_LINE}; border-radius: 10px; }}
+    QFrame#Nav:hover {{ background: {C.HOVER}; border-color: {C.NAV_LINE_HI}; }}
+    QFrame#Nav[active="true"] {{ background: {C.ACCENT_SOFT}; border-color: {C.NAV_LINE_ON}; }}
     QLabel#NavName {{ font-weight: 700; }}
     QFrame#Nav[active="true"] QLabel#NavName {{ color: {C.ACCENT_HI}; }}
     QLabel#NavMeta {{ color: {C.MUTED}; font-size: 10pt; }}
@@ -521,7 +524,7 @@ def _sizes():
         meta.setStyleSheet(STYLE)
         meta.ensurePolished()
         nav_pct = fm.horizontalAdvance('100%') + px(10)
-        nav_w = max(px(220), meta.fontMetrics().horizontalAdvance(meta.text()) + px(40))
+        nav_w = max(px(220), meta.fontMetrics().horizontalAdvance(meta.text()) + px(44))   # 안쪽 여백 + 테두리
         _SIZES = {'w': w, 'min': m, 'pct_lbl': pct_lbl, 'btn_w': btn_w, 'btn_wide': btn_wide, 'btn_h': btn_h,
                   'row_h': max(px(_ROW_H), btn_h + px(12)), 'nav_w': nav_w, 'nav_pct': nav_pct}
     return _SIZES
@@ -899,7 +902,7 @@ class BudgetWindow(QMainWindow):
         nav_box = QWidget()
         self.nav_layout = QVBoxLayout(nav_box)
         self.nav_layout.setContentsMargins(0, 0, 0, 0)
-        self.nav_layout.setSpacing(2)
+        self.nav_layout.setSpacing(5)
         nav_scroll.setWidget(nav_box)
         nl.addWidget(nav_scroll, 1)
         bl.addWidget(self.nav_card)
