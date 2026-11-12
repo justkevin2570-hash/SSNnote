@@ -159,25 +159,34 @@ def _cell(w, iid):
     return w._row_refs[iid]['desc']
 
 
-def test_row_is_collapsed_by_default_and_shows_summary(win):
+def test_row_is_collapsed_by_default_without_summary(win):
     w, db, budget, app = win
     iid = _open_one_item(w, db, spent=150000)                    # 먼저 있던 150,000원 (명목 없음)
     db.add_budget_expense(iid, 150000, '체육대회', '2026-09-12')  # 집행액 300,000원
     w.refresh()
     cell = _cell(w, iid)
     assert cell._table.isRowHidden(cell._row + 1)                    # 접힌 상태가 기본
-    assert cell.lbl_sum.text() == '사용 1건' and cell.btn_toggle.text() == '협의회비'
+    assert cell.lbl_sum.text() == '' and cell.btn_toggle.text() == '협의회비'
     assert cell._table.rowHeight(cell._row) == budget._sizes()['row_h']   # 항목 줄 높이는 그대로
-    labels = ' '.join(lb.text() for lb in cell.detail.findChildren(type(cell.lbl_sum)))
-    assert '명목 없음 150,000원' in labels                                  # 펼치면 명목 없는 금액이 보임
+    cell._state['open'] = True
+    cell.set_expenses(cell._expenses)
+    first = cell._dv.itemAt(0).layout()                          # 맨 위 줄 = 명목 없음 (날짜 없이)
+    first_labels = [first.itemAt(i).widget().text() for i in range(first.count())
+                    if isinstance(first.itemAt(i).widget(), type(cell.lbl_sum))]
+    assert first_labels == ['', '명목 없음', '150,000원']
 
 
-def test_summary_shows_unassigned_when_no_records(win):
+def test_summary_warns_only_when_records_exceed_spent(win):
     w, db, budget, app = win
     iid = _open_one_item(w, db, spent=115500)                  # 예전 자료: 쓴 곳 기록 없음
-    assert _cell(w, iid).lbl_sum.text() == '명목 없음 115,500원'
+    assert _cell(w, iid).lbl_sum.text() == ''
     iid2 = _open_one_item(w, db, desc='빈 항목', spent=0)
-    assert _cell(w, iid2).lbl_sum.text() == '사용 내역 없음'
+    assert _cell(w, iid2).lbl_sum.text() == ''
+    db.add_budget_expense(iid2, 5000, '잘못 적음', '2026-09-12')
+    with db._connect() as conn:                                # 집행액을 기록보다 작게 낮춘다 (기록 초과 상황)
+        conn.execute('UPDATE budget_items SET spent=0 WHERE id=?', (iid2,))
+    w.refresh()
+    assert _cell(w, iid2).lbl_sum.text() == '⚠ 기록 초과'
 
 
 def test_toggle_expands_and_grows_row_then_folds_back(win):

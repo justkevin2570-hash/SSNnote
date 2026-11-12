@@ -2186,14 +2186,11 @@ class _DescCell(QWidget):
         self._expenses = list(expenses)
         used = sum(e['amount'] for e in self._expenses)
         unassigned = int(self._item['spent']) - used
-        n = len(self._expenses)
-        if n:
-            summary = f'사용 {n}건'
-        elif unassigned:
-            summary = f'명목 없음 {_fmt(unassigned)}원'
+        if unassigned < 0:
+            self.lbl_sum.setText('⚠ 기록 초과')
+            self.lbl_sum.setStyleSheet(f'color: {C.NEG}; font-size: 10pt; background: transparent;')
         else:
-            summary = '사용 내역 없음'
-        self.lbl_sum.setText(summary)
+            self.lbl_sum.setText('')
         self.btn_toggle.setText(self._item['description'])
         self.btn_toggle.setIcon(qta.icon('fa5s.chevron-down' if self._open() else 'fa5s.chevron-right', color=C.MUTED))
         self.btn_toggle.setIconSize(QSize(9, 9))
@@ -2214,15 +2211,12 @@ class _DescCell(QWidget):
 
     def _rebuild_detail(self, unassigned):
         self._clear_layout(self._dv)
-        if not self._expenses:
-            hint = QLabel('아직 쓴 곳을 적은 사용 내역이 없어요. [수정]에서 이번에 쓴 금액과 쓴 곳을 넣으면 여기에 쌓입니다.')
-            hint.setWordWrap(True)
-            hint.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt; background: transparent;')
-            self._dv.addWidget(hint)
+        if unassigned > 0:
+            self._dv.addLayout(self._entry_row('', '명목 없음', unassigned))
         more = bool(self._state.get('more'))
         shown = self._expenses if more else self._expenses[:self.SHOW]
         for ex in shown:
-            self._dv.addLayout(self._entry_row(ex))
+            self._dv.addLayout(self._entry_row(ex['spent_on'] or '-', ex['purpose'], ex['amount'], ex['id']))
         if len(self._expenses) > self.SHOW:
             left = len(self._expenses) - self.SHOW
             btn = QPushButton('접기' if more else f'더 보기 ({left}건 더)')
@@ -2232,28 +2226,31 @@ class _DescCell(QWidget):
                               f'padding: 0; color: {C.ACCENT_HI}; font-size: 10pt; }}')
             btn.clicked.connect(self._toggle_more)
             self._dv.addWidget(btn)
-        if unassigned:
-            color = C.NEG if unassigned < 0 else C.MUTED
-            lb = QLabel(f'명목 없음 {_fmt(unassigned)}원' + ('' if unassigned >= 0 else '  (기록보다 집행액이 작아요)'))
-            lb.setStyleSheet(f'color: {color}; font-size: 10pt; background: transparent;')
-            self._dv.addWidget(lb)
         if unassigned < 0:
             warn = QLabel('⚠ 기록 합계가 집행액보다 큽니다. 집행액을 직접 낮췄다면 기록을 확인하세요.')
             warn.setWordWrap(True)
             warn.setStyleSheet(f'color: {C.NEG}; font-size: 10pt; background: transparent;')
             self._dv.addWidget(warn)
 
-    def _entry_row(self, ex):
+    def _entry_row(self, date, purpose, amount, eid=None):
         row = QHBoxLayout()
         row.setSpacing(8)
-        d = QLabel(ex['spent_on'] or '-')
+        d = QLabel(date)
         d.setFixedWidth(88)
         d.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt; background: transparent;')
-        p = QLabel(ex['purpose'] or '(쓴 곳 미입력)')
-        p.setStyleSheet(f'color: {C.TEXT if ex["purpose"] else C.FAINT}; font-size: 10pt; background: transparent;')
-        a = QLabel(f"{_fmt(ex['amount'])}원")
+        p = QLabel(purpose or '(쓴 곳 미입력)')
+        p.setStyleSheet(f'color: {C.TEXT if purpose or eid is None else C.FAINT}; font-size: 10pt; background: transparent;')
+        a = QLabel(f"{_fmt(amount)}원")
         a.setStyleSheet(f'color: {C.TEXT}; font-size: 10pt; font-weight: 700; background: transparent;')
         a.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row.addWidget(d)
+        row.addWidget(p, 1)
+        row.addWidget(a)
+        if eid is None:
+            spacer = QWidget()
+            spacer.setFixedSize(20, 20)
+            row.addWidget(spacer)
+            return row
         x = QPushButton('✕')
         x.setFlat(True)
         x.setFixedSize(20, 20)
@@ -2261,10 +2258,7 @@ class _DescCell(QWidget):
         x.setToolTip('이 사용 내역을 지웁니다 (집행액도 그만큼 줄어요)')
         x.setStyleSheet(f'QPushButton {{ border: none; background: transparent; color: {C.FAINT}; }} '
                         f'QPushButton:hover {{ color: {C.NEG}; }}')
-        x.clicked.connect(lambda _, eid=ex['id']: self._on_delete(eid))
-        row.addWidget(d)
-        row.addWidget(p, 1)
-        row.addWidget(a)
+        x.clicked.connect(lambda _, eid=eid: self._on_delete(eid))
         row.addWidget(x)
         return row
 
