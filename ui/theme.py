@@ -76,10 +76,21 @@ class T:
 
 
 # 메모 창 배경 색상표 (메뉴의 색상 선택).
-PALETTE = [
-    '#FDD663', '#FEFFA7', '#CCFF90', '#A8F0E8',
-    '#AECBFA', '#D7AEFB', '#FDCFE8', '#E6C9A8', '#AAAAAA', '#DDDDDD', '#FFFFFF',
-]
+# 메모 배경색: 밝기를 맞춘 파스텔 — 따뜻한 색 → 차가운 색 → 무채색 순서
+PALETTE_NAMES = {
+    '#FFF5A5': '노랑', '#FFE0A3': '귤', '#FFD8C8': '복숭아', '#FBD5E3': '분홍', '#E3DAF7': '라벤더',
+    '#D2E4FA': '하늘', '#CDEFE4': '민트', '#E0F0C0': '연두', '#EEE3D0': '모래', '#E6E6E3': '연회색',
+    '#FFFFFF': '흰색',
+}
+PALETTE = list(PALETTE_NAMES)
+DEFAULT_NOTE_COLOR = '#FFF5A5'
+
+# 예전 색(v3.05까지) → 가장 가까운 새 색. db.init_db가 저장된 색을 한 번 옮긴다.
+OLD_COLOR_MAP = {
+    '#FEFFA7': '#FFF5A5', '#FDD663': '#FFE0A3', '#CCFF90': '#E0F0C0', '#A8F0E8': '#CDEFE4',
+    '#AECBFA': '#D2E4FA', '#D7AEFB': '#E3DAF7', '#FDCFE8': '#FBD5E3', '#E6C9A8': '#EEE3D0',
+    '#AAAAAA': '#E6E6E3', '#DDDDDD': '#E6E6E3',
+}
 
 
 # ── 다크 테마 ──────────────────────────────────────────────────

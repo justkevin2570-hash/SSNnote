@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineEdi
 
 from .ai_app import AppAdapter
 from .common import DEFAULT_NOTE_FONT, NOTE_FONTS, TITLE_BAR_HEIGHT, note_font, px
-from .theme import T, note_color, tc, tct
+from .theme import DEFAULT_NOTE_COLOR, T, note_color, tc, tct
 
 SIDE_KEY, SIZE_KEY, OPEN_KEY = 'ai_chat_side', 'ai_chat_size', 'ai_chat_open'
 HOST_KEY = 'ai_chat_host'           # 마지막으로 붙어 있던 업무창 id
@@ -179,14 +179,11 @@ class AiChatWindow(QWidget):
         self.title.setObjectName('AiTitle')
         self.btn_more = self._icon('ph.dots-three-bold', '붙는 자리 · 배경색·글자·줄간격 · 대화 지우기')
         self.btn_more.clicked.connect(self._more_menu)
-        self.btn_hide = self._icon('ph.x-bold', '숨기기 (업무창 제목줄의 AI 버튼으로 다시 열기)')
+        self.btn_hide = self._icon('ph.x-bold', '')
         self.btn_hide.clicked.connect(self.hide_by_user)
-        hl.addWidget(self.title_icon)
-        hl.addSpacing(4)
-        hl.addWidget(self.title)
-        hl.addStretch()
-        hl.addWidget(self.btn_more, 0, Qt.AlignVCenter)
-        hl.addWidget(self.btn_hide, 0, Qt.AlignVCenter)
+        self._head_layout = hl
+        self._head_mirrored = None
+        self._layout_head(False)
         v.addWidget(self.head)
 
         body = QVBoxLayout()
@@ -304,10 +301,36 @@ class AiChatWindow(QWidget):
         c = self.color
         if c == SAME_AS_NOTE:
             try:
-                c = getattr(self.host, '_bg_color', '') or '#FEFFA7'
+                c = getattr(self.host, '_bg_color', '') or DEFAULT_NOTE_COLOR
             except RuntimeError:
-                c = '#FEFFA7'
+                c = DEFAULT_NOTE_COLOR
         return note_color(c) if c else tc('#FFFFFF')
+
+    def _layout_head(self, mirrored):
+        """머리줄 배치. 업무창 왼쪽에 붙으면 좌우를 뒤집어 ✕ · ⋯ 를 바깥(왼쪽) 끝에 둔다
+        — 업무창 제목줄 버튼과 맞붙어 한 줄로 섞여 보이지 않게."""
+        if mirrored == self._head_mirrored:
+            return
+        self._head_mirrored = mirrored
+        hl = self._head_layout
+        while hl.count():
+            hl.takeAt(0)
+        if mirrored:
+            hl.setContentsMargins(6, 0, 12, 0)
+            hl.addWidget(self.btn_hide, 0, Qt.AlignVCenter)
+            hl.addWidget(self.btn_more, 0, Qt.AlignVCenter)
+            hl.addStretch()
+            hl.addWidget(self.title_icon)
+            hl.addSpacing(4)
+            hl.addWidget(self.title)
+        else:
+            hl.setContentsMargins(12, 0, 6, 0)
+            hl.addWidget(self.title_icon)
+            hl.addSpacing(4)
+            hl.addWidget(self.title)
+            hl.addStretch()
+            hl.addWidget(self.btn_more, 0, Qt.AlignVCenter)
+            hl.addWidget(self.btn_hide, 0, Qt.AlignVCenter)
 
     def _apply_style(self):
         bg = self._bg()
@@ -402,10 +425,8 @@ class AiChatWindow(QWidget):
 
     # ── 대화 칸 ───────────────────────────────────────────────────
     def _show_welcome(self):
+        """빈 대화 칸 (안내 문구 없이 — 입력칸 안내 글로 충분)."""
         self._clear_widgets()
-        self._add_msg('welcome', '업무에 대해 묻거나 시켜 보세요.\n'
-                                 '예: 이번 주 마감 알려줘 · 다음 주 금요일까지 공문 회신 추가해줘 · '
-                                 '협의회 자료 마감을 수요일 3시로 바꿔줘')
 
     def _clear_widgets(self):
         for w in self._msgs:
@@ -525,6 +546,7 @@ class AiChatWindow(QWidget):
         self._place_grip()
 
     def _place_grip(self):
+        self._layout_head(self.side != 'inside' and self._where == 'left')
         if self.side == 'inside' or self._where not in ('right', 'left', 'bottom', 'top'):
             return
         g = px(6)
