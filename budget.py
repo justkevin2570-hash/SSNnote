@@ -857,6 +857,9 @@ class BudgetWindow(QMainWindow):
         self._expense_ui = {}             # 이번 창을 여는 동안만 기억: 펼침 · 더 보기 (창을 닫으면 사라짐)
         self._restore_window_state()
         self._init_ui()
+        self._apply_ai_btn()
+        from ui import ai_connect
+        ai_connect.on_change(self._on_ai_changed)   # 공문 작성 창에서 바꿔도 바로 맞춤
         self.refresh()
         keep_light(self)  # 예산 창은 라이트 전용 (다크 테마에서도 원래 모습 유지)
 
@@ -903,9 +906,16 @@ class BudgetWindow(QMainWindow):
         self.btn_more.setFixedSize(34, 34)
         self.btn_more.setToolTip('원가통계비목 목록 · 전체 지우기')
         self.btn_more.clicked.connect(lambda: self._exec_menu(self._more_menu(), self.btn_more))
-        for b in (self.btn_import, self.btn_manage):
+        # AI 연결 (공문 작성 창과 같은 메뉴 · 같은 설정)
+        self.btn_ai = QPushButton()
+        self.btn_ai.setIconSize(QSize(9, 9))
+        self.btn_ai.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · Claude 구독)')
+        self.btn_ai.clicked.connect(lambda: self._ai_menu())
+        for b in (self.btn_ai, self.btn_import, self.btn_manage):
             b.setFixedHeight(34)
             b.setCursor(Qt.PointingHandCursor)
+        header.addWidget(self.btn_ai)
+        header.addSpacing(6)
         header.addWidget(self.btn_import)
         header.addWidget(self.btn_manage)
         header.addWidget(self.btn_more)
@@ -1090,6 +1100,34 @@ class BudgetWindow(QMainWindow):
         except Exception:
             return False
 
+    # ── AI 연결 버튼 ───────────────────────────────────────────────
+    def _apply_ai_btn(self):
+        from ui import ai_connect
+        try:
+            text, state = ai_connect.status()
+        except Exception:
+            text, state = 'AI 꺼짐 · 연결하기', 'off'
+        icon, color = {'on': ('fa5s.circle', '#16A34A'), 'legacy': ('fa5s.exclamation-circle', '#D97706')}.get(
+            state, ('fa5s.circle', C.FAINT))
+        self.btn_ai.setText(text)
+        self.btn_ai.setIcon(qta.icon(icon, color=color))
+        self.btn_ai.setIconSize(QSize(12, 12) if state == 'legacy' else QSize(9, 9))
+
+    def _ai_menu(self):
+        from ui import ai_connect
+        choice = ai_connect.show_menu(self, self.btn_ai, STYLE)
+        if choice == 'none':
+            ai_connect.turn_off()
+        elif choice:
+            ai_connect.connect(self, choice)
+
+    def _on_ai_changed(self):
+        try:
+            self._apply_ai_btn()
+            self._update_ask_enabled()
+        except RuntimeError:          # 이미 닫힌 창
+            pass
+
     def _update_ask_enabled(self):
         busy = self._ask_worker is not None and self._ask_worker.isRunning()
         ready = self._ai_ready()
@@ -1097,7 +1135,7 @@ class BudgetWindow(QMainWindow):
             w.setEnabled(ready and not busy)
         self.ask_input.setPlaceholderText(
             '예산에 대해 묻거나 지시하세요 — 예: 협의회비 잔액 30만원으로 맞춰줘'
-            if ready else 'AI가 꺼져 있어요 — 공문 작성 창 → [AI 설정]에서 연결하면 쓸 수 있어요')
+            if ready else 'AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]를 눌러 연결하면 쓸 수 있어요')
 
     def _ask(self, question):
         q = (question or '').strip()

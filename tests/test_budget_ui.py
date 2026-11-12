@@ -491,3 +491,33 @@ def test_add_item_from_group_tab_defaults_to_group_member(win, monkeypatch):
     monkeypatch.setattr(budget, '_ItemDialog', Fake)
     w._open_add_item()
     assert seen['cat'] == _cat_id(db, 'B')
+
+
+# ── 예산 창 AI 연결 버튼 (공문 작성 창과 같은 메뉴 · 같은 설정) ──────────
+def test_ai_button_shows_status_and_follows_changes(win, monkeypatch, tmp_path):
+    w, db, budget, _ = win
+    import ai_client
+    from ui import ai_connect
+    monkeypatch.setattr(ai_client, 'APPDATA_DIR', str(tmp_path))
+    monkeypatch.setattr(ai_client, 'AI_MODE_FILE', str(tmp_path / 'ai_mode.txt'))
+    monkeypatch.setattr(ai_client, '_read_mode_file', lambda: open(tmp_path / 'ai_mode.txt').read().strip()
+                        if (tmp_path / 'ai_mode.txt').exists() else 'none')
+    monkeypatch.setattr(ai_connect, 'load_external_model_name', lambda: 'sonnet')
+    ai_connect.turn_off()
+    assert w.btn_ai.text() == 'AI 꺼짐 · 연결하기'
+    assert not w.ask_input.isEnabled()
+
+    ai_client.save_ai_mode('claude_code')                     # 다른 창(공문 작성)에서 연결했다고 치고
+    ai_connect.notify_changed()
+    assert w.btn_ai.text() == 'Claude 구독 · sonnet'
+    assert w.ask_input.isEnabled()
+
+    monkeypatch.setattr(ai_connect, 'show_menu', lambda *a, **k: 'none')   # 메뉴에서 [AI 끄기]
+    w._ai_menu()
+    assert ai_client.load_ai_mode() == 'none' and w.btn_ai.text() == 'AI 꺼짐 · 연결하기'
+
+    seen = {}
+    monkeypatch.setattr(ai_connect, 'show_menu', lambda *a, **k: 'openai')
+    monkeypatch.setattr(ai_connect, 'connect', lambda parent, mode, say=None: seen.setdefault('mode', mode))
+    w._ai_menu()
+    assert seen['mode'] == 'openai'

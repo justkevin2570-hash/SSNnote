@@ -324,7 +324,7 @@ class BudgetImageWorker(QThread):
             return ocr_words(self._ocr_png)
         except ImportError:
             raise RuntimeError('이 PC에서는 Windows 글자 인식을 쓸 수 없습니다.\n'
-                               'AI를 연결하면 이미지로 읽을 수 있어요 (공문 작성 창 → AI 설정).')
+                               'AI를 연결하면 이미지로 읽을 수 있어요 (예산 창 위의 AI 연결 버튼).')
 
     def run(self):
         try:

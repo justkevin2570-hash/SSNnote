@@ -16,15 +16,7 @@ from PyQt5.QtCore import Qt, QTimer, QSize, QEvent, QThread, pyqtSignal
 from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QColor
 from ai_client import (AiStreamThread, PROVIDER_LABELS,
                         load_ai_mode, save_ai_mode, legacy_ai_name, load_external_model_name,
-                        load_claude_key, save_claude_key, load_claude_model, save_claude_model,
-                        fetch_claude_models, test_claude,
-                        load_openai_key, save_openai_key, load_openai_model, save_openai_model,
-                        fetch_openai_models, test_openai,
-                        load_opencode_key, save_opencode_key,
-                        load_opencode_model, save_opencode_model,
-                        OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
-                        fetch_opencode_models, save_opencode_model_info, test_opencode,
-                        ClaudeCodeError, claude_code_status, claude_code_login, claude_code_logout,
+                        claude_code_status, claude_code_login, claude_code_logout,
                         install_claude_code, test_claude_code, CLAUDE_CODE_MODELS, CLAUDE_CODE_INSTALL_PAGE,
                         load_claude_code_model, save_claude_code_model,
                         load_claude_code_path, save_claude_code_path, masking_required)
@@ -806,21 +798,9 @@ class PolishDialog(QDialog):
         return out
 
 
-# AI 제공자별 설정 정보
-_PROVIDERS = {
-    'opencode': {'desc': '해당 API키 필요'},
-    'claude_code': {'desc': '유료 구독 필요'},
-    'claude':   {'desc': '해당 API키 필요',
-                 'key_label': 'Anthropic(Claude) API 키를 입력하세요.',
-                 'load_key': load_claude_key, 'save_key': save_claude_key,
-                 'load_model': load_claude_model, 'save_model': save_claude_model,
-                 'fetch': fetch_claude_models, 'test': test_claude},
-    'openai':   {'desc': '해당 API키 필요',
-                 'key_label': 'OpenAI(ChatGPT) API 키를 입력하세요.',
-                 'load_key': load_openai_key, 'save_key': save_openai_key,
-                 'load_model': load_openai_model, 'save_model': save_openai_model,
-                 'fetch': fetch_openai_models, 'test': test_openai},
-}
+# AI 제공자별 설정 정보 (예산 관리 창과 함께 씀)
+from ui.ai_connect import PROVIDERS as _PROVIDERS  # noqa: E402,F401 (테스트·예전 코드가 여기서 찾음)
+from ui import ai_connect  # noqa: E402
 
 
 class DocumentEditorWindow(QMainWindow):
@@ -1072,6 +1052,7 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self._polish_link)
         self.statusBar().showMessage("준비 완료")
         self._apply_ai_mode()
+        ai_connect.on_change(self._on_ai_changed)   # 예산 창 등 다른 곳에서 바꿔도 맞춤
         self._update_draft_button()  # 초기 상태: 빈칸이면 비활성
         self._update_doc_type_chip()
         self._apply_editor_line_height()
@@ -1650,6 +1631,12 @@ class DocumentEditorWindow(QMainWindow):
         fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
         cursor.mergeBlockFormat(fmt)
 
+    def _on_ai_changed(self):
+        try:
+            self._apply_ai_mode()
+        except RuntimeError:          # 이미 닫힌 창
+            pass
+
     def _apply_ai_mode(self):
         """현재 AI 모드에 따라 AI 상태 표시와 AI 관련 버튼을 맞춘다."""
         mode = load_ai_mode()
@@ -1679,40 +1666,18 @@ class DocumentEditorWindow(QMainWindow):
 
     # ── AI 설정 메뉴 ──
     def _show_ai_settings_menu(self):
-        from PyQt5.QtWidgets import QMenu
-        mode = load_ai_mode()
-        menu = QMenu(self)
-        menu.setStyleSheet(_style())
-        title = menu.addAction('AI 연결')
-        title.setEnabled(False)
-        acts = {}
-        for key in ('opencode', 'claude', 'openai', 'claude_code'):
-            mark = '✓  ' if mode == key else '     '
-            a = menu.addAction(f'{mark}{PROVIDER_LABELS[key]}\t{_PROVIDERS[key]["desc"]}')
-            acts[a] = key
-        menu.addSeparator()
-        act_none = menu.addAction(('✓  ' if mode == 'none' else '     ') + 'AI 끄기')
-        menu.addSeparator()
         has_notes = bool(doc_style.load_style_notes())
-        act_style = menu.addAction(('✓  ' if has_notes else '     ') + '나만의 작성 규칙…')
-
-        action = menu.exec_(self.btn_apikey.mapToGlobal(self.btn_apikey.rect().bottomLeft()))
-        if action is None:
+        choice = ai_connect.show_menu(self, self.btn_apikey, _style(),
+                                      extra=[('style', ('✓  ' if has_notes else '     ') + '나만의 작성 규칙…')])
+        if choice is None:
             return
-        if action == act_style:
+        if choice == 'style':
             self._edit_style_notes()
-        elif action == act_none:
-            save_ai_mode('none')
-            self._apply_ai_mode()
+        elif choice == 'none':
+            ai_connect.turn_off()
             self.statusBar().showMessage('AI를 껐습니다 — 자동 초안은 뼈대만 넣습니다.')
-        elif acts.get(action) == 'opencode':
-            self._setup_opencode_ai()
-        elif acts.get(action) == 'claude':
-            self._setup_claude_ai()
-        elif acts.get(action) == 'openai':
-            self._setup_openai_ai()
-        elif acts.get(action) == 'claude_code':
-            self._setup_claude_code_ai()
+        else:
+            ai_connect.connect(self, choice, self.statusBar().showMessage)
 
     def _edit_style_notes(self):
         """나만의 작성 규칙 — 자동 초안·AI 대화 때마다 AI에 함께 보낸다."""
@@ -1773,50 +1738,10 @@ class DocumentEditorWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
 
     def _setup_keyed_ai(self, mode: str):
-        """Claude·ChatGPT: API 키 → 모델(서버의 최신 목록) → 연결 시험 → 저장."""
-        p = _PROVIDERS[mode]
-        label = PROVIDER_LABELS[mode]
-        dlg = ApiKeyDialog(f'{label} 연결', p['key_label'], p['load_key'](), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        key = dlg.key()
-        if not key:
-            self.statusBar().showMessage(f'{label} API 키가 비어 있습니다.')
-            return
-
-        self._busy(f'{label} 모델 목록을 받는 중...')
-        try:
-            models = p['fetch'](key)
-        finally:
-            self._idle()
-        dlg2 = _ModelSelectDialog(f'{label} 모델 선택', models, p['load_model'](), self,
-                                  subtitle='목록 위쪽이 최신 모델입니다. 공문 작성에는 빠르고 저렴한 모델로 충분해요.')
-        if dlg2.exec_() != dlg2.Accepted or not dlg2.selected_model():
-            return
-        model = dlg2.selected_model()
-
-        self._busy(f'{label} · {model} 연결 확인 중...')
-        try:
-            ok, msg = p['test'](key, model)
-        finally:
-            self._idle()
-        if not ok:
-            self.statusBar().showMessage(f'{label} 연결 실패')
-            QMessageBox.warning(self, f'{label} 연결 실패', msg)
-            return
-        p['save_key'](key, persist=dlg.should_save())
-        p['save_model'](model)
-        save_ai_mode(mode)
-        self._apply_ai_mode()
-        self.statusBar().showMessage(f'{label} · {model} 연결 완료.')
+        ai_connect.connect(self, mode, self.statusBar().showMessage)
 
     def _setup_claude_code_ai(self):
-        """Claude 구독: 이 PC의 Claude Code로 구독 사용 (설치·로그인·확인·저장은 대화상자 안에서)."""
-        dlg = ClaudeCodeDialog(self)
-        if dlg.exec_() != QDialog.Accepted:
-            return
-        self._apply_ai_mode()
-        self.statusBar().showMessage(f'Claude 구독 · {load_external_model_name()} 연결 완료.')
+        ai_connect.connect(self, 'claude_code', self.statusBar().showMessage)
 
     def _setup_claude_ai(self):
         self._setup_keyed_ai('claude')
@@ -1825,66 +1750,8 @@ class DocumentEditorWindow(QMainWindow):
         self._setup_keyed_ai('openai')
 
     def _setup_opencode_ai(self):
-        """OpenCode: 요금제 → API 키 → 모델(서버의 최신 목록) → 연결 시험 → 저장."""
-        plan_keys = list(OPENCODE_PLANS)
-        labels = [OPENCODE_PLANS[k]['label'] for k in plan_keys]
-        label, ok = QInputDialog.getItem(self, 'OpenCode 연결', '사용 중인 OpenCode 요금제를 고르세요:',
-                                         labels, plan_keys.index(load_opencode_plan()), False)
-        if not ok:
-            return
-        plan = plan_keys[labels.index(label)]
+        ai_connect.connect(self, 'opencode', self.statusBar().showMessage)
 
-        dlg = ApiKeyDialog('OpenCode 연결', 'OpenCode API 키를 입력하세요.', load_opencode_key(), self)
-        if dlg.exec_() != dlg.Accepted:
-            return
-        key = dlg.key()
-        if not key:
-            self.statusBar().showMessage('OpenCode API 키가 비어 있습니다.')
-            return
-
-        self._busy('OpenCode 모델 목록을 받는 중...')
-        try:
-            models = fetch_opencode_models(plan)
-        finally:
-            self._idle()
-
-        def mark(m):
-            tags = []
-            if m['id'] == 'claude-haiku-5-5':
-                tags.append('추천')
-            if m['image']:
-                tags.append('🖼 이미지')
-            if m['id'].startswith('deepseek'):
-                tags.append('⚠ 지역 설정 필요')     # OpenCode 기본(유럽·미국)에서는 막혀 있음
-            return m['id'] + ('   ' + ' · '.join(tags) if tags else '')
-        shown = [mark(m) for m in models]
-        current = next((mark(m) for m in models if m['id'] == load_opencode_model()), '')
-        dlg2 = _ModelSelectDialog('OpenCode 모델 선택', shown, current, self,
-                                  subtitle='🖼 표시가 있는 모델은 캡처한 공문 이미지도 읽을 수 있어요.')
-        if dlg2.exec_() != dlg2.Accepted:
-            return
-        picked = dlg2.selected_model().split()[0] if dlg2.selected_model() else ''
-        if not picked:
-            return
-
-        if any(m['image'] is not None for m in models):      # 서버 목록을 받았을 때만 (요청 방식·이미지 지원)
-            save_opencode_model_info(models)
-        self._busy(f'OpenCode · {picked} 연결 확인 중...')
-        try:
-            ok, msg = test_opencode(plan, key, picked)
-        finally:
-            self._idle()
-        if not ok:
-            self.statusBar().showMessage('OpenCode 연결 실패')
-            QMessageBox.warning(self, 'OpenCode 연결 실패', msg)
-            return
-
-        save_opencode_key(key, persist=dlg.should_save())
-        save_opencode_plan(plan)
-        save_opencode_model(picked)
-        save_ai_mode('opencode')
-        self._apply_ai_mode()
-        self.statusBar().showMessage(f'OpenCode · {picked} 연결 완료.')
     # ── 저장 ──
     def save_document(self):
         title = self.title_input.text().strip()

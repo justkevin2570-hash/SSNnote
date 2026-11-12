@@ -164,3 +164,20 @@ def test_download_refuses_untrusted_or_unsigned(tmp_path):
         updater.download({'download_url': 'https://evil.example/SSNnote_Setup.exe', 'sha256': 'AA'}, str(tmp_path / 'x'))
     with pytest.raises(RuntimeError, match='SHA256'):
         updater.download({'download_url': GOOD_URL, 'sha256': ''}, str(tmp_path / 'x'))
+
+
+# ── 번호 바꾸기: 예전 vX.YY = 새 v0.X.YY ──────────────────────────
+@pytest.mark.parametrize('remote, local, newer', [
+    ('v0.3.03', 'v3.02', True),        # 다리 버전(v3.02)을 깐 PC가 새 번호를 받는다
+    ('v0.3.02', 'v3.01', True),
+    ('v0.3.01', 'v3.01', False),       # 같은 버전
+    ('v3.02', 'v0.3.03', False),       # 새 번호에서 옛 번호로 내려가지 않음
+    ('v0.3.10', 'v0.3.09', True),
+    ('v0.4.01', 'v0.3.99', True),
+    ('v2.10', 'v2.9', True),           # 예전 번호끼리도 그대로
+    ('v1.0.01', 'v0.9.99', True),
+    ('vX', 'v3.01', False),            # 읽을 수 없으면 업데이트 안 함
+])
+def test_version_numbering_switch(remote, local, newer):
+    import updater
+    assert updater.is_newer_version(remote, local) is newer

@@ -135,12 +135,19 @@ def fetch_version_info() -> dict | None:
     return data
 
 
+def version_key(tag: str) -> tuple:
+    """버전 → 비교용 정수 튜플. 예전 번호 vX.YY는 새 번호 v0.X.YY와 같게 본다.
+    (v3.01 = v0.3.01 → v0.3.03이 v3.01보다 새 버전. v2.10 > v2.9도 그대로)"""
+    parts = [int(x) for x in tag.strip().lstrip('vV').split('.')]
+    if len(parts) == 2:
+        parts = [0] + parts
+    return tuple(parts)
+
+
 def is_newer_version(remote_tag: str, local_tag: str) -> bool:
-    """버전 비교 (정수 튜플 — v2.10 > v2.9). 파싱 실패 시 False."""
+    """remote가 local보다 새 버전인지. 파싱 실패 시 False."""
     try:
-        r_parts = [int(x) for x in remote_tag.lstrip('v').split('.')]
-        l_parts = [int(x) for x in local_tag.lstrip('v').split('.')]
-        return tuple(r_parts) > tuple(l_parts)
+        return version_key(remote_tag) > version_key(local_tag)
     except Exception:
         return False
 
