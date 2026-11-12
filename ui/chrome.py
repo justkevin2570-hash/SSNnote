@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QFrame, QGraphicsOpacityEffect
 )
 from PyQt5.QtCore import Qt, QTimer, QPoint, QSize, QPropertyAnimation, QEasingCurve, QRectF
-from PyQt5.QtGui import QFont, QColor, QPainter, QPixmap, QCursor
+from PyQt5.QtGui import QFont, QColor, QPainter, QPixmap, QCursor, QIcon, QPainterPath, QPen
 import qtawesome as qta
 from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR, px
 from .dates import calc_dday
@@ -374,6 +374,41 @@ class UrgentBadge(QWidget):
         p.end()
 
 
+def ai_chat_icon(color, size=64) -> QIcon:
+    """말풍선 안에 「AI」 글자 — 제목줄의 다른 선 아이콘(Phosphor bold)과 같은 굵기·색."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setRenderHint(QPainter.TextAntialiasing)
+    c = QColor(color)
+    u = size / 64.0
+    pen = QPen(c, 5.2 * u)
+    pen.setJoinStyle(Qt.RoundJoin)
+    pen.setCapStyle(Qt.RoundCap)
+    p.setPen(pen)
+    # 말풍선: 둥근 사각형 + 왼쪽 아래 꼬리 (글자가 작은 아이콘에서도 읽히게 말풍선을 크게)
+    body = QRectF(4 * u, 6 * u, 56 * u, 42 * u)
+    path = QPainterPath()
+    path.addRoundedRect(body, 11 * u, 11 * u)
+    tail = QPainterPath()
+    tail.moveTo(14 * u, 47 * u)
+    tail.lineTo(11 * u, 59 * u)
+    tail.lineTo(27 * u, 47 * u)
+    path = path.united(tail)
+    p.drawPath(path)
+    # 글자 「AI」
+    f = QFont('Pretendard GOV')
+    f.setFamilies(['Pretendard GOV', 'Pretendard', 'Segoe UI', 'Malgun Gothic'])
+    f.setWeight(QFont.Black)
+    f.setPixelSize(int(30 * u))
+    p.setFont(f)
+    p.setPen(c)
+    p.drawText(body.adjusted(0, -1 * u, 0, 0), Qt.AlignCenter, 'AI')
+    p.end()
+    return QIcon(pm)
+
+
 class TitleBar(QWidget):
     """메모 창 제목 줄: 이름 · 오늘 날짜 | AI 대화 · 예산 · 메모 모드 · 메뉴 · 항상 위 · 닫기.
     아이콘은 모두 같은 얇은 선 아이콘(같은 크기·같은 색)이고, 켜진 버튼(메모 모드·항상 위)만 바탕을 칠한다."""
@@ -418,7 +453,8 @@ class TitleBar(QWidget):
         self.btn_budget = self._icon_button('ph.currency-krw-bold', '예산 관리')
         self.btn_budget.setObjectName('btn_budget')
         self.btn_budget.clicked.connect(parent._open_budget_window)
-        self.btn_ai = self._icon_button('ph.chat-circle-dots-bold', 'AI 대화 열기/숨기기')
+        self.btn_ai = self._icon_button('ph.chat-circle-dots-bold', 'AI 대화 열기')
+        self.btn_ai.setIcon(ai_chat_icon(self._icon_color()))           # 말풍선 안에 「AI」
         self.btn_ai.setObjectName('btn_ai')
         self.btn_ai.clicked.connect(parent._toggle_ai_chat)
 
@@ -479,10 +515,13 @@ class TitleBar(QWidget):
         self.label.setFont(f)
 
     def set_active(self, button, on: bool, icon_name=None):
-        """켜진 상태(메모 모드·항상 위)는 진한 아이콘 + 옅은 바탕."""
+        """켜진 상태(메모 모드·항상 위·AI 대화 열림)는 진한 아이콘 + 옅은 바탕."""
         if icon_name:
             button._icon_name = icon_name
-        button.setIcon(qta.icon(button._icon_name, color=self._icon_color(on)))
+        if button is getattr(self, 'btn_ai', None):
+            button.setIcon(ai_chat_icon(self._icon_color(on)))
+        else:
+            button.setIcon(qta.icon(button._icon_name, color=self._icon_color(on)))
         button.setProperty('active', on)
         button.style().unpolish(button)
         button.style().polish(button)

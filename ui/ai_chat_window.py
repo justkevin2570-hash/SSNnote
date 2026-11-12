@@ -307,6 +307,8 @@ class AiChatWindow(QWidget):
 
     def attach(self, host, remember=True):
         """host 업무창 옆에 붙여 보인다."""
+        if self.host is not None and self.host is not host:
+            self._mark_host(False)                     # 전에 붙어 있던 업무창의 버튼은 끔
         self.host = host
         try:
             pin = bool(getattr(host, 'pin_active', False))
@@ -318,6 +320,7 @@ class AiChatWindow(QWidget):
         self.show()
         self.follow()
         self.raise_()
+        self._mark_host(True)
         self._update_enabled()
         if remember:
             _save(OPEN_KEY, '1')
@@ -333,6 +336,24 @@ class AiChatWindow(QWidget):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self._place_grip()
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._mark_host(True)
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self._mark_host(False)
+
+    def _mark_host(self, on, host=None):
+        """붙은 업무창 제목줄의 AI 버튼을 열림(옅은 바탕)/닫힘으로."""
+        host = host or self.host
+        try:
+            bar = host.title_bar
+            bar.set_active(bar.btn_ai, on)
+            bar.btn_ai.setToolTip('AI 대화 숨기기' if on else 'AI 대화 열기')
+        except (AttributeError, RuntimeError):
+            pass
 
     # ── AI 연결 ───────────────────────────────────────────────────
     def _apply_ai_status(self):

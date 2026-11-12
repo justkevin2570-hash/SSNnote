@@ -205,3 +205,13 @@ def test_ai_off_disables_input(win, monkeypatch, tmp_path):
     ai_client.save_ai_mode('openai')
     ai_connect.notify_changed()
     assert c.input.isEnabled()
+
+
+def test_title_bar_ai_button_shows_open_state(win):
+    w, acw, db, app = win
+    btn = w.title_bar.btn_ai
+    assert not btn.icon().isNull() and btn.toolTip() == 'AI 대화 열기'
+    w._toggle_ai_chat()
+    assert btn.property('active') is True and btn.toolTip() == 'AI 대화 숨기기'
+    w._toggle_ai_chat()
+    assert btn.property('active') is False and btn.toolTip() == 'AI 대화 열기'
