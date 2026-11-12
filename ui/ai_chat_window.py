@@ -145,6 +145,7 @@ class AiChatWindow(QWidget):
         self._bubbles = []                # 내 질문 말풍선 (폭을 창에 맞춤)
         self._q = ''
         self._pending = []
+        self._pending_del = []
         self._undo = None
         self.color = _setting(COLOR_KEY, '')                     # '' = 업무창과 같게
         self.font_key = _setting(FONT_KEY, DEFAULT_NOTE_FONT) or DEFAULT_NOTE_FONT
@@ -231,6 +232,36 @@ class AiChatWindow(QWidget):
         self.proposal.hide()
         body.addWidget(self.proposal)
 
+        # 지우기 확인 (빨간 칸, 따로 [지우기])
+        self.proposal_del = QFrame()
+        self.proposal_del.setObjectName('ProposalDel')
+        dl = QVBoxLayout(self.proposal_del)
+        dl.setContentsMargins(10, 8, 10, 8)
+        dl.setSpacing(6)
+        self.lbl_delete = QLabel()
+        self.lbl_delete.setWordWrap(True)
+        self.lbl_delete.setTextFormat(Qt.RichText)
+        dl.addWidget(self.lbl_delete)
+        drow = QHBoxLayout()
+        drow.addStretch()
+        self.btn_delete = QPushButton('지우기')
+        self.btn_delete.setObjectName('Danger')
+        self.btn_delete.setCursor(Qt.PointingHandCursor)
+        self.btn_delete.clicked.connect(self._apply_deletes)
+        self.btn_delete_skip = QPushButton('취소')
+        self.btn_delete_skip.setCursor(Qt.PointingHandCursor)
+        self.btn_delete_skip.clicked.connect(self._hide_deletes)
+        drow.addWidget(self.btn_delete)
+        drow.addWidget(self.btn_delete_skip)
+        dl.addLayout(drow)
+        self.proposal_del.hide()
+        body.addWidget(self.proposal_del)
+        # 확인 칸은 글 높이만큼 (대화 칸이 줄어듦) — 줄이 잘려 제안이 안 보이는 일이 없게
+        for f, lb in ((self.proposal, self.lbl_proposal), (self.proposal_del, self.lbl_delete)):
+            lb.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+            f.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.scroll.setMinimumHeight(px(60))
+
         self.quick_buttons = []           # 빠른 질문 버튼은 없앰 (직접 묻기)
 
         row = QHBoxLayout()
@@ -310,11 +341,15 @@ class AiChatWindow(QWidget):
             QPushButton#Icon {{ background: transparent; border: none; padding: 0; border-radius: 6px; }}
             QPushButton#Icon:hover {{ background: {tc('rgba(0,0,0,0.10)')}; }}
             QPushButton#Quick {{ border-radius: 10px; padding: 2px 9px; }}
-            QPushButton#Primary {{ background: {T.ACCENT}; border: 1px solid {T.ACCENT}; color: white; font-weight: 700; }}
+            QWidget#AiChat QPushButton#Primary {{ background: {T.ACCENT}; border: 1px solid {T.ACCENT}; color: white;
+                                                 font-weight: 700; }}
             QLineEdit {{ background: {tc('#FFFFFF')}; border: 1px solid {tc('rgba(0,0,0,0.15)')}; border-radius: 8px;
                          padding: 6px 8px; }}
             QLineEdit:focus {{ border: 1px solid {T.ACCENT}; }}
             QFrame#Proposal {{ background: {tc('#FFF8E1')}; border: 1px solid {tc('#F2D48A')}; border-radius: 8px; }}
+            QFrame#ProposalDel {{ background: {tc('#FFF1F2')}; border: 1px solid {tc('#FECDD3')}; border-radius: 8px; }}
+            QWidget#AiChat QPushButton#Danger {{ background: {tc('#E11D48')}; border: 1px solid {tc('#E11D48')};
+                                                color: white; font-weight: 700; }}
         """)
         self.layout().setContentsMargins(0, 0, 0, 0) if inside else self.layout().setContentsMargins(1, 1, 1, 1)
         self.head.setFixedHeight(px(30) if inside else TITLE_BAR_HEIGHT)   # 바깥: 업무창 제목줄과 같은 높이
@@ -644,10 +679,11 @@ class AiChatWindow(QWidget):
             pass
 
     def _clear_chat(self):
-        """대화 지우기 (⋯ → 대화 지우기, 입력칸 /clear): 대화 · 이전 질문 기억 · 넣기 확인 칸."""
+        """대화 지우기 (⋯ → 대화 지우기, 입력칸 /clear): 대화 · 이전 질문 기억 · 넣기·지우기 확인 칸."""
         self._history = []
         self._undo = None
         self._hide_proposal()
+        self._hide_deletes()
         self._show_welcome()
 
     # ── 묻기 ──────────────────────────────────────────────────────
@@ -665,15 +701,17 @@ class AiChatWindow(QWidget):
         if not self._ai_ready():
             self._add_msg('error', 'AI가 꺼져 있어요. 메뉴 → 설정 → AI 연결에서 연결하세요.')
             return
-        import task_ai
-        tasks, labels = task_ai.task_windows_tasks()
+        import ai_actions
+        app = ChatApp(self)
+        ctx = ai_actions.build_state(app)
+        self._ctx = ctx
         self._q = q
         self.input.clear()
         self._hide_proposal()
+        self._hide_deletes()
         self._add_msg('user', q)
         self._set_status('AI가 생각하는 중…')
-        self._worker = task_ai.TaskAskWorker(q, tasks, labels, getattr(self.host, 'window_id', None),
-                                             self._history)
+        self._worker = ai_actions.AskWorker(q, ctx, self._history)
         self._worker.done.connect(self._on_done)
         self._worker.failed.connect(self._on_failed)
         self._worker.finished.connect(self._update_enabled)
@@ -685,6 +723,7 @@ class AiChatWindow(QWidget):
         self.lbl_status.setVisible(bool(text))
 
     def _on_done(self, reply, masked):
+        import ai_actions
         answer = reply.get('answer') or ''
         self._history = (self._history + [(self._q, answer)])[-2:]
         if answer:
@@ -696,23 +735,30 @@ class AiChatWindow(QWidget):
             except Exception:
                 pass
         self._set_status('')
+        now = reply.get('now') or []
+        if now:                                         # 보기·열기는 바로
+            try:
+                ai_actions.execute(now, ChatApp(self))
+                self._add_msg('note', ' · '.join(it['desc'] for it in now) + ' 했어요.')
+            except Exception as e:
+                self._add_msg('error', f'실행하지 못했어요: {e}')
         self._show_proposal(reply.get('changes') or [], reply.get('rejected') or [])
+        self._show_deletes(reply.get('deletes') or [])
 
     def _on_failed(self, msg):
         self._add_msg('error', msg)
         self._set_status('')
 
-    # ── 제안 [넣기] · [되돌리기] ───────────────────────────────────
+    # ── 제안 [넣기] · [지우기] · [되돌리기] ────────────────────────
     def _show_proposal(self, changes, rejected=()):
-        import task_ai
         self._pending = list(changes)
         if not changes and not rejected:
             self.proposal.hide()
             return
-        lines = [f'• {html.escape(task_ai.describe(c))}' for c in changes]
-        lines += [f'<span style="color:{tc("#94A3B8")}">• {html.escape(r["label"])} — {html.escape(r["reason"])}'
-                  f' (넣을 수 없어요)</span>' for r in rejected]
-        head = '이렇게 바꿀까요?' if changes else '넣을 수 있는 제안이 없어요'
+        lines = [f'• {html.escape(c["desc"])}' for c in changes]
+        lines += [f'<span style="color:{tc("#94A3B8")}">• {html.escape(r["desc"])} — {html.escape(r["reason"])}'
+                  f' (할 수 없어요)</span>' for r in rejected]
+        head = '이렇게 할까요?' if changes else '할 수 있는 제안이 없어요'
         self.lbl_proposal.setText(f'<b>{head}</b><br>' + '<br>'.join(lines))
         self.btn_apply.setVisible(bool(changes))
         self.btn_skip.setText('취소' if changes else '닫기')
@@ -722,33 +768,179 @@ class AiChatWindow(QWidget):
         self._pending = []
         self.proposal.hide()
 
-    def _refresh_task_windows(self):
-        host = self.host
-        for w in list(getattr(host, '_open_windows', None) or [host]):
+    def _show_deletes(self, deletes):
+        self._pending_del = list(deletes)
+        if not deletes:
+            self.proposal_del.hide()
+            return
+        lines = '<br>'.join(f'• {html.escape(d["desc"])}' for d in deletes)
+        self.lbl_delete.setText(f'<b style="color:{tc("#BE123C")}">지울까요?</b><br>{lines}<br>'
+                                f'<span style="color:{tc("#64748B")}">지운 뒤에도 되돌리기를 한 번 할 수 있어요.</span>')
+        self.proposal_del.show()
+
+    def _hide_deletes(self):
+        self._pending_del = []
+        self.proposal_del.hide()
+
+    def _run(self, items, done_word):
+        import ai_actions
+        try:
+            journal = ai_actions.execute(items, ChatApp(self))
+        except Exception as e:
+            self._add_msg('error', f'실행하지 못했어요: {e}')
+            return
+        self._undo = journal
+        self._add_msg('note', f'✓ {len(items)}건을 {done_word}.', link='undo')
+
+    def _apply(self):
+        if not self._pending or self.host is None:
+            return
+        items = self._pending
+        self._hide_proposal()
+        self._run(items, '했어요')
+
+    def _apply_deletes(self):
+        if not getattr(self, '_pending_del', None) or self.host is None:
+            return
+        items = self._pending_del
+        self._hide_deletes()
+        self._run(items, '지웠어요')
+
+    def _undo_last(self):
+        if not self._undo:
+            return
+        import ai_actions
+        journal, self._undo = self._undo, None
+        try:
+            ai_actions.undo(journal, ChatApp(self))
+        except Exception as e:
+            self._add_msg('error', f'되돌리지 못했어요: {e}')
+            return
+        self._add_msg('note', '↩ 하기 전으로 되돌렸어요.')
+
+
+class ChatApp:
+    """ai_actions가 앱(열린 창·예산 창·설정)을 다룰 때 쓰는 어댑터."""
+
+    def __init__(self, chat):
+        self.chat = chat
+        self.host = chat.host
+
+    @property
+    def host_window_id(self):
+        return getattr(self.host, 'window_id', None)
+
+    def windows(self):
+        try:
+            return [w for w in list(getattr(self.host, '_open_windows', None) or [self.host]) if w is not None]
+        except RuntimeError:
+            return []
+
+    def window(self, wid):
+        for w in self.windows():
+            try:
+                if w.window_id == wid:
+                    return w
+            except RuntimeError:
+                pass
+        return None
+
+    def refresh_tasks(self):
+        for w in self.windows():
             try:
                 if not getattr(w, '_memo_mode', False):
                     w._refresh_tasks()
             except RuntimeError:
                 pass
 
-    def _apply(self):
-        if not self._pending or self.host is None:
-            return
-        import task_ai
-        n = len(self._pending)
-        self._undo = task_ai.apply_changes(self._pending, self.host.window_id)
-        self._hide_proposal()
-        self._refresh_task_windows()
-        self._add_msg('note', f'✓ {n}건을 넣었어요.', link='undo')
+    def refresh_budget(self):
+        try:
+            import budget
+            if getattr(budget, '_instance', None) is not None:
+                budget._instance.refresh()
+        except RuntimeError:
+            pass
 
-    def _undo_last(self):
-        if not self._undo:
-            return
-        import task_ai
-        task_ai.undo_changes(self._undo)
-        self._undo = None
-        self._refresh_task_windows()
-        self._add_msg('note', '↩ 넣기 전으로 되돌렸어요.')
+    def new_window(self, kind):
+        h = self.host
+        before = set(id(w) for w in self.windows())
+        h.on_new(offset_from=h, memo_mode=(kind == 'memo'), on_toggle_hotkey=h._on_toggle_hotkey,
+                 on_shortcut_change=h._on_shortcut_change, get_shortcut_enabled=h._get_shortcut_enabled)
+        return next((w for w in self.windows() if id(w) not in before), None)
+
+    def delete_window(self, wid):
+        import db
+        w = self.window(wid)
+        db.delete_window(wid)
+        if w is not None:
+            w._deleted = True
+            w.close()
+
+    def set_memo_text(self, w, text):
+        w.memo_editor.setPlainText(text)
+        w._apply_memo_line_spacing()
+        w._flush_memo_save()
+
+    def style_window(self, w, color, font, size, gap):
+        if color:
+            w._apply_color(color)
+            w.save_state()
+        if font:
+            w._set_font(font)
+        if size is not None:
+            w._set_scale(size)
+        if gap is not None:
+            w._set_row_gap(gap)
+
+    def open(self, what, title='', category_id=None):
+        h = self.host
+        if what == 'calendar':
+            h._show_monthly_calendar()
+        elif what == 'dashboard':
+            h._open_dashboard()
+        elif what == 'history':
+            h._show_history(0)
+        elif what == 'documents':
+            h._show_history(1)
+        elif what == 'document':
+            h._open_document_editor()
+            from document_editor import DocumentEditorWindow
+            ed = DocumentEditorWindow._instance
+            if ed is not None and title:
+                ed.title_input.setText(title)
+        elif what == 'budget':
+            h._open_budget_window()
+            import budget
+            if category_id and getattr(budget, '_instance', None) is not None:
+                budget._instance._set_tab(category_id)
+
+    def get_alarm(self):
+        try:
+            return self.host._get_alarm_interval() if self.host._get_alarm_interval else 180
+        except (AttributeError, RuntimeError):
+            return 180
+
+    def set_alarm(self, minutes):
+        self.host._set_alarm_interval(minutes)
+
+    def get_auto_update(self):
+        import updater
+        return updater.auto_enabled()
+
+    def get_autostart(self):
+        try:
+            from autostart import is_enabled
+            return bool(is_enabled())
+        except Exception:
+            return False
+
+    def set_autostart(self, on):
+        from autostart import set_enabled
+        set_enabled(bool(on))
+
+    def clear_chat_later(self):
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(0, self.chat._clear_chat)
 
 
 # ── 앱 전체에 하나 ────────────────────────────────────────────────

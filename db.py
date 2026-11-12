@@ -352,11 +352,31 @@ def update_task(task_id, name, deadline, strikethrough=0, priority=0, recurrence
 
 
 def add_task_history(window_id, name, deadline, strikethrough=0, priority=0, recurrence='', notes='', related_no=''):
+    """지난 기록에 남기기. 남긴 줄의 id를 돌려준다 (AI가 지운 업무를 되돌릴 때 씀)."""
     with _connect() as conn:
-        conn.execute(
+        cur = conn.execute(
             'INSERT INTO task_history (window_id, name, deadline, strikethrough, priority, recurrence, notes, related_no) VALUES (?,?,?,?,?,?,?,?)',
             (window_id, name, deadline, strikethrough, priority, recurrence, notes, related_no)
         )
+        return cur.lastrowid
+
+
+def set_task_window(task_id, window_id):
+    """업무를 다른 업무창으로 옮기기."""
+    with _connect() as conn:
+        conn.execute('UPDATE tasks SET window_id=? WHERE id=?', (window_id, task_id))
+
+
+def restore_task(task: dict):
+    """지운 업무를 원래 값으로 다시 넣기 (id는 새로). 새 id를 돌려준다."""
+    with _connect() as conn:
+        cur = conn.execute(
+            'INSERT INTO tasks (window_id, name, deadline, strikethrough, priority, recurrence, notes, related_no, '
+            'attachments) VALUES (?,?,?,?,?,?,?,?,?)',
+            (task['window_id'], task['name'], task.get('deadline', ''), task.get('strikethrough', 0),
+             task.get('priority', 0), task.get('recurrence', ''), task.get('notes', ''),
+             task.get('related_no', ''), task.get('attachments') or '[]'))
+        return cur.lastrowid
 
 
 def set_task_priority(task_id, priority):
@@ -712,6 +732,25 @@ def _insert_expense(conn, item_id, amount, purpose, spent_on):
         'INSERT INTO budget_expenses (item_id, amount, purpose, spent_on) VALUES (?,?,?,?)',
         (item_id, amount, purpose.strip(), spent_on))
     return cur.lastrowid
+
+
+def restore_budget_item(item: dict, expenses=()):
+    """지운 예산 항목을 원래 값(완료·사용 내역 포함)으로 다시 넣기 (id는 새로). 새 id를 돌려준다."""
+    with _connect() as conn:
+        cur = conn.execute(
+            'INSERT INTO budget_items (category_id, cost_type, description, budget, spent, completed) '
+            'VALUES (?,?,?,?,?,?)',
+            (item['category_id'], item.get('cost_type', ''), item.get('description', ''),
+             int(item.get('budget') or 0), int(item.get('spent') or 0), int(item.get('completed') or 0)))
+        new_id = cur.lastrowid
+        for ex in expenses:
+            _insert_expense(conn, new_id, ex['amount'], ex.get('purpose', ''), ex.get('spent_on', ''))
+        return new_id
+
+
+def set_budget_item_completed(item_id, completed):
+    with _connect() as conn:
+        conn.execute('UPDATE budget_items SET completed=? WHERE id=?', (1 if completed else 0, item_id))
 
 
 def add_budget_expense(item_id, amount, purpose, spent_on):

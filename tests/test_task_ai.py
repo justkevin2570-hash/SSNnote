@@ -201,8 +201,12 @@ def test_chat_proposal_apply_refreshes_window_and_undo(win, monkeypatch):
     w._refresh_tasks()
     w._toggle_ai_chat()
     c = acw.instance()
-    tasks = {t['id']: t for t in db.get_tasks(wid)}
-    reply = task_ai.parse_reply(_reply(add=[{'name': '새 일', 'deadline': ''}], done=[{'task_id': tid}]), tasks)
+    import ai_actions
+    from ui.ai_chat_window import ChatApp
+    ctx = ai_actions.build_state(ChatApp(c))
+    raw = json.dumps({'answer': '확인', 'actions': [{'do': 'task.add', 'name': '새 일'},
+                                                   {'do': 'task.done', 'task_id': tid}]}, ensure_ascii=False)
+    reply = ai_actions.parse_reply(raw, ctx)
     c._on_done(reply, {})
     assert c.proposal.isVisibleTo(c) and c.btn_apply.isVisibleTo(c)
     c._apply()
