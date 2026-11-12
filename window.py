@@ -27,6 +27,7 @@ from ui.task_row import TaskRow
 from ui.document_row import DocumentRow
 from ui.calendar_view import MonthlyCalendarDialog, NativeCalendarDialog
 from ui import menu_style
+from ui import ai_chat_window
 from ui.theme import T, PALETTE, tc, tct, note_color, qcolor, DARK, accent_for_note, set_current_accent, rgba
 import qtawesome as qta
 
@@ -358,6 +359,7 @@ class MemoWindow(QMainWindow):
         if self._force_memo_mode:
             self.title_bar.btn_mode.hide()
             self.title_bar.btn_budget.hide()
+            self.title_bar.btn_ai.hide()
 
     def _is_empty_area_click(self, obj, event=None):
         """클릭 대상이 '아무 효과 없는 빈 공간'인지 판정.
@@ -526,12 +528,16 @@ class MemoWindow(QMainWindow):
         self.title_bar.set_active(btn, on)
         if hasattr(self, 'task_list_layout'):
             self._update_urgent_badge()
+        self.title_bar.btn_ai.setVisible(not on and not self._force_memo_mode)
         if on:
             self.memo_editor.setFocus()
             btn.setToolTip('업무 모드로 전환')
+            ai_chat_window.host_hidden(self)         # 메모 모드에서는 AI 대화 창을 숨김
         else:
             self.input_name.setFocus()
             btn.setToolTip('메모 모드로 전환')
+            if self.isVisible():
+                ai_chat_window.host_shown(self)
 
     def _on_memo_text_changed(self):
         if self._memo_save_timer is not None:
@@ -657,7 +663,12 @@ class MemoWindow(QMainWindow):
             if row._expanded:
                 row._show_note_editor()
         self._apply_selection()
-        QTimer.singleShot(0, lambda: QTimer.singleShot(0, lambda: sb.setValue(scroll_pos)))
+        def restore_scroll():
+            try:
+                sb.setValue(scroll_pos)
+            except RuntimeError:            # 그 사이 창이 닫힘
+                pass
+        QTimer.singleShot(0, lambda: QTimer.singleShot(0, restore_scroll))
         self._update_urgent_badge()
         slide = getattr(self, '_pending_slide', None)
         self._pending_slide = None
@@ -982,6 +993,7 @@ class MemoWindow(QMainWindow):
             Command('📋 오늘 한눈에 보기', self._open_dashboard, '', 'dashboard today 대시보드 마감'),
             Command('📸 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷 ai 공문 분석 요약'),
             Command('✏️ 새 업무 입력', new_task, '', 'task add 추가 할일'),
+            Command('💬 AI 대화 열기/숨기기', lambda: target._toggle_ai_chat(), '', 'ai chat 채팅 대화 질문 클로드'),
             Command('🆕 새 메모장', new_memo, '', 'new memo 메모'),
             Command('✍️ 공문 작성', self._open_document_editor, '', 'document 기안 초안 회신'),
             Command('₩ 예산 관리', self._open_budget_window, '', 'budget money 돈 집행'),
@@ -1182,6 +1194,9 @@ class MemoWindow(QMainWindow):
         add(menu, '오늘 한눈에 보기', self._open_dashboard, icon='ph.squares-four')
         add(menu, '공문 캡처', self._start_ai_capture, shortcut='Ctrl+Shift+X', icon='ph.crop')
         add(menu, '빠른 찾기', self._open_command_palette, shortcut='Ctrl+K', icon='ph.magnifying-glass')
+        if self._ai_chat_usable():
+            add(menu, 'AI 대화 숨기기' if ai_chat_window.is_attached_to(self) else 'AI 대화 열기',
+                self._toggle_ai_chat, icon='ph.chat-circle-dots')
         add(menu, '새 메모장', lambda: self.on_new(offset_from=self, memo_mode=True,
                                                 on_toggle_hotkey=self._on_toggle_hotkey,
                                                 on_shortcut_change=self._on_shortcut_change,
@@ -1466,11 +1481,13 @@ class MemoWindow(QMainWindow):
             self.setMaximumHeight(16777215)
             self.resize(self.width(), target_height)
             self.content.show()
+            ai_chat_window.host_shown(self)
         else:
             self.expanded_height = self.height()
             self.collapsed = True           # resizeEvent보다 먼저 설정
             self.content.hide()
             self.setFixedHeight(TITLE_BAR_HEIGHT)
+            ai_chat_window.host_hidden(self)         # 제목만 남게 접으면 AI 대화 창도 숨김
         if hasattr(self, '_handles'):
             self._reposition_handles()
         self.save_state()
@@ -1492,6 +1509,8 @@ class MemoWindow(QMainWindow):
         else:
             self.title_bar.set_active(btn, False, 'ph.push-pin-bold')
             btn.setToolTip('항상 위 꺼짐')
+        if ai_chat_window.is_attached_to(self):
+            ai_chat_window.instance().attach(self, remember=False)   # 항상 위 설정을 AI 창에도
 
     def _snap_full(self, pos):
         """스냅 위치와 정렬 엣지 정보를 함께 반환."""
@@ -1752,6 +1771,7 @@ class MemoWindow(QMainWindow):
 
     def moveEvent(self, event):
         super().moveEvent(event)
+        ai_chat_window.follow(self)
         if self._link_group and not self._is_syncing_move:
             dx = self.x() - event.oldPos().x()
             dy = self.y() - event.oldPos().y()
@@ -1813,6 +1833,7 @@ class MemoWindow(QMainWindow):
             self._reposition_handles()
         if not self.collapsed:
             self.expanded_height = self.height()
+        ai_chat_window.follow(self)
 
     def _apply_scale_to_inputs(self):
         s = self._scale
@@ -1861,6 +1882,29 @@ class MemoWindow(QMainWindow):
         if not getattr(self, '_first_shown', False):
             self._first_shown = True
             QTimer.singleShot(0, lambda: (self.activateWindow(), (self.memo_editor if self._memo_mode else self.input_name).setFocus()))
+            if not self._force_memo_mode:
+                QTimer.singleShot(600, self._auto_open_ai_chat)
+        elif self._ai_chat_usable():
+            ai_chat_window.host_shown(self)
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        ai_chat_window.host_hidden(self)
+
+    # ── AI 대화 창 (ui/ai_chat_window.py — 앱 전체에 하나, 업무창 옆에 붙음) ──
+    def _ai_chat_usable(self):
+        return not (self._force_memo_mode or self._memo_mode or self.collapsed)
+
+    def _toggle_ai_chat(self):
+        if self._ai_chat_usable():
+            ai_chat_window.toggle(self)
+
+    def _auto_open_ai_chat(self):
+        try:
+            if self.isVisible() and self._ai_chat_usable():
+                ai_chat_window.auto_open(self)
+        except RuntimeError:
+            pass
 
     def _raise_merge_btn(self):
         """Win32 SetWindowPos로 합체 버튼을 노트 창보다 위, 다른 앱보다 아래로."""
@@ -1896,6 +1940,7 @@ class MemoWindow(QMainWindow):
         if self._merge_btn is not None:
             self._merge_btn.hide()
             self._merge_btn = None
+        ai_chat_window.host_closed(self)
         if not getattr(self, '_deleted', False):
             self.save_state()
             if self._memo_save_timer and self._memo_save_timer.isActive():
