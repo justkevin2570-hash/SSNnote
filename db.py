@@ -134,6 +134,8 @@ def init_db():
             conn.execute("ALTER TABLE windows ADD COLUMN merge_group_id INTEGER DEFAULT NULL")
         if 'row_gap' not in wcols:
             conn.execute("ALTER TABLE windows ADD COLUMN row_gap INTEGER DEFAULT 0")
+        if 'font' not in wcols:
+            conn.execute("ALTER TABLE windows ADD COLUMN font TEXT DEFAULT ''")   # 창마다 고른 글꼴 ('' = Pretendard)
 
         if 'strikethrough' not in cols:
             conn.execute('ALTER TABLE tasks ADD COLUMN strikethrough INTEGER NOT NULL DEFAULT 0')
@@ -227,6 +229,17 @@ def update_window(window_id, x, y, width, height, collapsed, color='', scale=1.0
             'UPDATE windows SET x=?,y=?,width=?,height=?,collapsed=?,color=?,scale=?,row_gap=? WHERE id=?',
             (x, y, width, height, 1 if collapsed else 0, color, scale, row_gap, window_id)
         )
+
+
+def get_window_font(window_id) -> str:
+    with _connect() as conn:
+        row = conn.execute('SELECT font FROM windows WHERE id=?', (window_id,)).fetchone()
+        return (row['font'] or '') if row else ''
+
+
+def set_window_font(window_id, font):
+    with _connect() as conn:
+        conn.execute('UPDATE windows SET font=? WHERE id=?', (font or '', window_id))
 
 
 def set_window_merge_group(window_id, group_id):

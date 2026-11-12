@@ -13,12 +13,14 @@ from PyQt5.QtGui import QFont, QColor, QTextBlockFormat, QTextCursor, QFontMetri
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, delete_task_history,
                 get_documents, add_document, update_document, delete_document,
-                get_window_memo, set_window_memo, get_all_windows,
+                get_window_memo, set_window_memo, get_all_windows, get_window_font, set_window_font,
                 set_window_merge_group, clear_window_merge_group, get_next_merge_group_id)
 from autostart import is_enabled as autostart_is_enabled, set_enabled as autostart_set
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
 import updater
-from ui.common import pr_font, SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT, fit_to_screen, px
+from ui.common import (pr_font, note_font, note_family, note_font_available, set_current_note_font,
+                       refresh_installed_fonts, NOTE_FONTS, DEFAULT_NOTE_FONT)
+from ui.common import SNAP_THRESHOLD, SNAP_ZONE, TITLE_BAR_HEIGHT, fit_to_screen, px
 from ui.dates import _next_recurrence_deadline
 from ui.widgets import AddDateButton, CustomCalendarWidget, DdayLabel, PlainPasteMemoEdit
 from ui.dialogs import CustomRecurrenceDialog
@@ -57,6 +59,7 @@ class MemoWindow(QMainWindow):
         self._capture_hint_shown = False
         self._scale          = 1.0
         self._row_gap        = 0
+        self._font_key       = get_window_font(window_id) or DEFAULT_NOTE_FONT   # 창마다 고른 글꼴
         self._expanded_note_ids = set()
         self._expanded_attach_ids = set()
         self._selected_task_id = None
@@ -165,7 +168,7 @@ class MemoWindow(QMainWindow):
         self.input_name = QLineEdit()
         self.input_name.setPlaceholderText('＋ 업무 추가')
         self.input_name.setToolTip('업무 이름을 쓰고 Enter — Tab을 누르면 마감일로')
-        self.input_name.setFont(QFont('Malgun Gothic', 11))
+        self.input_name.setFont(note_font(11, self._font_key))
         self._date_touched = False
         self._time_touched = False
         self.input_name.installEventFilter(self)
@@ -251,7 +254,7 @@ class MemoWindow(QMainWindow):
 
         # 메모 모드 자유 편집기 (기본 숨김)
         self.memo_editor = PlainPasteMemoEdit()
-        self.memo_editor.setFont(pr_font(12))          # 글자 크기를 바꿔도 같은 글꼴(Pretendard)이 유지됨
+        self.memo_editor.setFont(note_font(12, self._font_key))   # 글자 크기를 바꿔도 고른 글꼴이 유지됨
         self.memo_editor.document().blockCountChanged.connect(self._apply_memo_line_spacing)
         self.memo_editor.setStyleSheet(f"""
             QTextEdit {{
@@ -650,6 +653,7 @@ class MemoWindow(QMainWindow):
                 item.widget().hide()            # 지워질 때까지 겹쳐 그려지지 않게
                 item.widget().deleteLater()
         set_current_accent(self._accent)        # 업무 줄이 이 메모 창 색의 포인트 색을 쓰도록
+        set_current_note_font(self._font_key)   # 업무 줄이 이 창에서 고른 글꼴을 쓰도록
         for task in get_tasks(self.window_id):
             row = TaskRow(task, self._delete_task, self._refresh_tasks, scale=self._scale,
                           expanded=task['id'] in self._expanded_note_ids,
@@ -1163,6 +1167,14 @@ class MemoWindow(QMainWindow):
         wa.setDefaultWidget(self._color_swatches(menu))
         memo.addAction(wa)
         memo.addSeparator()
+        refresh_installed_fonts()
+        font_menu = self._submenu(memo, '글꼴', 200, icon='ph.text-t')
+        for key, label in NOTE_FONTS:
+            ok = note_font_available(key)
+            a = add(font_menu, label if ok else f'{label} (이 PC에 설치되지 않음)',
+                    lambda k=key: self._set_font(k, menu), checked=self._font_key == key)
+            a.setFont(QFont(note_family(key), 11))      # 글꼴 이름을 그 글꼴로 미리 보기
+            a.setEnabled(ok)
         size_menu = self._submenu(memo, '글자 크기', 110, icon='ph.text-aa')
         for label, val in [('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2)]:
             add(size_menu, label, lambda v=val: self._set_scale(v, menu), checked=abs(self._scale - val) < 0.01)
@@ -1837,13 +1849,22 @@ class MemoWindow(QMainWindow):
 
     def _apply_scale_to_inputs(self):
         s = self._scale
-        self.input_name.setFont(QFont('Malgun Gothic', int(11 * s)))
+        self.input_name.setFont(note_font(int(11 * s), self._font_key))
         self.input_date.setFont(QFont('Malgun Gothic', int(11 * s)))
         self.input_time.setFont(QFont('Malgun Gothic', int(11 * s)))
         self.input_recurrence.setFont(QFont('Malgun Gothic', int(10 * s)))
         self._size_inputs()
         self.title_bar.set_icon_scale(s)
-        self.memo_editor.setFont(pr_font(int(12 * s)))
+        self.memo_editor.setFont(note_font(int(12 * s), self._font_key))
+
+    def _set_font(self, key, menu=None):
+        """이 창의 글꼴 바꾸기 (업무 이름·메모·D-day·업무 추가 칸, 메모장 본문)."""
+        self._font_key = key if key in dict(NOTE_FONTS) else DEFAULT_NOTE_FONT
+        set_window_font(self.window_id, '' if self._font_key == DEFAULT_NOTE_FONT else self._font_key)
+        self._apply_scale_to_inputs()
+        self._refresh_tasks()
+        if menu:
+            menu.close()
 
     def _set_scale(self, scale, menu=None):
         self._scale = scale

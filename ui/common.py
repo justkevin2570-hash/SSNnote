@@ -83,6 +83,63 @@ def pr_font(size=11):
     families = QFontDatabase.applicationFontFamilies(_PR_FONT_ID)
     return QFont(families[0] if families else 'Pretendard', size)
 
+
+# ── 업무창·메모장 글꼴 (창마다 고름) ─────────────────────────────
+# 리틱체·맑은 고딕은 앱에 넣지 않고 이 PC(Windows)에 설치된 글꼴을 쓴다.
+# (리틱체 라이선스: 글꼴 파일 재배포 금지 → 설치 파일에 넣지 않음)
+NOTE_FONTS = (('pretendard', 'Pretendard'), ('reatic', '리틱체'), ('malgun', '맑은 고딕'))
+DEFAULT_NOTE_FONT = 'pretendard'
+_NOTE_FAMILY_NAMES = {'reatic': ('리틱체', 'REATIC'), 'malgun': ('맑은 고딕', 'Malgun Gothic')}
+_CURRENT_NOTE_FONT = DEFAULT_NOTE_FONT
+
+
+def _pretendard_family():
+    _load_pretendard()
+    families = QFontDatabase.applicationFontFamilies(_PR_FONT_ID)
+    return families[0] if families else 'Pretendard'
+
+
+_INSTALLED = {}                  # 글꼴 고르기 값 → 설치된 글꼴 이름 (업무 줄마다 찾지 않게 기억)
+
+
+def refresh_installed_fonts():
+    """글꼴 메뉴를 열 때: 앱을 켠 뒤 새로 설치한 글꼴도 찾게 기억을 비운다."""
+    _INSTALLED.clear()
+
+
+def _installed_family(key):
+    """이 PC에 설치된 글꼴 이름 (없으면 '')."""
+    if key not in _INSTALLED:
+        names = _NOTE_FAMILY_NAMES.get(key) or ()
+        have = set(QFontDatabase().families()) if names else set()
+        _INSTALLED[key] = next((n for n in names if n in have), '')
+    return _INSTALLED[key]
+
+
+def note_font_available(key) -> bool:
+    return key == 'pretendard' or bool(_installed_family(key))
+
+
+def note_family(key=None) -> str:
+    """글꼴 고르기 값 → 실제 글꼴 이름. 그 PC에 없으면 Pretendard."""
+    key = key or _CURRENT_NOTE_FONT
+    return (_installed_family(key) if key != 'pretendard' else '') or _pretendard_family()
+
+
+def set_current_note_font(key):
+    """지금 그리는 업무창의 글꼴 (업무 줄을 만들기 전에 정한다 — set_current_accent와 같은 방식)."""
+    global _CURRENT_NOTE_FONT
+    _CURRENT_NOTE_FONT = key if key in dict(NOTE_FONTS) else DEFAULT_NOTE_FONT
+
+
+def current_note_font() -> str:
+    return _CURRENT_NOTE_FONT
+
+
+def note_font(size=11, key=None):
+    """업무창·메모장 글자용 QFont (고른 글꼴, 없으면 Pretendard)."""
+    return QFont(note_family(key), size)
+
 def mi_icon(codepoint, size=18, color=None):
     """Fluent Icons 코드포인트를 QIcon으로 변환. 색을 안 주면 테마의 기본 아이콘 회색."""
     if color is None:

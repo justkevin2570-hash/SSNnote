@@ -37,3 +37,6 @@ data/
 
 # Tests
 .pytest_cache/
+
+# 라이선스상 재배포 금지 글꼴 (각 PC에 직접 설치해서 씀 — 저장소·설치 파일에 넣지 않음)
+assets/font/리틱체/
