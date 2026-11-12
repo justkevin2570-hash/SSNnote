@@ -496,7 +496,7 @@ class TitleBar(QWidget):
         b._icon_name = icon_name
         b.setIcon(qta.icon(icon_name, color=self._icon_color()))
         b.setIconSize(QSize(px(self._ICON_PX), px(self._ICON_PX)))   # 글꼴 배율만큼 아이콘도
-        b.setFixedSize(px(32), min(px(30), TITLE_BAR_HEIGHT - 4))
+        b.setFixedSize(px(28), min(px(30), TITLE_BAR_HEIGHT - 4))   # 아이콘 좌우 여백 4px (위아래 5px)
         b.setToolTip(tip)
         b.setCursor(Qt.PointingHandCursor)
         return b
@@ -506,7 +506,7 @@ class TitleBar(QWidget):
         size = min(px(round(self._ICON_PX * scale)), TITLE_BAR_HEIGHT - 12)
         for b in (self.btn_history, self.btn_mode, self.btn_menu, self.btn_pin, self.btn_close):
             b.setIconSize(QSize(size, size))
-            b.setFixedSize(max(px(32), size + 12), min(max(px(30), size + 10), TITLE_BAR_HEIGHT - 4))
+            b.setFixedSize(max(px(28), size + 8), min(max(px(30), size + 10), TITLE_BAR_HEIGHT - 4))
         f = self.label.font()
         f.setPointSizeF(10 * scale)
         self.label.setFont(f)
