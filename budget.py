@@ -2433,7 +2433,9 @@ class _DescCell(QWidget):
         self.lbl_sum.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt; background: transparent;')
         head.addWidget(self.btn_toggle)
         head.addWidget(self.lbl_sum)
+        v.addStretch(1)                            # 이름을 칸 세로 가운데에 (다른 칸 글자와 줄 맞춤)
         v.addLayout(head)
+        v.addStretch(1)
 
         self.detail = QWidget()                    # 항목 줄 아래의 숨은 줄에 들어간다 (_fill_row)
         self.detail.setStyleSheet('background: transparent;')
@@ -2455,6 +2457,7 @@ class _DescCell(QWidget):
             self.lbl_sum.setStyleSheet(f'color: {C.NEG}; font-size: 10pt; background: transparent;')
         else:
             self.lbl_sum.setText('')
+        self.lbl_sum.setVisible(unassigned < 0)    # 빈 줄이 자리를 차지하면 이름이 위로 밀린다
         self.btn_toggle.setText(self._item['description'])
         self.btn_toggle.setIcon(qta.icon('fa5s.chevron-down' if self._open() else 'fa5s.chevron-right', color=C.MUTED))
         self.btn_toggle.setIconSize(QSize(9, 9))
