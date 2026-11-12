@@ -58,12 +58,12 @@ def _base_path():
 
 
 def _load_pretendard():
-    """assets 안의 Pretendard 정적 폰트(.ttf/.otf)를 모두 등록한다. 1회만."""
+    """assets/font 안의 Pretendard 정적 폰트(.ttf/.otf)를 모두 등록한다. 1회만."""
     global _pretendard_loaded
     if _pretendard_loaded:
         return
     _pretendard_loaded = True
-    for dirpath, _dirs, files in os.walk(os.path.join(_base_path(), 'assets')):
+    for dirpath, _dirs, files in os.walk(os.path.join(_base_path(), 'assets', 'font')):
         for fn in sorted(files):
             low = fn.lower()
             if low.startswith('pretendard') and low.endswith(('.ttf', '.otf')):

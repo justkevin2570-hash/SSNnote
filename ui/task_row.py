@@ -19,7 +19,7 @@ from db import (update_task,
                 get_task_related_no, set_task_related_no,
                 get_task_attachments, set_task_attachments)
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
-from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, themed_pixmap, px
+from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, note_font, themed_pixmap, px
 from .dates import calc_dday
 from .widgets import AddDateButton, CustomCalendarWidget, DdayLabel, RotatedMenuButton
 from .dialogs import CustomRecurrenceDialog
@@ -157,6 +157,7 @@ class _AutoHeightEdit(QPlainTextEdit):
             if not line.isValid():
                 break
             line.setLineWidth(width)
+            line.setLeadingIncluded(True)        # 줄 사이 여백이 있는 글꼴(리틱체 등)은 실제 줄 간격만큼
             line.setPosition(QPointF(0, y))
             y += line.height()
         layout.endLayout()
@@ -317,8 +318,8 @@ class _InlineNoteEdit(QWidget):
 
         top = QHBoxLayout()
         top.setSpacing(6)
-        self.ref_edit = _RefLineEdit('공문 관련번호 적어두기', pr_font(int(11 * scale)))
-        _ref_font = pr_font(int(12 * scale))
+        self.ref_edit = _RefLineEdit('공문 관련번호 적어두기', note_font(int(11 * scale)))
+        _ref_font = note_font(int(12 * scale))
         _ref_font.setStretch(100)
         _ref_font.setLetterSpacing(QFont.PercentageSpacing, 100.0)
         self.ref_edit.setFont(_ref_font)
@@ -381,7 +382,7 @@ class _InlineNoteEdit(QWidget):
 
         self.editor = QPlainTextEdit()
         self.editor.setPlaceholderText('esc 또는 ctrl+enter 을 누르면 접어집니다.')
-        self.editor.setFont(pr_font(int(11 * scale)))
+        self.editor.setFont(note_font(int(11 * scale)))
         self.editor.document().setDocumentMargin(4)
         self.editor.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.editor.setStyleSheet(f"""
@@ -575,7 +576,7 @@ class TaskRow(QWidget):
         self.btn_star.clicked.connect(self._toggle_priority)
         # 업무 줄의 아이콘·표시는 모두 '업무 이름 첫 줄'의 세로 가운데에 맞춘다
         # (이름이 두 줄로 넘어가도 첫 줄 옆에 나란히). 첫 줄 높이 = 이름 칸 한 줄 높이.
-        _nf = pr_font(12)
+        _nf = note_font(12)
         _nf.setPointSizeF(12 * scale)
         self._line1_h = max(28, QFontMetrics(_nf).height() + 4)
         layout.addWidget(self._line_box(self.btn_star), 0, Qt.AlignTop)
@@ -616,7 +617,7 @@ class TaskRow(QWidget):
         # 파일 드롭이 name_edit(텍스트 위젯)에 가로채지고 부모 TaskRow로 버블업되도록 끔
         self.name_edit.setAcceptDrops(False)
         _base_pt = 12 * scale
-        name_font = pr_font(12)
+        name_font = note_font(12)
         name_font.setPointSizeF(_base_pt)  # 기한 지나도(overdue) 크기 유지 — 축소하지 않음
         if _is_starred and not overdue:     # 굵은 글씨는 중요 표시한 업무만 (급한 정도는 D-day 색으로)
             name_font.setBold(True)
@@ -656,7 +657,7 @@ class TaskRow(QWidget):
                 date_text = suffix
             dday_lbl = DdayLabel(suffix, date_text, tone=tone)
             dday_lbl.clicked.connect(self._show_date_picker)
-            dday_font = pr_font(10)
+            dday_font = note_font(10)
             dday_font.setPointSizeF(10.5 * scale)
             dday_font.setWeight(QFont.DemiBold if tone in ('overdue', 'today', 'soon') else QFont.Normal)
             dday_lbl.setFont(dday_font)
