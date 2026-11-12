@@ -425,10 +425,8 @@ class AiChatWindow(QWidget):
 
     # ── 대화 칸 ───────────────────────────────────────────────────
     def _show_welcome(self):
+        """빈 대화 칸 (안내 문구 없이 — 입력칸 안내 글로 충분)."""
         self._clear_widgets()
-        self._add_msg('welcome', '업무에 대해 묻거나 시켜 보세요.\n'
-                                 '예: 이번 주 마감 알려줘 · 다음 주 금요일까지 공문 회신 추가해줘 · '
-                                 '협의회 자료 마감을 수요일 3시로 바꿔줘')
 
     def _clear_widgets(self):
         for w in self._msgs:

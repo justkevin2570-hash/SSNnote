@@ -332,7 +332,7 @@ def test_clear_command_and_no_quick_buttons(win, monkeypatch):
     started = []
     monkeypatch.setattr(task_ai.TaskAskWorker, 'start', lambda self: started.append(1))
     c.ask(' /Clear ')
-    assert [k for k, _ in c.messages()] == ['welcome'] and c._history == [] and not started
+    assert c.messages() == [] and c._history == [] and not started
     c.ask('/help')
     assert c.messages()[-1][0] == 'error' and '모르는 명령' in c.messages()[-1][1] and not started
 
