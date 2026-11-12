@@ -250,7 +250,24 @@ class MemoWindow(QMainWindow):
         self.task_scroll.setWidgetResizable(True)
         self.task_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.task_scroll.setWidget(self.task_list_widget)
-        content_layout.addWidget(self.task_scroll)
+        # 업무 목록 | (업무창 안에 넣은) AI 대화 칸 — 경계선을 끌어 높이를 바꾼다
+        from PyQt5.QtWidgets import QSplitter
+        self.list_split = QSplitter(Qt.Vertical)
+        self.list_split.setChildrenCollapsible(False)
+        self.list_split.setHandleWidth(7)
+        self.list_split.setStyleSheet('QSplitter { background: transparent; }')
+        self.list_split.addWidget(self.task_scroll)
+        self.ai_slot = QWidget()
+        self.ai_slot.setStyleSheet('background: transparent;')
+        _ai_slot_layout = QVBoxLayout(self.ai_slot)
+        _ai_slot_layout.setContentsMargins(0, 0, 0, 0)
+        _ai_slot_layout.setSpacing(0)
+        self.list_split.addWidget(self.ai_slot)
+        self.list_split.setStretchFactor(0, 1)
+        self.list_split.setStretchFactor(1, 0)
+        self.ai_slot.hide()
+        self.list_split.splitterMoved.connect(lambda *_: ai_chat_window.inside_resized(self))
+        content_layout.addWidget(self.list_split)
 
         # 메모 모드 자유 편집기 (기본 숨김)
         self.memo_editor = PlainPasteMemoEdit()
@@ -510,7 +527,7 @@ class MemoWindow(QMainWindow):
 
     def _apply_memo_line_spacing(self):
         fmt = QTextBlockFormat()
-        fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
+        fmt.setLineHeight(self.MEMO_LINE_HEIGHT.get(self._row_gap, 123), QTextBlockFormat.ProportionalHeight)
         cursor = QTextCursor(self.memo_editor.document())
         cursor.select(QTextCursor.Document)
         cursor.mergeBlockFormat(fmt)
@@ -526,6 +543,7 @@ class MemoWindow(QMainWindow):
         self.task_input_row.setVisible(not on)
         self._sync_input_details()
         self.task_scroll.setVisible(not on)
+        self.list_split.setVisible(not on)
         self.memo_editor.setVisible(on)
         btn = self.title_bar.btn_mode
         self.title_bar.set_active(btn, on)
@@ -992,7 +1010,7 @@ class MemoWindow(QMainWindow):
                                        on_toggle_hotkey=self._on_toggle_hotkey,
                                        on_shortcut_change=self._on_shortcut_change,
                                        get_shortcut_enabled=self._get_shortcut_enabled)
-        # 순서·이름은 「…」 메뉴와 맞춘다 (자주 쓰는 기능 → 창 → 배경색·글자 크기 → 설정 → 도움말)
+        # 순서·이름은 「…」 메뉴와 맞춘다 (자주 쓰는 기능 → 창 → 배경색·글자·줄간격 → 설정 → 도움말)
         return [
             Command('📋 오늘 한눈에 보기', self._open_dashboard, '', 'dashboard today 대시보드 마감'),
             Command('📸 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷 ai 공문 분석 요약'),
@@ -1134,59 +1152,29 @@ class MemoWindow(QMainWindow):
             sub.setMinimumWidth(min_width + 2 * menu_style.SHADOW)
         return sub
 
-    def _color_swatches(self, menu):
-        """배경색 고르기: 동그란 색 견본, 지금 색은 바깥 고리로 표시."""
-        color_widget = QWidget()
-        color_widget.setStyleSheet('background: transparent;')
-        grid = QGridLayout(color_widget)
-        grid.setContentsMargins(12, 4, 12, 8)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(8)
-        current = (self._bg_color or '').upper()
-        for i, color in enumerate(PALETTE):
-            cb = QPushButton()
-            cb.setFixedSize(24, 24)
-            cb.setCursor(Qt.PointingHandCursor)
-            cb.setToolTip('이 색으로')
-            ring = (f'2px solid {menu_style.TEXT.name()}' if color.upper() == current
-                    else f'1px solid {tc("rgba(0,0,0,0.12)")}')
-            cb.setStyleSheet(f"""
-                QPushButton {{ background: {note_color(color)}; border-radius: 12px; border: {ring}; }}
-                QPushButton:hover {{ border: 2px solid {tc("rgba(0,0,0,0.35)")}; }}
-            """)
-            cb.clicked.connect(lambda _, c=color: (self._apply_color(c), self.save_state(), menu.close()))
-            grid.addWidget(cb, i // 6, i % 6)
-        return color_widget
+    # 메모장(글만 쓰는 창)의 줄 간격 단계 → 글 줄 높이(%). 업무창은 같은 값을 업무 사이 간격(px)으로 쓴다.
+    MEMO_LINE_HEIGHT = {0: 123, 5: 140, 10: 160, 15: 180}
 
     def _style_submenu(self, menu, with_row_gap):
-        """배경색·글자 크기 (이 메모장에만 적용). 줄 간격은 업무 목록 사이 간격이라 메모장에는 없다."""
-        add = self._menu_add
-        memo = self._submenu(menu, '배경색·글자 크기', icon='ph.palette')
-        self._menu_header(memo, '배경색')
-        wa = QWidgetAction(memo)
-        wa.setDefaultWidget(self._color_swatches(menu))
-        memo.addAction(wa)
-        memo.addSeparator()
-        refresh_installed_fonts()
-        font_menu = self._submenu(memo, '글꼴', 200, icon='ph.text-t')
-        for key, label in NOTE_FONTS:
-            ok = note_font_available(key)
-            a = add(font_menu, label if ok else f'{label} (설치 필요)',
-                    (lambda k=key: self._set_font(k, menu)) if ok else (lambda k=key: self._font_missing(k, menu)),
-                    checked=self._font_key == key)
-            a.setFont(note_font(11, key))               # 글꼴 이름을 그 글꼴로 미리 보기
-            if not ok:
-                a.setToolTip('이 PC에 설치되어 있지 않아요 — 누르면 받는 곳과 설치 방법을 알려 드려요')
-        size_menu = self._submenu(memo, '글자 크기', 110, icon='ph.text-aa')
-        for label, val in [('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2)]:
-            add(size_menu, label, lambda v=val: self._set_scale(v, menu), checked=abs(self._scale - val) < 0.01)
-        if with_row_gap:
-            gap_menu = self._submenu(memo, '줄 간격', 110, icon='ph.rows')
-            for label, val in [('0px', 0), ('5px', 5), ('10px', 10), ('15px', 15)]:
-                add(gap_menu, label, lambda v=val: self._set_row_gap(v, menu), checked=self._row_gap == val)
+        """배경색·글자·줄간격 (이 창에만 적용). 업무창의 줄 간격은 업무 사이 간격, 메모장은 글 줄 높이."""
+        from ui import style_menu
+
+        def done(fn):
+            def run(*a):
+                fn(*a)
+                menu.close()
+            return run
+        gaps = ([('0px', 0), ('5px', 5), ('10px', 10), ('15px', 15)] if with_row_gap
+                else [('기본', 0), ('넓게', 5), ('더 넓게', 10), ('아주 넓게', 15)])
+        return style_menu.build(
+            menu, color=self._bg_color, on_color=lambda c: (self._apply_color(c), self.save_state()),
+            font_key=self._font_key, on_font=done(self._set_font),
+            on_font_missing=lambda k: self._font_missing(k, menu),
+            scale=self._scale, on_scale=done(self._set_scale),
+            gaps=gaps, gap=self._row_gap, on_gap=done(self._set_row_gap))
 
     def _show_memo_menu(self, btn):
-        """메모장(메모 전용 창)의 「…」 메뉴: 배경색·글자 크기 · 다크 모드 · 메모장 삭제 — 이것뿐."""
+        """메모장(메모 전용 창)의 「…」 메뉴: 배경색·글자·줄간격 · 다크 모드 · 메모장 삭제 — 이것뿐."""
         menu = menu_style.make_menu(self)
         self._style_submenu(menu, with_row_gap=False)
         from db import get_setting as _gs
@@ -1198,7 +1186,7 @@ class MemoWindow(QMainWindow):
         menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     def show_menu(self, btn):
-        """「…」 메뉴: 자주 쓰는 기능 → 배경색·글자 크기 → 설정 → 도움말 → (삭제)."""
+        """「…」 메뉴: 자주 쓰는 기능 → 배경색·글자·줄간격 → 설정 → 도움말 → (삭제)."""
         if self._force_memo_mode:
             return self._show_memo_menu(btn)
         menu = menu_style.make_menu(self)
@@ -1218,7 +1206,7 @@ class MemoWindow(QMainWindow):
             icon='ph.note-blank')
         menu.addSeparator()
 
-        # ── 배경색·글자 크기 (이 메모장에만 적용) ──
+        # ── 배경색·글자·줄간격 (이 메모장에만 적용) ──
         self._style_submenu(menu, with_row_gap=True)
 
         # ── 설정 (앱 전체에 적용) ──
@@ -1383,6 +1371,7 @@ class MemoWindow(QMainWindow):
             }}
         """)
         self.title_bar.apply_style(title_color)
+        self._title_color = title_color
         self._accent = accent_for_note(shown)   # 이 메모 색에 맞춘 포인트 색 (입력칸·선택한 줄·스크롤바)
         self._style_inputs()
         if hasattr(self, 'task_list_layout') and self.task_list_layout.count() > 1:
@@ -1392,9 +1381,16 @@ class MemoWindow(QMainWindow):
         else:
             sep_color = QColor(shown).darker(118).name()
         sep_style = f'background: {sep_color}; border: none;'
+        self._sep_color = sep_color
+        if hasattr(self, 'list_split'):              # 업무 목록과 AI 칸 사이 경계선
+            self.list_split.setStyleSheet(
+                f'QSplitter {{ background: transparent; }} '
+                f'QSplitter::handle:vertical {{ background: transparent; border-top: 1px solid {sep_color}; '
+                f'margin-top: 3px; }}')
         self._title_sep.setStyleSheet(sep_style)
         self._sep_date.setStyleSheet(sep_style)
         self._sep_bottom.setStyleSheet(sep_style)
+        ai_chat_window.host_restyled(self)            # 업무창 색을 바꾸면 붙은 AI 창도 같은 색
 
     def _set_alarm_interval(self, minutes, menu=None):
         if self._on_alarm_interval_change:
@@ -1861,7 +1857,7 @@ class MemoWindow(QMainWindow):
         self.title_bar.set_icon_scale(s)
         self.memo_editor.setFont(note_font(int(12 * s), self._font_key))
 
-    def _font_missing(self, key, menu=None):
+    def _font_missing(self, key, menu=None, apply=None):
         """설치되지 않은 글꼴을 골랐을 때: [받기](공식 사이트) · [설치 확인](설치했으면 바로 바꿈) · [닫기]."""
         import html as _html
         from ui.common import NOTE_FONT_DOWNLOAD, NOTE_FONT_FILES, REATIC_SITE
@@ -1928,7 +1924,7 @@ class MemoWindow(QMainWindow):
         self._font_dialog = dlg                         # 테스트에서 버튼을 누를 수 있게
         dlg.exec_()
         if result['ok']:
-            self._set_font(key)
+            (apply or self._set_font)(key)
         return result['ok']
 
     def _reset_layouts(self):
@@ -1978,8 +1974,10 @@ class MemoWindow(QMainWindow):
             menu.close()
 
     def _apply_row_gap(self):
-        """업무 목록 칸(TaskRow) 사이 간격 적용."""
+        """업무 목록 칸(TaskRow) 사이 간격, 메모 글 줄 높이 적용."""
         self.task_list_layout.setSpacing(self._row_gap)
+        if hasattr(self, 'memo_editor'):
+            self._apply_memo_line_spacing()
 
     def _set_row_gap(self, gap, menu=None):
         self._row_gap = gap

@@ -118,14 +118,15 @@ def test_dock_rect_flips_at_screen_edge():
     from PyQt5.QtCore import QRect
     from ui.ai_chat_window import dock_rect
     screen = QRect(0, 0, 1920, 1040)
+    # 1px 겹쳐 붙여 맞닿은 테두리가 한 줄
     r, where = dock_rect(QRect(100, 100, 300, 400), 'right', 320, screen)
-    assert where == 'right' and (r.x(), r.y(), r.width(), r.height()) == (400, 100, 320, 400)
+    assert where == 'right' and (r.x(), r.y(), r.width(), r.height()) == (399, 100, 320, 400)
     r, where = dock_rect(QRect(1700, 100, 200, 400), 'right', 320, screen)      # 오른쪽 자리 없음 → 왼쪽
-    assert where == 'left' and r.x() == 1700 - 320
+    assert where == 'left' and r.x() == 1700 - 320 + 1
     r, where = dock_rect(QRect(100, 100, 300, 400), 'bottom', 240, screen)
-    assert where == 'bottom' and (r.x(), r.y(), r.width(), r.height()) == (100, 500, 300, 240)
+    assert where == 'bottom' and (r.x(), r.y(), r.width(), r.height()) == (100, 499, 300, 240)
     r, where = dock_rect(QRect(100, 700, 300, 300), 'bottom', 240, screen)      # 아래 자리 없음 → 위
-    assert where == 'top' and r.y() == 700 - 240
+    assert where == 'top' and r.y() == 700 - 240 + 1
 
 
 _APP = None                         # QApplication을 붙잡아 둬야 다음 테스트에서도 창을 만들 수 있음
@@ -155,23 +156,41 @@ def win(tdb, tmp_path, monkeypatch):
     w.close()
 
 
+def test_inside_is_default_and_sits_under_task_list(win):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    assert c.side == 'inside' and c.parent() is w.ai_slot and c.is_shown()
+    assert w.list_split.indexOf(w.ai_slot) == 1                        # 업무 목록 아래
+    w.toggle_shade()
+    assert not c.is_shown()
+    w.toggle_shade()
+    assert c.is_shown()
+    w._toggle_ai_chat()                                                # 다시 누르면 숨기고 칸도 접힘
+    assert not c.is_shown() and w.ai_slot.isHidden() and db.get_setting(acw.OPEN_KEY) == '0'
+
+
 def test_toggle_attach_follow_and_remember(win):
     w, acw, db, app = win
     w._toggle_ai_chat()
     c = acw.instance()
+    c.set_side('right')                                                # 사용자가 바꾸면 기억
+    assert db.get_setting(acw.SIDE_KEY) == 'right' and c.parent() is None and w.ai_slot.isHidden()
     assert c.isVisible() and c.host is w and db.get_setting(acw.OPEN_KEY) == '1'
-    assert c.geometry().x() == w.frameGeometry().right() + 1          # 오른쪽에 붙음
+    assert c.geometry().x() == w.frameGeometry().right()              # 오른쪽에 1px 겹쳐 붙음
     w.move(150, 120)
     app.processEvents()
-    assert c.geometry().x() == w.frameGeometry().right() + 1 and c.geometry().y() == w.frameGeometry().y()
+    assert c.geometry().x() == w.frameGeometry().right() and c.geometry().y() == w.frameGeometry().y()
     c.set_side('bottom')
-    assert db.get_setting(acw.SIDE_KEY) == 'bottom' and c.geometry().y() == w.frameGeometry().bottom() + 1
+    assert db.get_setting(acw.SIDE_KEY) == 'bottom' and c.geometry().y() == w.frameGeometry().bottom()
     w.toggle_shade()                                                   # 접으면 함께 숨고
     assert not c.isVisible()
     w.toggle_shade()                                                   # 펼치면 다시 붙음
     assert c.isVisible()
-    w._toggle_ai_chat()                                                # 💬 다시 누르면 숨기기
-    assert not c.isVisible() and db.get_setting(acw.OPEN_KEY) == '0'
+    c.set_side('inside')                                               # 다시 안으로
+    assert c.parent() is w.ai_slot and c.is_shown()
+    w._toggle_ai_chat()
+    assert not c.is_shown() and db.get_setting(acw.OPEN_KEY) == '0'
 
 
 def test_chat_proposal_apply_refreshes_window_and_undo(win, monkeypatch):
@@ -201,7 +220,8 @@ def test_ai_off_disables_input(win, monkeypatch, tmp_path):
     ai_connect.turn_off()
     w._toggle_ai_chat()
     c = acw.instance()
-    assert not c.input.isEnabled() and 'AI 꺼짐' in c.btn_status.text()
+    assert not c.input.isEnabled() and 'AI가 꺼져 있어요' in c.input.placeholderText()
+    assert not hasattr(c, 'btn_status')                                # 머리줄에 AI 설정 버튼 없음
     ai_client.save_ai_mode('openai')
     ai_connect.notify_changed()
     assert c.input.isEnabled()
@@ -233,5 +253,48 @@ def test_ai_chat_remembers_host_window(win):
     acw.auto_open(w2)                   # 기억한 창(w2) 옆에 붙음
     assert acw.instance(create=False).host is w2
     acw.reset_layout()
-    assert db.get_setting(acw.SIDE_KEY) == 'right'
+    assert db.get_setting(acw.SIDE_KEY) == 'inside'
     w2.close()
+
+
+def test_chat_messages_have_no_labels_user_bubble_right(win):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    c._q = '이번 주 마감?'
+    c._add_msg('user', '이번 주 마감?')
+    c._on_done({'answer': '- 공문 회신 (11월 14일)\n- 협의회 자료', 'changes': [], 'rejected': []}, {})
+    kinds = [k for k, _ in c.messages()]
+    assert kinds == ['user', 'ai']                                     # 처음 안내 글은 사라짐
+    user_row, ai_row = c._msgs
+    assert user_row._label.objectName() == 'UserBubble'
+    assert user_row.layout().itemAt(0).spacerItem() is not None        # 왼쪽이 비어 오른쪽에 붙음
+    text = ai_row._label.text()
+    assert '나' not in text[:3] and 'AI' not in text[:4] and '•&nbsp;공문 회신' in text
+
+
+def test_answer_html_lists_and_line_height():
+    from ui.ai_chat_window import answer_html
+    h = answer_html('첫 줄\n\n- 하나\n2. 둘', 155)
+    assert 'line-height:155%' in h and '•&nbsp;하나' in h and '2.&nbsp;둘' in h
+
+
+def test_ai_window_style_menu_and_settings_saved(win):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    from PyQt5.QtWidgets import QMenu
+    c._more_menu()
+    items = [a.text() for a in c._last_menu.actions() if not a.isSeparator()]
+    assert '업무창 안에 넣기' in items and '배경색·글자·줄간격' in items and '대화 지우기' in items
+    sub = next(a for a in c._last_menu.actions() if a.text() == '배경색·글자·줄간격').menu()
+    assert {'글꼴', '글자 크기', '줄 간격'} <= {a.text() for a in sub.actions()}
+    c.set_color('#D6EEFF')
+    c.set_scale(1.1)
+    c.set_gap(10)
+    assert (db.get_setting(acw.COLOR_KEY), db.get_setting(acw.SCALE_KEY), db.get_setting(acw.GAP_KEY)) == \
+        ('#D6EEFF', '1.1', '10')
+    c.set_color('')                                                    # 업무창과 같게
+    w._apply_color('#FFD6E0')
+    from ui.theme import note_color
+    assert c._bg() == note_color('#FFD6E0')
