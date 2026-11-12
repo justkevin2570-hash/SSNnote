@@ -194,20 +194,49 @@ _COL_W = (150, 250, 118, 118, 132, 0)
 _COL_MIN = (90, 110, 96, 96, 0, 0)
 _COLS = ('원가통계비목', '산출내역', '예산현액', '잔액', '집행률', '')
 
-# 집행률 수준: 정상(포인트 색) · 80% 이상(주황) · 100% 이상(빨강) · 완료(회색)
-_LEVEL_BAR = {'ok': C.ACCENT, 'warn': '#D97706', 'over': '#E11D48', 'done': C.BORDER_HI}
-_LEVEL_TEXT = {'ok': C.ACCENT_HI, 'warn': '#B45309', 'over': C.NEG, 'done': C.FAINT}
-_LEVEL_SOFT = {'ok': C.ACCENT_SOFT, 'warn': '#FEF3E2', 'over': '#FDECEF', 'done': C.HOVER}
+# 집행률 색: 0%는 연한 파랑, 100%에 가까울수록 진한 파랑, 100% 초과는 빨강, 완료는 회색.
+# 글자용 파랑은 흰 바탕에서 읽히도록 바보다 한 단계 진하게 시작한다.
+# 잔액 숫자는 고정: 양수 진한 파랑, 음수 빨강.
+_BAR_LIGHT, _BAR_DARK = (0xBF, 0xDB, 0xFE), (0x1E, 0x40, 0xAF)
+_TEXT_LIGHT, _TEXT_DARK = (0x3B, 0x82, 0xF6), (0x1E, 0x40, 0xAF)
+_BAL_POS = '#1E40AF'
+_LEVEL_SOFT = {'ok': C.ACCENT_SOFT, 'over': '#FDECEF', 'done': C.HOVER}
 
 
 def _level(pct, done=False):
     if done:
         return 'done'
-    if pct >= 100:
+    if pct > 100:
         return 'over'
-    if pct >= 80:
-        return 'warn'
     return 'ok'
+
+
+def _mix(a, b, t):
+    return '#%02X%02X%02X' % tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+
+
+def _bar_color(pct, done=False):
+    lvl = _level(pct, done)
+    if lvl == 'done':
+        return C.BORDER_HI
+    if lvl == 'over':
+        return '#E11D48'
+    return _mix(_BAR_LIGHT, _BAR_DARK, min(max(pct, 0), 100) / 100)
+
+
+def _text_color(pct, done=False):
+    lvl = _level(pct, done)
+    if lvl == 'done':
+        return C.FAINT
+    if lvl == 'over':
+        return C.NEG
+    return _mix(_TEXT_LIGHT, _TEXT_DARK, min(max(pct, 0), 100) / 100)
+
+
+def _bal_color(rem, done=False):
+    if done:
+        return C.FAINT
+    return C.NEG if rem < 0 else _BAL_POS
 
 
 def _bar_qss(color):
@@ -652,9 +681,9 @@ def _cost_chip_tip(cost, budget, spent, n):
 
 
 def _cost_chip_qss(budget, spent, selector='QPushButton'):
-    lvl = _level(_pct(spent, budget))
+    pct = _pct(spent, budget)
     neg = budget - spent < 0
-    return (f'{selector} {{ background: {_LEVEL_SOFT[lvl]}; color: {C.NEG if neg else _LEVEL_TEXT[lvl]};'
+    return (f'{selector} {{ background: {_LEVEL_SOFT[_level(pct)]}; color: {C.NEG if neg else _text_color(pct)};'
             f' border: 1px solid transparent; border-radius: 11px; padding: 4px 11px;'
             f' font-weight: 600; font-size: 10pt; }}'
             f'{selector}:hover {{ border-color: {C.BORDER_HI}; }}'
@@ -737,14 +766,12 @@ class _NavItem(QFrame):
 
     def set_values(self, budget, spent, extra=''):
         pct = _pct(spent, budget)
-        lvl = _level(pct)
         self.bar.setValue(int(round(min(pct, 100))))
-        self.bar.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
+        self.bar.setStyleSheet(_bar_qss(_bar_color(pct)))
         self.lbl_pct.setText(f'{pct:.0f}%')
-        self.lbl_pct.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-weight: 700;')
+        self.lbl_pct.setStyleSheet(f'color: {_text_color(pct)}; font-weight: 700;')
         rem = budget - spent
-        color = C.NEG if rem < 0 else C.MUTED
-        self.lbl_meta.setText(f'<span style="color:{color}">잔액 {_fmt(rem)}원</span>{extra}')
+        self.lbl_meta.setText(f'<span style="color:{_bal_color(rem)}">잔액 {_fmt(rem)}원</span>{extra}')
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
@@ -1534,7 +1561,7 @@ class BudgetWindow(QMainWindow):
         t.setSpan(r + 1, 1, 1, 3)                                  # 숨은 줄: 산출내역 ~ 잔액 칸을 하나로
         t.setCellWidget(r + 1, 1, dcell.detail)
         t.setItem(r, 2, cell(_fmt(item['budget']), R))
-        rem_it = cell(_fmt(rem), R, C.NEG if rem < 0 else C.TEXT, bold=rem < 0)
+        rem_it = cell(_fmt(rem), R, _bal_color(rem), bold=rem < 0)
         t.setItem(r, 3, rem_it)
 
         wrap = QWidget()
@@ -1587,11 +1614,10 @@ class BudgetWindow(QMainWindow):
 
     @staticmethod
     def _set_pct(bar, lbl, pct, done=False):
-        lvl = _level(pct, done)
         bar.setValue(int(round(min(pct, 100))))
-        bar.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
+        bar.setStyleSheet(_bar_qss(_bar_color(pct, done)))
         lbl.setText(f'{pct:.1f}%')
-        lbl.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-weight: {400 if done else 700};')
+        lbl.setStyleSheet(f'color: {_text_color(pct, done)}; font-weight: {400 if done else 700};')
 
     def _update_row(self, item_id):
         refs = self._row_refs.get(item_id)
@@ -1600,7 +1626,7 @@ class BudgetWindow(QMainWindow):
             return
         rem = item['budget'] - item['spent']
         refs['rem'].setText(_fmt(rem))
-        refs['rem'].setForeground(QColor(C.NEG if rem < 0 else C.TEXT))
+        refs['rem'].setForeground(QColor(_bal_color(rem, item['completed'])))
         f = refs['rem'].font()
         f.setBold(rem < 0)
         refs['rem'].setFont(f)
@@ -1623,11 +1649,10 @@ class BudgetWindow(QMainWindow):
         budget, spent = self._cat_totals(cat_id)
         rem = budget - spent
         pct = _pct(spent, budget)
-        lvl = _level(pct)
         rem_html = f'<span style="color:{C.NEG}"><b>{_fmt(rem)}원</b></span>' if rem < 0 else f'{_fmt(rem)}원'
         refs['meta'].setText(f'예산 {_fmt(budget)}원 · 집행 {_fmt(spent)}원 · 잔액 {rem_html}')
         refs['chip'].setText(f'{pct:.1f}%')
-        refs['chip'].setStyleSheet(f'background: {_LEVEL_SOFT[lvl]}; color: {_LEVEL_TEXT[lvl]}; '
+        refs['chip'].setStyleSheet(f'background: {_LEVEL_SOFT[_level(pct)]}; color: {_text_color(pct)}; '
                                    f'border-radius: 10px; padding: 3px 10px; font-weight: 700;')
         totals = _cost_totals([it for it in self.items if it['category_id'] == cat_id])
         for cost, b in refs.get('chips', {}).items():
@@ -1641,15 +1666,14 @@ class BudgetWindow(QMainWindow):
         spent = sum(it['spent'] for it in self.items)
         rem = budget - spent
         pct = _pct(spent, budget)
-        lvl = _level(pct)
         self.stat['budget'].setText(f'{_fmt(budget)}원')
         self.stat['spent'].setText(f'{_fmt(spent)}원')
         self.stat['remaining'].setText(f'{_fmt(rem)}원')
-        self.stat['remaining'].setStyleSheet(f'color: {C.NEG if rem < 0 else C.TEXT};')
+        self.stat['remaining'].setStyleSheet(f'color: {_bal_color(rem)};')
         self.lbl_pct.setText(f'{pct:.1f}%')
-        self.lbl_pct.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-size: 12pt; font-weight: 800;')
+        self.lbl_pct.setStyleSheet(f'color: {_text_color(pct)}; font-size: 12pt; font-weight: 800;')
         self.bar_total.setValue(int(round(min(pct, 100))))
-        self.bar_total.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
+        self.bar_total.setStyleSheet(_bar_qss(_bar_color(pct)))
         self._update_meta()
 
     # ── 동작: 항목/세부항목 ────────────────────────────────────────
@@ -2426,7 +2450,7 @@ class _ItemDialog(QDialog):
             self.lbl_spend_preview.setText('적으면 집행액에 더해지고, 잔액은 그만큼 줄어요.')
             return
         rem_before, rem_after = budget - base, budget - new
-        rem_color = C.NEG if rem_after < 0 else C.TEXT
+        rem_color = _bal_color(rem_after)
         self.lbl_spend_preview.setText(
             f'집행액 {_fmt(base)} → <b style="color:{C.ACCENT}">{_fmt(new)}원</b> · '
             f'잔액 {_fmt(rem_before)} → <b style="color:{rem_color}">{_fmt(rem_after)}원</b>')

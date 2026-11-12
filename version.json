@@ -1,6 +1,6 @@
 {
-  "version": "v2.98",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.98/SSNnote_Setup.exe",
-  "sha256": "52EC49126AEE8429F106BDA3A752B703E104BE131026045F02C3D871F3E80D5F",
-  "changelog": "- 📊 예산 표에서 「집행액」 열을 없애고 잔액을 중심으로 보기 (집행액은 사용 내역이나 수정 창에서 고침, 표에서 바로 고치기는 없어짐)\n- 📊 원가통계비목별 합계는 기본으로 접혀 있고, 제목을 누르면 펼쳐 봄"
+  "version": "v2.99",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.99/SSNnote_Setup.exe",
+  "sha256": "",
+  "changelog": "- 📊 예산 집행률 색: 0%는 연한 파랑, 100%에 가까울수록 진한 파랑, 100%를 넘으면 빨강. 주황·노랑 단계는 없앰\n- 📊 잔액 숫자 색: 양수는 진한 파랑, 음수는 빨강"
 }
