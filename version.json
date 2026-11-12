@@ -1,6 +1,6 @@
 {
-  "version": "v2.99",
-  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.99/SSNnote_Setup.exe",
-  "sha256": "7751B925910AFD92FABEC64C7F1B42E238514A930D832C97D906D5E6B0BB9222",
-  "changelog": "- 📊 예산 집행률 색: 0%는 연한 파랑, 100%에 가까울수록 진한 파랑, 100%를 넘으면 빨강. 주황·노랑 단계는 없앰\n- 📊 잔액 숫자 색: 양수는 진한 파랑, 음수는 빨강"
+  "version": "v3.00",
+  "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v3.00/SSNnote_Setup.exe",
+  "sha256": "",
+  "changelog": "- 📊 예산 관리: 왼쪽 세부항목 목록에 옅은 주황 테두리, 선택한 세부항목은 진한 주황 테두리로 또렷하게\n- 📊 예산 집행률 색: 0%는 연한 파랑, 100%에 가까울수록 진한 파랑, 100%를 넘으면 빨강. 주황·노랑 단계는 없앰\n- 📊 잔액 숫자 색: 양수는 진한 파랑, 음수는 빨강"
 }
