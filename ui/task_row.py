@@ -19,7 +19,7 @@ from db import (update_task,
                 get_task_related_no, set_task_related_no,
                 get_task_attachments, set_task_attachments)
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
-from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, note_font, themed_pixmap, px
+from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, note_font, note_scale, set_note_bold, themed_pixmap, px
 from .dates import calc_dday
 from .widgets import AddDateButton, CustomCalendarWidget, DdayLabel, RotatedMenuButton
 from .dialogs import CustomRecurrenceDialog
@@ -577,7 +577,7 @@ class TaskRow(QWidget):
         # 업무 줄의 아이콘·표시는 모두 '업무 이름 첫 줄'의 세로 가운데에 맞춘다
         # (이름이 두 줄로 넘어가도 첫 줄 옆에 나란히). 첫 줄 높이 = 이름 칸 한 줄 높이.
         _nf = note_font(12)
-        _nf.setPointSizeF(12 * scale)
+        _nf.setPointSizeF(12 * scale * note_scale())
         self._line1_h = max(28, QFontMetrics(_nf).height() + 4)
         layout.addWidget(self._line_box(self.btn_star), 0, Qt.AlignTop)
 
@@ -616,11 +616,11 @@ class TaskRow(QWidget):
         self.name_edit.setFocusPolicy(Qt.NoFocus)
         # 파일 드롭이 name_edit(텍스트 위젯)에 가로채지고 부모 TaskRow로 버블업되도록 끔
         self.name_edit.setAcceptDrops(False)
-        _base_pt = 12 * scale
+        _base_pt = 12 * scale * note_scale()      # 글꼴별 크기 보정 (리틱체는 작게)
         name_font = note_font(12)
         name_font.setPointSizeF(_base_pt)  # 기한 지나도(overdue) 크기 유지 — 축소하지 않음
         if _is_starred and not overdue:     # 굵은 글씨는 중요 표시한 업무만 (급한 정도는 D-day 색으로)
-            name_font.setBold(True)
+            set_note_bold(name_font)
         self.name_edit.setFont(name_font)
         self.name_edit.setStyleSheet(f"""
             QPlainTextEdit {{
@@ -658,7 +658,7 @@ class TaskRow(QWidget):
             dday_lbl = DdayLabel(suffix, date_text, tone=tone)
             dday_lbl.clicked.connect(self._show_date_picker)
             dday_font = note_font(10)
-            dday_font.setPointSizeF(10.5 * scale)
+            dday_font.setPointSizeF(10.5 * scale * note_scale())
             dday_font.setWeight(QFont.DemiBold if tone in ('overdue', 'today', 'soon') else QFont.Normal)
             dday_lbl.setFont(dday_font)
             dday_lbl.setToolTip('마감일 바꾸기')

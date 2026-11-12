@@ -206,3 +206,22 @@ def test_dialog_defaults_to_apply_and_marks_changes(win):
     assert dlg._btn_apply.isDefault() and dlg.result_text() == '가 나 라'
     assert len(dlg._left.extraSelections()) == 1 and len(dlg._right.extraSelections()) == 1
     dlg.close()
+
+
+def test_editor_layout_remembered_and_reset(win):
+    """공문 작성 창: 위치·크기·받은 공문 칸 폭을 기억하고, 「창 배치 기본값으로」로 되돌린다."""
+    import json
+    import document_editor as de
+    win._state_ready = True
+    win.setGeometry(120, 130, 950, 700)
+    win._saved_panel_w = 420
+    win._save_window_state()
+    s = json.load(open(de.DocumentEditorWindow._STATE_FILE, encoding='utf-8'))
+    assert (s['width'], s['height'], s['panel_w']) == (950, 700, 420)
+    w2 = de.DocumentEditorWindow()
+    assert w2._saved_panel_w == 420
+    w2._state_ready = True
+    w2.reset_layout()
+    assert json.load(open(de.DocumentEditorWindow._STATE_FILE, encoding='utf-8'))['panel_w'] == 0
+    w2._polish = None
+    w2.close()

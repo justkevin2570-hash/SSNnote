@@ -1171,10 +1171,12 @@ class MemoWindow(QMainWindow):
         font_menu = self._submenu(memo, '글꼴', 200, icon='ph.text-t')
         for key, label in NOTE_FONTS:
             ok = note_font_available(key)
-            a = add(font_menu, label if ok else f'{label} (이 PC에 설치되지 않음)',
-                    lambda k=key: self._set_font(k, menu), checked=self._font_key == key)
-            a.setFont(QFont(note_family(key), 11))      # 글꼴 이름을 그 글꼴로 미리 보기
-            a.setEnabled(ok)
+            a = add(font_menu, label if ok else f'{label} (설치 필요)',
+                    (lambda k=key: self._set_font(k, menu)) if ok else (lambda k=key: self._font_missing(k, menu)),
+                    checked=self._font_key == key)
+            a.setFont(note_font(11, key))               # 글꼴 이름을 그 글꼴로 미리 보기
+            if not ok:
+                a.setToolTip('이 PC에 설치되어 있지 않아요 — 누르면 받는 곳과 설치 방법을 알려 드려요')
         size_menu = self._submenu(memo, '글자 크기', 110, icon='ph.text-aa')
         for label, val in [('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2)]:
             add(size_menu, label, lambda v=val: self._set_scale(v, menu), checked=abs(self._scale - val) < 0.01)
@@ -1262,6 +1264,8 @@ class MemoWindow(QMainWindow):
         add(settings, '개인정보 보호 모드', self._toggle_privacy_mode, checked=privacy_enabled())
         add(settings, 'AI 연결 (API 키)…', self._open_ai_settings, icon='ph.key')
         add(settings, 'Claude 연결…', self._open_claude_connect, icon='ph.link')
+        settings.addSeparator()
+        add(settings, '창 배치 기본값으로…', self._reset_layouts, icon='ph.arrows-counter-clockwise')
 
         # ── 도움말 ──
         help_menu = self._submenu(menu, '도움말', 150, icon='ph.question')
@@ -1856,6 +1860,105 @@ class MemoWindow(QMainWindow):
         self._size_inputs()
         self.title_bar.set_icon_scale(s)
         self.memo_editor.setFont(note_font(int(12 * s), self._font_key))
+
+    def _font_missing(self, key, menu=None):
+        """설치되지 않은 글꼴을 골랐을 때: [받기](공식 사이트) · [설치 확인](설치했으면 바로 바꿈) · [닫기]."""
+        import html as _html
+        from ui.common import NOTE_FONT_DOWNLOAD, NOTE_FONT_FILES, REATIC_SITE
+        from PyQt5.QtGui import QDesktopServices
+        if menu:
+            menu.close()
+        label = dict(NOTE_FONTS).get(key, key)
+        url = NOTE_FONT_DOWNLOAD.get(key)
+        if url:
+            files = ''.join(f'<br>&nbsp;&nbsp;&nbsp;· <b>{f}.ttf</b>' for f in NOTE_FONT_FILES.get(key, ()))
+            body = (f'<b>{_html.escape(label)}</b>가 이 PC에 설치되어 있지 않아요.<br><br>'
+                    '1. <b>[받기]</b> — 공식 사이트에서 리틱체.zip을 받아요.<br>'
+                    f'2. 압축을 풀고 TTF 폴더 안의 아래 파일을 더블클릭 → [설치]{files}<br>'
+                    '3. <b>[설치 확인]</b> — 설치됐으면 바로 이 글꼴로 바뀌어요.<br><br>'
+                    f'받기가 안 되면 <a href="{REATIC_SITE}">리틱인더스트리 공식 사이트</a>에서 받으세요.<br>'
+                    '<span style="color:#64748B">리틱체는 글꼴 파일 재배포가 금지되어 있어 앱에 넣지 않았어요.</span>')
+        else:
+            body = (f'<b>{_html.escape(label)}</b>을(를) 이 PC에서 찾지 못했어요.<br>'
+                    'Windows 설정 → 개인 설정 → 글꼴에서 설치되어 있는지 확인해 주세요.')
+        dlg = QDialog(self)
+        dlg.setWindowTitle('글꼴 설치 필요')
+        v = QVBoxLayout(dlg)
+        v.setContentsMargins(20, 18, 20, 14)
+        v.setSpacing(12)
+        text = QLabel(body)
+        text.setTextFormat(Qt.RichText)
+        text.setWordWrap(True)
+        text.setOpenExternalLinks(True)
+        text.setMinimumWidth(px(430))
+        text.setFont(QFont('Malgun Gothic', 10))
+        v.addWidget(text)
+        status = QLabel('')
+        status.setWordWrap(True)
+        status.setStyleSheet('color: #B45309;')
+        status.hide()
+        v.addWidget(status)
+        row = QHBoxLayout()
+        row.addStretch()
+        result = {'ok': False}
+
+        def get():
+            QDesktopServices.openUrl(QUrl(url))
+            status.setText('받은 파일을 설치한 뒤 [설치 확인]을 눌러 주세요.')
+            status.show()
+
+        def check():
+            refresh_installed_fonts()
+            if note_font_available(key):
+                result['ok'] = True
+                dlg.accept()
+            else:
+                status.setText('⚠ 아직 찾지 못했어요. 설치를 마쳤는지 확인해 주세요.')
+                status.show()
+        buttons = ([('받기', get)] if url else []) + [('설치 확인', check), ('닫기', dlg.reject)]
+        dlg._buttons = {}
+        for i, (t, fn) in enumerate(buttons):
+            b = QPushButton(t)
+            b.setMinimumWidth(px(84))
+            b.clicked.connect(fn)
+            b.setDefault(i == 0)
+            row.addWidget(b)
+            dlg._buttons[t] = b
+        v.addLayout(row)
+        self._font_dialog = dlg                         # 테스트에서 버튼을 누를 수 있게
+        dlg.exec_()
+        if result['ok']:
+            self._set_font(key)
+        return result['ok']
+
+    def _reset_layouts(self):
+        """예산·공문 작성·AI 대화 창의 위치·크기·보던 칸을 처음 상태로 (업무·예산·공문 내용은 그대로)."""
+        ans = QMessageBox.question(
+            self, '창 배치 기본값으로',
+            '예산 관리 · 공문 작성 · AI 대화 창의 위치와 크기, 보던 칸을 처음 상태로 되돌릴까요?\n'
+            '업무 · 예산 · 공문 내용은 그대로예요.',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ans != QMessageBox.Yes:
+            return
+        import os
+        import budget
+        from document_editor import DocumentEditorWindow
+        if getattr(budget, '_instance', None) is not None:
+            budget._instance.reset_layout()
+        else:
+            try:
+                os.remove(budget._STATE_FILE)
+            except OSError:
+                pass
+        ed = DocumentEditorWindow._instance
+        if ed is not None:
+            ed.reset_layout()
+        else:
+            try:
+                os.remove(DocumentEditorWindow._STATE_FILE)
+            except OSError:
+                pass
+        ai_chat_window.reset_layout()
 
     def _set_font(self, key, menu=None):
         """이 창의 글꼴 바꾸기 (업무 이름·메모·D-day·업무 추가 칸, 메모장 본문)."""

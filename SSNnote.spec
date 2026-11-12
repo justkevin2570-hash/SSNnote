@@ -36,6 +36,10 @@ a = Analysis(
         'ui.menu_style',
         'ui.capture_panel',
         'ui.history_dialog',
+        'ui.font_detect',       # 글꼴 설치 확인 (함수 안에서 불러옴)
+        'ui.ai_connect',
+        'ui.ai_chat_window',
+        'task_ai',
         'PyQt5.sip',
         'PyQt5.QtCore',
         'PyQt5.QtGui',

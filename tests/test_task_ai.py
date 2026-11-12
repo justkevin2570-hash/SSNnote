@@ -215,3 +215,23 @@ def test_title_bar_ai_button_shows_open_state(win):
     assert btn.property('active') is True and btn.toolTip() == 'AI 대화 숨기기'
     w._toggle_ai_chat()
     assert btn.property('active') is False and btn.toolTip() == 'AI 대화 열기'
+
+
+def test_ai_chat_remembers_host_window(win):
+    w, acw, db, app = win
+    import window
+    wid2 = db.create_window()
+    w2 = window.MemoWindow(wid2)
+    w2.show()
+    app.processEvents()
+    acw.instance().attach(w2)
+    assert db.get_setting(acw.HOST_KEY) == str(wid2)
+    acw._win.close()
+    acw._win = None
+    acw.auto_open(w)                    # 다음에 켤 때: 먼저 뜬 창(w)이 아니라
+    assert acw.instance(create=False) is None
+    acw.auto_open(w2)                   # 기억한 창(w2) 옆에 붙음
+    assert acw.instance(create=False).host is w2
+    acw.reset_layout()
+    assert db.get_setting(acw.SIDE_KEY) == 'right'
+    w2.close()
