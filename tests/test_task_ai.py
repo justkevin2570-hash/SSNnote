@@ -115,19 +115,30 @@ pytest.importorskip('PyQt5')
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 
-def test_dock_rect_flips_at_screen_edge():
+def test_dock_rect_keeps_chosen_side_at_screen_edge():
     from PyQt5.QtCore import QRect
     from ui.ai_chat_window import dock_rect
     screen = QRect(0, 0, 1920, 1040)
     # 1px 겹쳐 붙여 맞닿은 테두리가 한 줄
     r, where = dock_rect(QRect(100, 100, 300, 400), 'right', 320, screen)
     assert where == 'right' and (r.x(), r.y(), r.width(), r.height()) == (399, 100, 320, 400)
-    r, where = dock_rect(QRect(1700, 100, 200, 400), 'right', 320, screen)      # 오른쪽 자리 없음 → 왼쪽
-    assert where == 'left' and r.x() == 1700 - 320 + 1
+    r, where = dock_rect(QRect(500, 100, 300, 400), 'left', 320, screen)
+    assert where == 'left' and (r.x(), r.y(), r.width(), r.height()) == (500 - 320 + 1, 100, 320, 400)
     r, where = dock_rect(QRect(100, 100, 300, 400), 'bottom', 240, screen)
     assert where == 'bottom' and (r.x(), r.y(), r.width(), r.height()) == (100, 499, 300, 240)
-    r, where = dock_rect(QRect(100, 700, 300, 300), 'bottom', 240, screen)      # 아래 자리 없음 → 위
-    assert where == 'top' and r.y() == 700 - 240 + 1
+    # 화면 끝이어도 반대쪽으로 넘어가지 않고 크기도 그대로 (일반 창처럼 밖으로 나감)
+    r, where = dock_rect(QRect(1700, 100, 200, 400), 'right', 320, screen)
+    assert where == 'right' and r.x() == 1899 and r.width() == 320
+    r, where = dock_rect(QRect(50, 100, 200, 400), 'left', 320, screen)
+    assert where == 'left' and r.x() == 50 - 320 + 1 and r.width() == 320
+    r, where = dock_rect(QRect(100, 900, 300, 300), 'bottom', 240, screen)
+    assert where == 'bottom' and r.y() == 1199 and r.height() == 240
+
+
+def test_chat_left_side_menu_and_grip():
+    from ui import ai_chat_window as acw
+    assert [s for s, _ in acw.SIDES] == ['inside', 'left', 'right', 'bottom']
+    assert acw.DEFAULT_SIZE['left'] == 320 and acw.MIN_SIZE['left'] == 240
 
 
 _APP = None                         # QApplication을 붙잡아 둬야 다음 테스트에서도 창을 만들 수 있음
@@ -169,6 +180,24 @@ def test_inside_is_default_and_sits_under_task_list(win):
     assert c.is_shown()
     w._toggle_ai_chat()                                                # 다시 누르면 숨기고 칸도 접힘
     assert not c.is_shown() and w.ai_slot.isHidden() and db.get_setting(acw.OPEN_KEY) == '0'
+
+
+def test_left_side_attach_follow_and_ai_action(win):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    c.set_side('left')
+    assert db.get_setting(acw.SIDE_KEY) == 'left' and c.parent() is None and c.isVisible()
+    assert c.geometry().right() == w.frameGeometry().left()           # 왼쪽에 1px 겹쳐 붙음
+    assert c._head_mirrored and c.grip.geometry().x() == 0           # ✕·⋯ 바깥쪽, 폭은 왼쪽 가장자리로
+    w.move(400, 120)
+    app.processEvents()
+    assert c.geometry().right() == w.frameGeometry().left() and c.geometry().y() == w.frameGeometry().y()
+    c.set_dock_size(400)
+    assert c.width() == 400 and c.geometry().right() == w.frameGeometry().left()
+    import ai_actions
+    v, desc = ai_actions.ChatSide.check({'side': '오른쪽'}, {'chat': {'side': 'left'}})
+    assert v == {'side': 'right'} and '오른쪽' in desc
 
 
 def test_toggle_attach_follow_and_remember(win):

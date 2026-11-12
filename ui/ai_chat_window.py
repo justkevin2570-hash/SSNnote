@@ -24,10 +24,11 @@ from .theme import DEFAULT_NOTE_COLOR, T, note_color, tc, tct
 SIDE_KEY, SIZE_KEY, OPEN_KEY = 'ai_chat_side', 'ai_chat_size', 'ai_chat_open'
 HOST_KEY = 'ai_chat_host'           # 마지막으로 붙어 있던 업무창 id
 COLOR_KEY, FONT_KEY, SCALE_KEY, GAP_KEY = 'ai_chat_color', 'ai_chat_font', 'ai_chat_scale', 'ai_chat_gap'
-SIDES = (('inside', '업무창 안에 넣기'), ('right', '오른쪽에 붙이기'), ('bottom', '아래쪽에 붙이기'))
+SIDES = (('inside', '업무창 안에 넣기'), ('left', '왼쪽에 붙이기'), ('right', '오른쪽에 붙이기'),
+         ('bottom', '아래쪽에 붙이기'))
 DEFAULT_SIDE = 'inside'
-DEFAULT_SIZE = {'right': 320, 'bottom': 300, 'inside': 320}
-MIN_SIZE = {'right': 240, 'bottom': 220, 'inside': 220}
+DEFAULT_SIZE = {'left': 320, 'right': 320, 'bottom': 300, 'inside': 320}
+MIN_SIZE = {'left': 240, 'right': 240, 'bottom': 220, 'inside': 220}
 GAP = -1                          # 업무창과 1px 겹쳐 테두리 한 줄을 함께 씀
 BORDER = 'rgba(0,0,0,0.4)'        # 업무창 테두리와 같은 색
 LINE_HEIGHT = {0: 135, 5: 155, 10: 175, 15: 195}       # 줄 간격 단계 → AI 답 줄 높이(%)
@@ -38,22 +39,14 @@ CLEAR_CMDS = ('/clear',)                               # 입력칸 명령: 대�
 
 
 # ── 붙는 자리 계산 (화면 없이 시험할 수 있게 따로) ─────────────────
-def dock_rect(host: QRect, side: str, size: int, screen: QRect) -> tuple:
-    """업무창(host) 옆 AI 창 자리 → (QRect, 실제로 붙은 쪽). 자리가 없으면 반대쪽(left/top)에 붙인다.
-    1px 겹쳐 붙여 맞닿은 테두리가 한 줄로 보이게 한다."""
+def dock_rect(host: QRect, side: str, size: int, screen: QRect = None) -> tuple:
+    """업무창(host) 옆 AI 창 자리 → (QRect, 붙은 쪽). 고른 쪽에만 붙는다 — 화면 끝이면 일반 창처럼
+    일부가 화면 밖으로 나간다 (반대쪽으로 넘어가지 않음). 1px 겹쳐 맞닿은 테두리가 한 줄로 보이게 한다."""
     if side == 'bottom':
-        h = size
-        y = host.bottom() + 1 + GAP
-        where = 'bottom'
-        if y + h - 1 > screen.bottom() and host.top() - GAP - h >= screen.top():
-            y, where = host.top() - GAP - h, 'top'
-        return QRect(host.left(), y, host.width(), h), where
-    w = size
-    x = host.right() + 1 + GAP
-    where = 'right'
-    if x + w - 1 > screen.right() and host.left() - GAP - w >= screen.left():
-        x, where = host.left() - GAP - w, 'left'
-    return QRect(x, host.top(), w, host.height()), where
+        return QRect(host.left(), host.bottom() + 1 + GAP, host.width(), size), 'bottom'
+    if side == 'left':
+        return QRect(host.left() - GAP - size, host.top(), size, host.height()), 'left'
+    return QRect(host.right() + 1 + GAP, host.top(), size, host.height()), 'right'
 
 
 def answer_html(text: str, line_height: int = 135) -> str:
@@ -559,7 +552,7 @@ class AiChatWindow(QWidget):
 
     def set_dock_size(self, size):
         geo = QApplication.primaryScreen().availableGeometry()
-        limit = geo.width() // 2 if self.side == 'right' else geo.height() // 2
+        limit = geo.width() // 2 if self.side in ('left', 'right') else geo.height() // 2
         self.dock_size = max(MIN_SIZE[self.side], min(int(size), max(MIN_SIZE[self.side], limit)))
         self.follow()
 
