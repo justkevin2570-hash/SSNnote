@@ -196,6 +196,12 @@ def init_db():
                         (row['x'], row['y'], row['width'], row['height'], row['collapsed'])
                     )
 
+        # 배경색 새 팔레트(v3.06) — 예전 색을 가장 가까운 새 색으로 (창 · AI 대화 창)
+        from ui.theme import OLD_COLOR_MAP
+        for old, new in OLD_COLOR_MAP.items():
+            conn.execute('UPDATE windows SET color=? WHERE UPPER(color)=?', (new, old))
+            conn.execute("UPDATE app_settings SET value=? WHERE key='ai_chat_color' AND UPPER(value)=?", (new, old))
+
         # 창이 하나도 없으면 기본 창 생성
         count = conn.execute('SELECT COUNT(*) FROM windows').fetchone()[0]
         if count == 0:

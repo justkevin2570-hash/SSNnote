@@ -142,7 +142,7 @@ def test_new_memo_write_style_and_undo(env):
     r, j2 = _run(env, {'do': 'memo.write', 'window_id': memo.window_id, 'text': '두 번째 줄', 'mode': 'append'},
                  {'do': 'window.style', 'window_id': memo.window_id, 'color': '분홍', 'size': '크게', 'gap': 10})
     assert memo.memo_editor.toPlainText() == '회의 메모\n두 번째 줄'
-    assert memo._bg_color.upper() == '#FDCFE8' and memo._scale == 1.1 and memo._row_gap == 10
+    assert memo._bg_color.upper() == '#FBD5E3' and memo._scale == 1.1 and memo._row_gap == 10
     ai_actions.undo(j2, env['app'])
     assert memo.memo_editor.toPlainText() == '회의 메모' and memo._scale == 1.0 and memo._row_gap == 0
     wid = memo.window_id
@@ -221,7 +221,7 @@ def test_settings_and_chat_actions(env, monkeypatch):
     r, j = _run(env, {'do': 'settings.alarm', 'minutes': 60}, {'do': 'settings.auto_update', 'on': False},
                 {'do': 'chat.side', 'side': 'right'}, {'do': 'chat.style', 'color': '하늘', 'size': '크게'})
     assert alarm['m'] == 60 and calls == [False]
-    assert env['chat'].side == 'right' and env['chat'].color == '#AECBFA' and env['chat'].scale == 1.1
+    assert env['chat'].side == 'right' and env['chat'].color == '#D2E4FA' and env['chat'].scale == 1.1
     ai_actions.undo(j, app)
     assert alarm['m'] == 180 and calls == [False, True] and env['chat'].side == 'inside' and env['chat'].color == ''
 

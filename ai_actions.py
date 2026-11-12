@@ -21,9 +21,9 @@ MAX_ACTIONS = 20
 VIEW, CHANGE, DELETE = 'view', 'change', 'delete'
 TEXT_MAX = 2000                      # 메모·업무 메모 글 한도
 
-COLOR_NAMES = {'#FDD663': '진노랑', '#FEFFA7': '노랑', '#CCFF90': '연두', '#A8F0E8': '민트', '#AECBFA': '하늘',
-               '#D7AEFB': '보라', '#FDCFE8': '분홍', '#E6C9A8': '베이지', '#AAAAAA': '회색', '#DDDDDD': '연회색',
-               '#FFFFFF': '흰색'}
+from ui.theme import PALETTE_NAMES as COLOR_NAMES          # hex → 이름
+COLOR_ALIASES = {'노란색': '노랑', '진노랑': '귤', '주황': '귤', '살구': '복숭아', '보라': '라벤더', '파랑': '하늘',
+                 '초록': '연두', '베이지': '모래', '갈색': '모래', '회색': '연회색', '하얀색': '흰색'}
 FONT_KEYS = {'pretendard': 'Pretendard', 'reatic': '리틱체', 'reatic_narrow': '리틱체 Narrow', 'malgun': '맑은 고딕'}
 SIZE_VALUES = {'기본': 1.0, '크게': 1.1, '더 크게': 1.2}
 GAP_VALUES = (0, 5, 10, 15)
@@ -99,8 +99,13 @@ def _color(v):
     up = s.upper()
     if up in COLOR_NAMES:
         return up
+    from ui.theme import OLD_COLOR_MAP
+    if up in OLD_COLOR_MAP:
+        return OLD_COLOR_MAP[up]
+    name = s.replace(' ', '')
+    name = COLOR_ALIASES.get(name, name)
     for hx, nm in COLOR_NAMES.items():
-        if s == nm or s.replace(' ', '') == nm:
+        if name == nm:
             return hx
     raise Reject(f'고를 수 없는 색이에요: {s}')
 

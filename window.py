@@ -30,7 +30,7 @@ from ui.document_row import DocumentRow
 from ui.calendar_view import MonthlyCalendarDialog, NativeCalendarDialog
 from ui import menu_style
 from ui import ai_chat_window
-from ui.theme import T, PALETTE, tc, tct, note_color, qcolor, DARK, accent_for_note, set_current_accent, rgba
+from ui.theme import T, PALETTE, DEFAULT_NOTE_COLOR, tc, tct, note_color, qcolor, DARK, accent_for_note, set_current_accent, rgba
 import qtawesome as qta
 
 class MemoWindow(QMainWindow):
@@ -54,7 +54,7 @@ class MemoWindow(QMainWindow):
         self.collapsed       = False
         self.expanded_height = 400
         self.pin_active      = False
-        self._bg_color       = tc('#FEFFA7')  # 기본값
+        self._bg_color       = tc(DEFAULT_NOTE_COLOR)  # 기본값
         self._accent         = T.ACCENT       # 메모 색에 맞춘 포인트 색 (_apply_color에서 정함)
         self._capture_hint_shown = False
         self._scale          = 1.0

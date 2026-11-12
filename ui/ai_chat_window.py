@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineEdi
 
 from .ai_app import AppAdapter
 from .common import DEFAULT_NOTE_FONT, NOTE_FONTS, TITLE_BAR_HEIGHT, note_font, px
-from .theme import T, note_color, tc, tct
+from .theme import DEFAULT_NOTE_COLOR, T, note_color, tc, tct
 
 SIDE_KEY, SIZE_KEY, OPEN_KEY = 'ai_chat_side', 'ai_chat_size', 'ai_chat_open'
 HOST_KEY = 'ai_chat_host'           # 마지막으로 붙어 있던 업무창 id
@@ -301,9 +301,9 @@ class AiChatWindow(QWidget):
         c = self.color
         if c == SAME_AS_NOTE:
             try:
-                c = getattr(self.host, '_bg_color', '') or '#FEFFA7'
+                c = getattr(self.host, '_bg_color', '') or DEFAULT_NOTE_COLOR
             except RuntimeError:
-                c = '#FEFFA7'
+                c = DEFAULT_NOTE_COLOR
         return note_color(c) if c else tc('#FFFFFF')
 
     def _layout_head(self, mirrored):
