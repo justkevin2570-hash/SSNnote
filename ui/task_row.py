@@ -19,7 +19,7 @@ from db import (update_task,
                 get_task_related_no, set_task_related_no,
                 get_task_attachments, set_task_attachments)
 from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
-from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, note_font, note_scale, themed_pixmap, px
+from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, note_font, note_scale, set_note_bold, themed_pixmap, px
 from .dates import calc_dday
 from .widgets import AddDateButton, CustomCalendarWidget, DdayLabel, RotatedMenuButton
 from .dialogs import CustomRecurrenceDialog
@@ -620,7 +620,7 @@ class TaskRow(QWidget):
         name_font = note_font(12)
         name_font.setPointSizeF(_base_pt)  # 기한 지나도(overdue) 크기 유지 — 축소하지 않음
         if _is_starred and not overdue:     # 굵은 글씨는 중요 표시한 업무만 (급한 정도는 D-day 색으로)
-            name_font.setBold(True)
+            set_note_bold(name_font)
         self.name_edit.setFont(name_font)
         self.name_edit.setStyleSheet(f"""
             QPlainTextEdit {{

@@ -1173,7 +1173,7 @@ class MemoWindow(QMainWindow):
             ok = note_font_available(key)
             a = add(font_menu, label if ok else f'{label} (이 PC에 설치되지 않음)',
                     lambda k=key: self._set_font(k, menu), checked=self._font_key == key)
-            a.setFont(QFont(note_family(key), 11))      # 글꼴 이름을 그 글꼴로 미리 보기
+            a.setFont(note_font(11, key))               # 글꼴 이름을 그 글꼴로 미리 보기
             a.setEnabled(ok)
         size_menu = self._submenu(memo, '글자 크기', 110, icon='ph.text-aa')
         for label, val in [('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2)]:

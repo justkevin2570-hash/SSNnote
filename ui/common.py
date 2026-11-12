@@ -90,6 +90,9 @@ def pr_font(size=11):
 NOTE_FONTS = (('pretendard', 'Pretendard'), ('reatic', '리틱체'), ('malgun', '맑은 고딕'))
 DEFAULT_NOTE_FONT = 'pretendard'
 _NOTE_FAMILY_NAMES = {'reatic': ('리틱체', 'REATIC'), 'malgun': ('맑은 고딕', 'Malgun Gothic')}
+# 먼저 찾아 쓸 폭 좁은 판 (리틱체 Narrow: 한글 높이는 같고 폭만 좁아 업무 이름이 덜 넘어감).
+# Windows에는 'REATIC Narrow' 같은 글꼴 이름으로, 다른 곳에서는 'REATIC'의 'Narrow' 모양으로 보인다.
+_NOTE_NARROW = {'reatic': (('REATIC Narrow', ''), ('리틱체 Narrow', ''), ('REATIC', 'Narrow'), ('리틱체', 'Narrow'))}
 _CURRENT_NOTE_FONT = DEFAULT_NOTE_FONT
 # 같은 pt에서도 글꼴마다 실제 글자 크기가 달라, 한글 높이를 Pretendard에 맞추는 배율
 # (리틱체: 12pt에서 한글 높이 18px ↔ Pretendard 16px → 16/18)
@@ -102,7 +105,7 @@ def _pretendard_family():
     return families[0] if families else 'Pretendard'
 
 
-_INSTALLED = {}                  # 글꼴 고르기 값 → 설치된 글꼴 이름 (업무 줄마다 찾지 않게 기억)
+_INSTALLED = {}                  # 글꼴 고르기 값 → (설치된 글꼴 이름, 모양) (업무 줄마다 찾지 않게 기억)
 
 
 def refresh_installed_fonts():
@@ -110,13 +113,28 @@ def refresh_installed_fonts():
     _INSTALLED.clear()
 
 
+def _installed_spec(key):
+    """이 PC에 설치된 (글꼴 이름, 모양 이름). 폭 좁은 판이 있으면 그것. 없으면 ('', '')."""
+    if key not in _INSTALLED:
+        spec = ('', '')
+        names = _NOTE_FAMILY_NAMES.get(key) or ()
+        if names:
+            fdb = QFontDatabase()
+            have = set(fdb.families())
+            for fam, style in _NOTE_NARROW.get(key, ()):
+                if fam in have and (not style or style in fdb.styles(fam)):
+                    spec = (fam, style)
+                    break
+            else:
+                fam = next((n for n in names if n in have), '')
+                spec = (fam, '')
+        _INSTALLED[key] = spec
+    return _INSTALLED[key]
+
+
 def _installed_family(key):
     """이 PC에 설치된 글꼴 이름 (없으면 '')."""
-    if key not in _INSTALLED:
-        names = _NOTE_FAMILY_NAMES.get(key) or ()
-        have = set(QFontDatabase().families()) if names else set()
-        _INSTALLED[key] = next((n for n in names if n in have), '')
-    return _INSTALLED[key]
+    return _installed_spec(key)[0]
 
 
 def note_font_available(key) -> bool:
@@ -149,9 +167,24 @@ def note_scale(key=None) -> float:
 
 def note_font(size=11, key=None):
     """업무창·메모장 글자용 QFont (고른 글꼴, 없으면 Pretendard). 글꼴별 크기 보정을 넣는다."""
+    key = key or _CURRENT_NOTE_FONT
     f = QFont(note_family(key))
+    style = _installed_spec(key)[1] if key != 'pretendard' else ''
+    if style:
+        f.setStyleName(style)
     f.setPointSizeF(size * note_scale(key))
     return f
+
+
+def set_note_bold(font, on=True):
+    """굵게. 'Narrow'처럼 모양 이름으로 고른 글꼴은 굵은 모양('Narrow Bold')으로 바꾼다."""
+    style = font.styleName()
+    if style:
+        base = style.replace(' Bold', '').replace('Bold', '').strip() or 'Regular'
+        font.setStyleName(f'{base} Bold' if on and base != 'Regular' else ('Bold' if on else base))
+    else:
+        font.setBold(on)
+    return font
 
 def mi_icon(codepoint, size=18, color=None):
     """Fluent Icons 코드포인트를 QIcon으로 변환. 색을 안 주면 테마의 기본 아이콘 회색."""

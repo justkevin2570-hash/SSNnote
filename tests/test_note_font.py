@@ -116,3 +116,22 @@ def test_reatic_size_scaled_to_pretendard(env):
     w = make()
     w._set_font('reatic')
     assert abs(w._task_rows()[0].name_edit.font().pointSizeF() - 12 * 16 / 18) < 0.01
+
+
+def test_narrow_style_preferred_and_bold_uses_narrow_bold(env, monkeypatch):
+    """리틱체 Narrow가 설치돼 있으면 그것을 쓰고, 중요 표시(굵게)는 Narrow Bold 모양으로."""
+    make, db, common = env
+    fam = common._pretendard_family()
+    styles = common.QFontDatabase().styles(fam)
+    style = next((s for s in styles if s not in ('Regular', 'Bold')), None)
+    if style is None:
+        pytest.skip('모양 이름으로 고를 수 있는 글꼴이 없음')
+    monkeypatch.setitem(common._NOTE_NARROW, 'reatic', (('없는 Narrow', ''), (fam, style)))
+    common.refresh_installed_fonts()
+    assert common._installed_spec('reatic') == (fam, style)
+    f = common.note_font(12, 'reatic')
+    assert f.styleName() == style
+    f2 = common.set_note_bold(common.note_font(12, 'reatic'))
+    assert f2.styleName().endswith('Bold')
+    g = common.set_note_bold(common.note_font(12, 'pretendard'))
+    assert g.bold() and not g.styleName()
