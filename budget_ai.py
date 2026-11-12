@@ -217,10 +217,10 @@ class BudgetAskWorker(QThread):
             from ai_client import get_adapter, friendly_error  # noqa: F401
             adapter = get_adapter()
             if adapter is None:
-                self.failed.emit('AI가 꺼져 있어요. 공문 작성 창 → [AI 설정]에서 OpenCode·Claude·ChatGPT·Claude 구독 중 하나를 연결하세요.')
+                self.failed.emit('AI가 꺼져 있어요. 위의 [AI 꺼짐 · 연결하기]에서 OpenCode·Claude·ChatGPT·Claude 구독 중 하나를 연결하세요.')
                 return
             if not adapter.get_api_key():
-                self.failed.emit('AI API 키가 없어요. 공문 작성 창 → [AI 설정]에서 키를 넣어 주세요.')
+                self.failed.emit('AI API 키가 없어요. 위의 AI 연결 버튼에서 키를 넣어 주세요.')
                 return
             prompt = build_prompt(self._q, build_context(self._cats, self._items, self._groups), self._history)
             masked = {}
