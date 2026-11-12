@@ -237,21 +237,23 @@ def _ai(monkeypatch, reply):
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'claude')
     monkeypatch.setattr(school_profile, 'privacy_enabled', lambda: False)
     monkeypatch.setattr(budget_ai.BudgetAskWorker, 'start', lambda self: self.run())   # 스레드 없이
+    import ai_actions
+    monkeypatch.setattr(ai_actions.AskWorker, 'start', lambda self: self.run())
     return fake
 
 
 def test_ask_answers_with_budget_context(win, monkeypatch):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
-    fake = _ai(monkeypatch, lambda p: '{"answer": "A의 잔액은 800원이에요.", "spend": []}')
+    fake = _ai(monkeypatch, lambda p: '{"answer": "A의 잔액은 800원이에요.", "actions": []}')
     w.refresh()
-    assert w.ask_card.isVisibleTo(w) and w.ask_input.isEnabled()
+    assert w.ask_card.isVisibleTo(w) and w.ask_input.isEnabled() and w.quick_buttons == []
     w.ask_input.setText('A 얼마 남았어?')
     w.ask_send.click()
-    assert '강사 수당' in fake.prompts[0]                     # 예산 표를 함께 보냄
+    assert '강사 수당' in fake.prompts[0] and 'task.delete' in fake.prompts[0]   # 예산 표 + 앱 전체 기능 목록
     assert 'A의 잔액은 800원' in w.ask_answer.toPlainText()
-    assert w.ask_proposal.isHidden()
-    w.quick_buttons[0].click()                               # 빠른 질문 버튼
+    assert w.ask_confirm.isHidden()
+    w._ask('그중 제일 큰 건?')
     assert len(fake.prompts) == 2 and '이전 질문: A 얼마 남았어?' in fake.prompts[1]
 
 
@@ -260,14 +262,15 @@ def test_spoken_spending_needs_confirm(win, monkeypatch):
     w._apply_import(CATS, 'append')
     item = next(i for i in db.get_budget_items() if i['description'] == '간식')
     _ai(monkeypatch, lambda p: json.dumps({'answer': '간식에 300원을 넣을까요?',
-                                           'spend': [{'item_id': item['id'], 'amount': 300}]}, ensure_ascii=False))
+                                           'actions': [{'do': 'budget.spend', 'item_id': item['id'], 'amount': 300}]},
+                                          ensure_ascii=False))
     w.refresh()
     w._ask('간식 300원 썼어')
-    assert not w.ask_proposal.isHidden() and '+300원' in w.lbl_proposal.text()
+    assert not w.ask_confirm.proposal.isHidden() and '300원 썼어요' in w.ask_confirm.lbl_proposal.text()
     assert next(i for i in db.get_budget_items() if i['id'] == item['id'])['spent'] == 0   # 아직 안 넣음
-    w._apply_spend()
+    w.ask_confirm.apply()
     assert next(i for i in db.get_budget_items() if i['id'] == item['id'])['spent'] == 300
-    assert w.ask_proposal.isHidden() and '넣었어요' in w.ask_status.text()
+    assert w.ask_confirm.proposal.isHidden() and '1건을 했어요' in w.ask_status.text()
 
 
 def test_ask_disabled_when_ai_off(win, monkeypatch):
@@ -372,20 +375,19 @@ def _item_id(db, desc):
     return next(i['id'] for i in db.get_budget_items() if i['description'] == desc)
 
 
-def test_target_balance_shows_table_then_apply_and_undo(win, monkeypatch):
+def test_target_balance_apply_and_undo(win, monkeypatch):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     iid = _item_id(db, '강사 수당')                          # 예산 1,000 · 집행 200
     _ai(monkeypatch, lambda p: json.dumps({'answer': '강사 수당 잔액을 300원으로 맞출게요.',
-                                           'set_remaining': [{'item_id': iid, 'remaining': 300}]}, ensure_ascii=False))
+                                           'actions': [{'do': 'budget.set_remaining', 'item_id': iid, 'remaining': 300}]},
+                                          ensure_ascii=False))
     w.refresh()
     w._ask('강사 수당 잔액 300원으로 맞춰줘')
-    text = w.lbl_proposal.text()
-    assert not w.ask_proposal.isHidden() and '이렇게 바꿀까요' in text and '실제 집행 내역과 맞는지' in text
-    assert '200' in text and '700' in text                  # 집행액 200 → 700 (앱이 계산)
-    w._apply_spend()
-    assert _spent(db, iid) == 700
-    assert not w.btn_undo_apply.isHidden() and '1개 항목' in w.ask_status.text()
+    text = w.ask_confirm.lbl_proposal.text()
+    assert '이렇게 할까요' in text and '집행 700원' in text and '잔액 300원' in text   # 앱이 계산
+    w.ask_confirm.apply()
+    assert _spent(db, iid) == 700 and not w.btn_undo_apply.isHidden()
     w._undo_apply()
     assert _spent(db, iid) == 200 and w.btn_undo_apply.isHidden()
 
@@ -395,13 +397,33 @@ def test_rejected_suggestion_is_grey_and_cannot_be_applied(win, monkeypatch):
     w._apply_import(CATS, 'append')
     iid = _item_id(db, '강사 수당')
     _ai(monkeypatch, lambda p: json.dumps({'answer': '잔액을 맞출게요.',
-                                           'set_remaining': [{'item_id': iid, 'remaining': 99999}]}))
+                                           'actions': [{'do': 'budget.set_remaining', 'item_id': iid,
+                                                        'remaining': 99999}]}))
     w.refresh()
     w._ask('잔액 99999원으로')
-    assert '제외: 강사 수당' in w.lbl_proposal.text() and '예산보다' in w.lbl_proposal.text()
-    assert not w.btn_apply_spend.isEnabled()
-    w._apply_spend()
+    text = w.ask_confirm.lbl_proposal.text()
+    assert '강사 수당' in text and '예산보다' in text and '할 수 없어요' in text
+    assert w.ask_confirm.btn_apply.isHidden()
+    w.ask_confirm.apply()
     assert _spent(db, iid) == 200
+
+
+def test_budget_window_can_delete_and_add_tasks_too(win, monkeypatch):
+    """예산 창에서도 앱 전체 기능: 예산 항목 지우기는 빨간 칸 [지우기]."""
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    iid = _item_id(db, '간식')
+    _ai(monkeypatch, lambda p: json.dumps({'answer': '간식 항목을 지울게요.',
+                                           'actions': [{'do': 'budget.item_delete', 'item_id': iid}]},
+                                          ensure_ascii=False))
+    w.refresh()
+    w._ask('간식 항목 지워줘')
+    assert not w.ask_confirm.proposal_del.isHidden() and w.ask_confirm.proposal.isHidden()
+    assert any(i['id'] == iid for i in db.get_budget_items())
+    w.ask_confirm.apply_deletes()
+    assert not any(i['description'] == '간식' for i in db.get_budget_items())
+    w._undo_apply()
+    assert any(i['description'] == '간식' for i in db.get_budget_items())
 
 
 def _spent(db, iid):

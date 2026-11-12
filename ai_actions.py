@@ -936,6 +936,47 @@ class BudgetCatDelete:
 
 
 # ════════════════════════════════════════════════════════════════
+# 공문 작성
+# ════════════════════════════════════════════════════════════════
+DOC_MAX = 8000
+
+
+@action('document.write', CHANGE, 'document.write {title?, ref?: 관련 번호, body?: 고쳐 쓴 공문 본문 전체} — 공문 작성 창에 쓰기 '
+        '(공문을 새로 쓰거나 고칠 때. 본문은 바뀐 곳만이 아니라 전체를 넣음)')
+class DocumentWrite:
+    @staticmethod
+    def check(p, ctx):
+        v = {}
+        for key, limit in (('title', 200), ('ref', 120)):
+            if p.get(key) not in (None, ''):
+                v[key] = ' '.join(str(p[key]).split())[:limit]
+        if p.get('body') not in (None, ''):
+            v['body'] = str(p['body']).strip()[:DOC_MAX]          # 개인정보를 가린 채 온 글도 그대로 (예전과 같음)
+        if not v:
+            raise Skip()
+        doc = ctx.get('document') or {}
+        if all(v.get(k) == doc.get(k) for k in v):
+            raise Skip()
+        parts = []
+        if 'title' in v:
+            parts.append(f'제목 「{v["title"]}」')
+        if 'ref' in v:
+            parts.append(f'관련 번호 {v["ref"]}')
+        if 'body' in v:
+            parts.append(f'본문 {len(v["body"])}자')
+        return v, '공문 작성: ' + ' · '.join(parts)
+
+    @staticmethod
+    def run(v, app):
+        return app.write_document(v.get('title'), v.get('ref'), v.get('body'))
+
+    @staticmethod
+    def undo(old, app):
+        if old:
+            app.write_document(old['title'], old['ref'], old['body'])
+
+
+# ════════════════════════════════════════════════════════════════
 # 설정 · AI 대화 창
 # ════════════════════════════════════════════════════════════════
 @action('settings.alarm', CHANGE, 'settings.alarm {minutes: 0(끄기)|30|60|180} — 마감 임박 알림 간격')
@@ -1078,8 +1119,9 @@ class ChatClear:
 # ════════════════════════════════════════════════════════════════
 # 지금 상태 · 글 만들기 · 답 읽기 · 실행
 # ════════════════════════════════════════════════════════════════
-def build_state(app) -> dict:
-    """지금 앱 상태 (DB + 열린 창). 검사(check)와 AI에게 보낼 글에 쓴다."""
+def build_state(app, doc_extra=None) -> dict:
+    """지금 앱 상태 (DB + 열린 창). 검사(check)와 AI에게 보낼 글에 쓴다.
+    doc_extra: 공문 작성 창에서 물을 때 함께 보낼 {'received': 받은 공문 정리, 'notes': 나만의 작성 규칙}."""
     import db
     rows = sorted(db.get_all_windows(), key=lambda w: w['id'])
     task_n = memo_n = 0
@@ -1107,8 +1149,17 @@ def build_state(app) -> dict:
     settings = {}
     if app is not None:
         settings = {'alarm': app.get_alarm(), 'auto_update': app.get_auto_update(), 'autostart': app.get_autostart()}
-    chat = {'side': getattr(getattr(app, 'chat', None), 'side', 'inside')}
+    chat_obj = getattr(app, '_chat', None)
+    chat = {'side': getattr(chat_obj, 'side', None) or _saved_chat_side()}
+    document = None
+    try:
+        document = app.document_state() if app is not None else None
+    except Exception:
+        document = None
+    if document is not None and doc_extra:
+        document = {**document, **doc_extra}
     return {
+        'document': document,
         'today': date.today(), 'now': datetime.now(),
         'current_window': getattr(app, 'host_window_id', None),
         'windows': windows, 'windows_by_id': {w['id']: w for w in windows},
@@ -1136,6 +1187,12 @@ SYSTEM = (
     "반드시 JSON만 출력합니다."
 )
 
+DOC_RULES = (
+    "공문을 쓰거나 고칠 때(document.write)는 한국 학교 행정 공문 문체(개조식, '~함', '~바람', '~고자 함')로 쓰고,\n"
+    "본문(body)에는 고친 곳만이 아니라 공문 본문 전체를 넣습니다. 지금 쓰는 공문이 있으면 그 내용을 바탕으로 고칩니다.\n"
+    "받은 공문 정리·나만의 작성 규칙이 있으면 따릅니다. 공문 내용 자체는 answer에 다시 쓰지 말고 한 줄로 무엇을 했는지만 적습니다."
+)
+
 _FORMAT = '{"answer": "답", "actions": [{"do": "기능 이름", "...": "값"}]}'
 
 
@@ -1146,6 +1203,14 @@ def catalog() -> str:
         lines.append(f'- [{tag}] {spec["help"]}')
     colors = ', '.join(COLOR_NAMES.values())
     return '\n'.join(lines) + f'\n(색 이름: {colors})'
+
+
+def _saved_chat_side():
+    try:
+        from ui.ai_chat_window import saved_side
+        return saved_side()
+    except Exception:
+        return 'inside'
 
 
 def state_text(ctx) -> str:
@@ -1203,6 +1268,17 @@ def state_text(ctx) -> str:
                 out.append(f'  item_id={i["id"]} | {i.get("cost_type", "")} | {i.get("description", "")} | '
                            f'예산 {i["budget"]:,} | 집행 {i["spent"]:,} | 잔액 {i["budget"] - i["spent"]:,}{done}')
         out.append(f'[예산 전체] 예산 {tb:,} · 집행 {ts:,} · 잔액 {tb - ts:,}')
+    d = ctx.get('document')
+    if d is not None:
+        out.append('\n[공문 작성 창 — 지금 쓰는 공문]')
+        out.append(f'제목: {d.get("title") or "(없음)"}')
+        out.append(f'관련 번호: {d.get("ref") or "(없음)"}')
+        body = d.get('body') or ''
+        out.append('본문:\n' + (body[:DOC_MAX] if body.strip() else '(비어 있음)'))
+        if d.get('received'):
+            out.append('\n[받은 공문 정리]\n' + d['received'])
+        if d.get('notes'):
+            out.append('\n' + d['notes'])
     s = ctx.get('settings') or {}
     if s:
         out.append(f'\n[설정] 마감 알림 {s.get("alarm")}분마다(0=끔) · 자동 업데이트 {"켜짐" if s.get("auto_update") else "꺼짐"}'
@@ -1215,8 +1291,9 @@ def build_prompt(question, ctx, history=()) -> str:
     now = ctx.get('now') or datetime.now()
     today = ctx['today']
     past = ''.join(f"\n이전 질문: {q}\n이전 답: {a}" for q, a in list(history)[-2:])
+    rules = f"\n\n공문 쓰기 규칙\n{DOC_RULES}" if ctx.get('document') is not None else ''
     return (f"오늘: {today.isoformat()} ({_WEEKDAYS[today.weekday()]}요일), 지금 시각 {now:%H:%M}\n\n"
-            f"할 수 있는 기능\n{catalog()}\n\n지금 앱 상태\n{state_text(ctx)}\n{past}\n\n"
+            f"할 수 있는 기능\n{catalog()}{rules}\n\n지금 앱 상태\n{state_text(ctx)}\n{past}\n\n"
             f"질문: {question}\n\n다음 형식의 JSON만 출력하세요:\n{_FORMAT}")
 
 

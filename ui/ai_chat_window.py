@@ -17,6 +17,7 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                              QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
+from .ai_app import AppAdapter
 from .common import DEFAULT_NOTE_FONT, NOTE_FONTS, TITLE_BAR_HEIGHT, note_font, px
 from .theme import T, note_color, tc, tct
 
@@ -819,128 +820,11 @@ class AiChatWindow(QWidget):
         self._add_msg('note', '↩ 하기 전으로 되돌렸어요.')
 
 
-class ChatApp:
-    """ai_actions가 앱(열린 창·예산 창·설정)을 다룰 때 쓰는 어댑터."""
+class ChatApp(AppAdapter):
+    """AI 대화 창에서 쓰는 어댑터 (붙어 있는 업무창이 기준)."""
 
     def __init__(self, chat):
-        self.chat = chat
-        self.host = chat.host
-
-    @property
-    def host_window_id(self):
-        return getattr(self.host, 'window_id', None)
-
-    def windows(self):
-        try:
-            return [w for w in list(getattr(self.host, '_open_windows', None) or [self.host]) if w is not None]
-        except RuntimeError:
-            return []
-
-    def window(self, wid):
-        for w in self.windows():
-            try:
-                if w.window_id == wid:
-                    return w
-            except RuntimeError:
-                pass
-        return None
-
-    def refresh_tasks(self):
-        for w in self.windows():
-            try:
-                if not getattr(w, '_memo_mode', False):
-                    w._refresh_tasks()
-            except RuntimeError:
-                pass
-
-    def refresh_budget(self):
-        try:
-            import budget
-            if getattr(budget, '_instance', None) is not None:
-                budget._instance.refresh()
-        except RuntimeError:
-            pass
-
-    def new_window(self, kind):
-        h = self.host
-        before = set(id(w) for w in self.windows())
-        h.on_new(offset_from=h, memo_mode=(kind == 'memo'), on_toggle_hotkey=h._on_toggle_hotkey,
-                 on_shortcut_change=h._on_shortcut_change, get_shortcut_enabled=h._get_shortcut_enabled)
-        return next((w for w in self.windows() if id(w) not in before), None)
-
-    def delete_window(self, wid):
-        import db
-        w = self.window(wid)
-        db.delete_window(wid)
-        if w is not None:
-            w._deleted = True
-            w.close()
-
-    def set_memo_text(self, w, text):
-        w.memo_editor.setPlainText(text)
-        w._apply_memo_line_spacing()
-        w._flush_memo_save()
-
-    def style_window(self, w, color, font, size, gap):
-        if color:
-            w._apply_color(color)
-            w.save_state()
-        if font:
-            w._set_font(font)
-        if size is not None:
-            w._set_scale(size)
-        if gap is not None:
-            w._set_row_gap(gap)
-
-    def open(self, what, title='', category_id=None):
-        h = self.host
-        if what == 'calendar':
-            h._show_monthly_calendar()
-        elif what == 'dashboard':
-            h._open_dashboard()
-        elif what == 'history':
-            h._show_history(0)
-        elif what == 'documents':
-            h._show_history(1)
-        elif what == 'document':
-            h._open_document_editor()
-            from document_editor import DocumentEditorWindow
-            ed = DocumentEditorWindow._instance
-            if ed is not None and title:
-                ed.title_input.setText(title)
-        elif what == 'budget':
-            h._open_budget_window()
-            import budget
-            if category_id and getattr(budget, '_instance', None) is not None:
-                budget._instance._set_tab(category_id)
-
-    def get_alarm(self):
-        try:
-            return self.host._get_alarm_interval() if self.host._get_alarm_interval else 180
-        except (AttributeError, RuntimeError):
-            return 180
-
-    def set_alarm(self, minutes):
-        self.host._set_alarm_interval(minutes)
-
-    def get_auto_update(self):
-        import updater
-        return updater.auto_enabled()
-
-    def get_autostart(self):
-        try:
-            from autostart import is_enabled
-            return bool(is_enabled())
-        except Exception:
-            return False
-
-    def set_autostart(self, on):
-        from autostart import set_enabled
-        set_enabled(bool(on))
-
-    def clear_chat_later(self):
-        from PyQt5.QtCore import QTimer
-        QTimer.singleShot(0, self.chat._clear_chat)
+        super().__init__(chat.host, chat=chat, on_clear=chat._clear_chat)
 
 
 # ── 앱 전체에 하나 ────────────────────────────────────────────────

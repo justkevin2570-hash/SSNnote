@@ -300,19 +300,20 @@ class _FakeAdapter:
 def test_ai_spend_with_purpose_is_recorded_and_undone(win, monkeypatch):
     w, db, budget, app = win
     import ai_client
-    import budget_ai
     import school_profile
     iid = _open_one_item(w, db, spent=200000)
     reply = json.dumps({'answer': '체육대회에 쓴 것으로 넣을게요.',
-                        'spend': [{'item_id': iid, 'amount': 50000, 'purpose': '체육대회'}]}, ensure_ascii=False)
+                        'actions': [{'do': 'budget.spend', 'item_id': iid, 'amount': 50000, 'purpose': '체육대회'}]},
+                       ensure_ascii=False)
+    import ai_actions
     monkeypatch.setattr(ai_client, 'get_adapter', lambda: _FakeAdapter(reply))
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'claude')
     monkeypatch.setattr(school_profile, 'privacy_enabled', lambda: False)
-    monkeypatch.setattr(budget_ai.BudgetAskWorker, 'start', lambda self: self.run())
+    monkeypatch.setattr(ai_actions.AskWorker, 'start', lambda self: self.run())
     w.refresh()
     w._ask('체육대회에 5만원 썼어')
-    assert '체육대회' in w.lbl_proposal.text()
-    w._apply_spend()
+    assert '체육대회' in w.ask_confirm.lbl_proposal.text()
+    w.ask_confirm.apply()
     assert _spent(db, iid) == 250000
     assert [e['purpose'] for e in db.get_budget_expenses()] == ['체육대회']
     w._undo_apply()
