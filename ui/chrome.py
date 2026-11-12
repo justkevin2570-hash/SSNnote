@@ -410,7 +410,7 @@ def ai_chat_icon(color, size=64) -> QIcon:
 
 
 class TitleBar(QWidget):
-    """메모 창 제목 줄: 이름 · 오늘 날짜 | AI 대화 · 예산 · 메모 모드 · 메뉴 · 항상 위 · 닫기.
+    """메모 창 제목 줄: 이름 · 오늘 날짜 | 메모 모드 · 지난 기록 · 메뉴 · 항상 위 · 닫기.
     아이콘은 모두 같은 얇은 선 아이콘(같은 크기·같은 색)이고, 켜진 버튼(메모 모드·항상 위)만 바탕을 칠한다."""
 
     _ICON_PX = 20
@@ -450,13 +450,11 @@ class TitleBar(QWidget):
         self.btn_mode = self._icon_button('ph.note-pencil-bold', '메모 모드로 전환')
         self.btn_mode.setObjectName('btn_mode')
         self.btn_mode.clicked.connect(parent._toggle_memo_mode)
-        self.btn_budget = self._icon_button('ph.currency-krw-bold', '예산 관리')
-        self.btn_budget.setObjectName('btn_budget')
-        self.btn_budget.clicked.connect(parent._open_budget_window)
-        self.btn_ai = self._icon_button('ph.chat-circle-dots-bold', 'AI 대화 열기')
-        self.btn_ai.setIcon(ai_chat_icon(self._icon_color()))           # 말풍선 안에 「AI」
-        self.btn_ai.setObjectName('btn_ai')
-        self.btn_ai.clicked.connect(parent._toggle_ai_chat)
+        # 예산·AI 대화는 아래 줄로 옮기고, 지난 기록을 제목줄로 (자주 쓰는 기능은 손 가까이)
+        self.btn_history = self._icon_button('ph.clock-counter-clockwise-bold',
+                                             '지난 기록 — 지난 업무(지운 업무 되살리기) · 작성 공문')
+        self.btn_history.setObjectName('btn_history')
+        self.btn_history.clicked.connect(lambda: parent._show_history())
 
         layout.addWidget(self.label)
         layout.addWidget(self.date_label)
@@ -464,9 +462,9 @@ class TitleBar(QWidget):
         layout.addSpacing(4)
         layout.addWidget(self.badge, 0, Qt.AlignVCenter)
         layout.addStretch()
-        layout.addWidget(self.btn_ai, 0, Qt.AlignVCenter)
-        layout.addWidget(self.btn_budget, 0, Qt.AlignVCenter)
+        # 이 창의 상태(메모 모드) → 여는 기능(지난 기록) → 메뉴 → 창 다루기(핀 · 닫기)
         layout.addWidget(self.btn_mode, 0, Qt.AlignVCenter)
+        layout.addWidget(self.btn_history, 0, Qt.AlignVCenter)
         layout.addWidget(btn_menu, 0, Qt.AlignVCenter)
         layout.addWidget(self.btn_pin, 0, Qt.AlignVCenter)
         layout.addWidget(self.btn_close, 0, Qt.AlignVCenter)
@@ -499,7 +497,7 @@ class TitleBar(QWidget):
         b._icon_name = icon_name
         b.setIcon(qta.icon(icon_name, color=self._icon_color()))
         b.setIconSize(QSize(px(self._ICON_PX), px(self._ICON_PX)))   # 글꼴 배율만큼 아이콘도
-        b.setFixedSize(px(32), min(px(30), TITLE_BAR_HEIGHT - 4))
+        b.setFixedSize(px(28), min(px(30), TITLE_BAR_HEIGHT - 4))   # 아이콘 좌우 여백 4px (위아래 5px)
         b.setToolTip(tip)
         b.setCursor(Qt.PointingHandCursor)
         return b
@@ -507,9 +505,9 @@ class TitleBar(QWidget):
     def set_icon_scale(self, scale: float):
         """「글자 크기」(기본·크게·더 크게)에 맞춰 제목 줄 아이콘도 키운다 (제목 줄 높이 안에서)."""
         size = min(px(round(self._ICON_PX * scale)), TITLE_BAR_HEIGHT - 12)
-        for b in (self.btn_ai, self.btn_budget, self.btn_mode, self.btn_menu, self.btn_pin, self.btn_close):
+        for b in (self.btn_history, self.btn_mode, self.btn_menu, self.btn_pin, self.btn_close):
             b.setIconSize(QSize(size, size))
-            b.setFixedSize(max(px(32), size + 12), min(max(px(30), size + 10), TITLE_BAR_HEIGHT - 4))
+            b.setFixedSize(max(px(28), size + 8), min(max(px(30), size + 10), TITLE_BAR_HEIGHT - 4))
         f = self.label.font()
         f.setPointSizeF(10 * scale)
         self.label.setFont(f)

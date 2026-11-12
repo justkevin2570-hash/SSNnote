@@ -40,17 +40,24 @@ def _texts(menu):
     return [a.text() for a in menu.actions() if not a.isSeparator()]
 
 
-def test_memo_window_menu_has_only_three_items(make):
+def test_memo_window_menu_has_only_two_items(make):
     w = make(True)
     w.show_menu(w.title_bar.btn_menu)
     items = _texts(w._last_menu)
-    assert len(items) == 3
-    assert items[0] == '배경색·글자 크기' and items[1].startswith('다크 모드') and items[2] == '메모장 삭제'
-    style = next(a for a in w._last_menu.actions() if a.text() == '배경색·글자 크기').menu()
-    assert '글자 크기' in _texts(style) and '줄 간격' not in _texts(style)     # 줄 간격은 업무 목록용
-    dark = next(a for a in w._last_menu.actions() if a.text().startswith('다크 모드'))
-    assert not dark.icon().isNull()                # 켜짐/꺼짐 표시(✓ 아이콘)가 있는 한 줄
-    assert not any('개인정보' in t for t in items)
+    assert items == ['배경색·글자·줄간격', '메모장 삭제']          # 다크 모드는 없앰
+    style = next(a for a in w._last_menu.actions() if a.text() == '배경색·글자·줄간격').menu()
+    assert '글자 크기' in _texts(style) and '줄 간격' in _texts(style)     # 메모장은 글 줄 높이
+    assert not any('개인정보' in t or '다크' in t for t in items)
+
+
+def test_no_dark_mode_anywhere(make):
+    from ui import theme
+    assert theme._load_mode() == 'light' and not theme.DARK
+    w = make(False)
+    w.show_menu(w.title_bar.btn_menu)
+    settings = next(a for a in w._last_menu.actions() if a.text() == '설정').menu()
+    assert not any('다크' in t for t in _texts(settings))
+    assert not any('다크' in c.title for c in w._palette_commands())
 
 
 def test_memo_window_has_no_shortcuts_and_no_palette(make):
@@ -65,8 +72,8 @@ def test_main_window_keeps_full_menu_and_shortcuts(make):
     assert len(w._shortcuts) == 3                  # 핀 · 접기 · 빠른 찾기
     w.show_menu(w.title_bar.btn_menu)
     items = _texts(w._last_menu)
-    assert '설정' in items and '도움말' in items and '배경색·글자 크기' in items and len(items) > 5
-    style = next(a for a in w._last_menu.actions() if a.text() == '배경색·글자 크기').menu()
+    assert '설정' in items and '도움말' in items and '배경색·글자·줄간격' in items and len(items) > 5
+    style = next(a for a in w._last_menu.actions() if a.text() == '배경색·글자·줄간격').menu()
     assert '줄 간격' in _texts(style)
 
 

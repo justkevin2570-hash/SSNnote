@@ -1,4 +1,5 @@
 """공문 선택 부분 다듬기 — 비교·개인정보 되살리기 (doc_polish), 창에서 적용·되돌리기 (document_editor)."""
+import json
 import pytest
 
 from doc_polish import (POLISH_SYSTEM, build_polish_prompt, diff_spans, leftover_masks, restore_masked)
@@ -225,3 +226,58 @@ def test_editor_layout_remembered_and_reset(win):
     assert json.load(open(de.DocumentEditorWindow._STATE_FILE, encoding='utf-8'))['panel_w'] == 0
     w2._polish = None
     w2.close()
+
+
+# ── 공문 작성 창 AI 대화: 앱 전체 기능 목록 (AI 대화 창 · 예산 창과 같음) ──
+class _FakeAdapter:
+    def __init__(self, reply):
+        self.reply, self.prompts = reply, []
+
+    def get_api_key(self):
+        return 'k'
+
+    def complete(self, system, prompt, **kw):
+        self.prompts.append(prompt)
+        return self.reply
+
+
+def _doc_ai(monkeypatch, reply):
+    import ai_actions
+    import ai_client
+    import school_profile
+    fake = _FakeAdapter(json.dumps(reply, ensure_ascii=False))
+    monkeypatch.setattr(ai_client, 'get_adapter', lambda: fake)
+    monkeypatch.setattr(school_profile, 'privacy_enabled', lambda: False)
+    monkeypatch.setattr(ai_actions.AskWorker, 'start', lambda self: self.run())
+    return fake
+
+
+def test_doc_chat_rewrites_body_immediately_with_ctrl_z(win, monkeypatch):
+    win.editor.setPlainText('1. 관련: 교육과-1\n2. 회의를 개최하고자 합니다.')
+    fake = _doc_ai(monkeypatch, {'answer': '장소를 바꿨어요.', 'actions': [
+        {'do': 'document.write', 'body': '1. 관련: 교육과-1\n2. 시청각실에서 회의를 개최하고자 합니다.'}]})
+    win.ai_input.setPlainText('장소를 시청각실로')
+    win.ask_ai()
+    assert '현재 작성된 공문' not in fake.prompts[0] and '[공문 작성 창' in fake.prompts[0]
+    assert '회의를 개최하고자' in fake.prompts[0] and 'task.add' in fake.prompts[0]     # 지금 공문 + 앱 전체 기능
+    assert '시청각실' in win.editor.toPlainText() and win.ai_confirm.isHidden()
+    win.editor.undo()                                                                   # Ctrl+Z 한 번이면 이전 내용
+    assert '시청각실' not in win.editor.toPlainText()
+
+
+def test_doc_chat_other_actions_need_confirm_and_clear(win, monkeypatch):
+    import db
+    wid = db.create_window()
+    from ui import ai_app
+    monkeypatch.setattr(ai_app, 'find_host', lambda: None)
+    _doc_ai(monkeypatch, {'answer': '업무에 넣을게요.', 'actions': [
+        {'do': 'task.add', 'name': '회의 공문 발송', 'window_id': wid}]})
+    win.ai_input.setPlainText('이거 업무에도 넣어줘')
+    win.ask_ai()
+    assert not win.ai_confirm.proposal.isHidden() and '회의 공문 발송' in win.ai_confirm.lbl_proposal.text()
+    assert db.get_tasks(wid) == []                                                      # 확인 전
+    win.ai_confirm.apply()
+    assert [t['name'] for t in db.get_tasks(wid)] == ['회의 공문 발송']
+    win.ai_input.setPlainText('/clear')
+    win.ask_ai()
+    assert win._ai_history == [] and win.ai_answer.isHidden()

@@ -191,12 +191,9 @@ def note_color(hex_color: str) -> str:
 
 
 def _load_mode() -> str:
-    try:
-        from db import get_setting
-        mode = get_setting(THEME_KEY, 'light')
-    except Exception:  # 첫 실행(설정 표 없음) 등 → 라이트
-        mode = 'light'
-    return mode if mode in THEMES else 'light'
+    """다크 모드는 없앴다 (v3.05): 예전에 다크로 해 둔 PC도 라이트로 켠다.
+    다크용 색 변환(tc·tct·note_color)은 남겨 두지만 라이트에선 색을 그대로 돌려준다."""
+    return 'light'
 
 
 MODE = _load_mode()

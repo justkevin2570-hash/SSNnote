@@ -23,6 +23,7 @@ from ai_client import (AiStreamThread, PROVIDER_LABELS,
 from school_profile import mask_for_ai
 from doc_polish import (POLISH_SYSTEM, build_polish_prompt, diff_spans, restore_masked, leftover_masks)
 from db import save_official_document, get_official_documents
+from html import escape as html_escape  # noqa: E402
 import doc_style   # 내 공문 스타일: 비슷한 저장 공문 + 나만의 작성 규칙을 AI에 함께 보냄
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
 from ui.common import fit_to_screen, default_geometry, px
@@ -988,6 +989,20 @@ class DocumentEditorWindow(QMainWindow):
         self.editor.customContextMenuRequested.connect(self._show_editor_menu)
         layout.addWidget(self.editor, stretch=1)
 
+        # ── AI 답 · 확인 칸 (AI 대화 창 · 예산 창과 같은 기능 목록 · 같은 모양) ──
+        self.ai_answer = QLabel()
+        self.ai_answer.setObjectName('AiAnswer')
+        self.ai_answer.setWordWrap(True)
+        self.ai_answer.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
+        self.ai_answer.setStyleSheet(f'QLabel#AiAnswer {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; '
+                                     f'border-radius: 8px; padding: 8px 12px; color: {C.TEXT}; }}')
+        self.ai_answer.linkActivated.connect(lambda _h: self._ai_undo())
+        self.ai_answer.hide()
+        layout.addWidget(self.ai_answer)
+        from ui.ai_confirm import AiConfirmPanel
+        self.ai_confirm = AiConfirmPanel(self._ai_app, self._ai_say)
+        layout.addWidget(self.ai_confirm)
+
         # ── AI 요청 칸 ──
         self.ai_frame = QFrame()
         self.ai_frame.setObjectName("ChatBar")
@@ -1296,25 +1311,95 @@ class DocumentEditorWindow(QMainWindow):
                     return True
         return super().eventFilter(obj, event)
 
-    # ── 자유 AI 채팅 ──
+    # ── 자유 AI 채팅 (앱 전체 기능 목록 — ai_actions) ──
+    # 공문 고쳐 쓰기(document.write)는 바로 반영(Ctrl+Z로 되돌림), 다른 일은 확인 칸 [넣기]·[지우기].
+    def _ai_app(self):
+        from ui.ai_app import AppAdapter
+        ed = self
+
+        class _DocApp(AppAdapter):
+            def _editor(self, open_it=False):
+                return ed
+        return _DocApp(on_clear=self._ai_clear)
+
+    def _ai_say(self, text, undo=False):
+        self.statusBar().showMessage(text)
+        if undo:
+            self.ai_answer.setText(html_escape(text) + ' <a href="undo">되돌리기</a>')
+            self.ai_answer.show()
+
+    def _ai_undo(self):
+        self.ai_confirm.undo()
+        self.ai_answer.hide()
+
+    def _ai_clear(self):
+        """/clear: AI 답 · 이전 질문 기억 · 확인 칸 지우기 (공문 내용은 그대로)."""
+        self._ai_history = []
+        self.ai_confirm.clear()
+        self.ai_answer.clear()
+        self.ai_answer.hide()
+        self.statusBar().showMessage('대화를 지웠어요.')
+
     def ask_ai(self):
         user_text = self.ai_input.toPlainText().strip()
-        if not user_text:
+        if not user_text or (self.ai_thread and self.ai_thread.isRunning()):
             return
-
-        current = self.editor.toPlainText()
-        if current:
-            prompt = f"현재 작성된 공문:\n{current}\n\n사용자 요청: {user_text}"
-        else:
-            prompt = user_text
-        ctx = self._received_context()
-        if ctx:
-            prompt = f"{ctx}\n{prompt}"
+        if getattr(self, '_ai_worker', None) is not None and self._ai_worker.isRunning():
+            return
+        if user_text.startswith('/'):                  # 입력칸 명령 (AI에게 보내지 않음)
+            self.ai_input.clear()
+            if user_text.lower() == '/clear':
+                self._ai_clear()
+            else:
+                self.statusBar().showMessage(f'모르는 명령이에요: {user_text} — /clear(대화 지우기)만 쓸 수 있어요.')
+            return
+        if load_ai_mode() == 'none':
+            self.statusBar().showMessage('AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]에서 연결하세요.')
+            return
+        import ai_actions
         notes = doc_style.style_notes_prompt()
-        if notes:
-            prompt = f"{notes}\n{prompt}"
+        extra = {'received': self._received_context(), 'notes': notes}
+        ctx = ai_actions.build_state(self._ai_app(), doc_extra=extra)
+        self._ai_q = user_text
+        self.ai_confirm.clear()
+        self.ai_answer.hide()
+        self._set_controls_enabled(False)
+        self.statusBar().showMessage('AI가 생각 중...' + (' (작성 규칙 참고)' if notes else ''))
+        w = ai_actions.AskWorker(user_text, ctx, getattr(self, '_ai_history', []))
+        w.done.connect(self._on_ai_reply)
+        w.failed.connect(self._on_ai_reply_failed)
+        self._ai_worker = w
+        w.start()
 
-        self._start_ai(prompt, note='작성 규칙 참고' if notes else '')
+    def _on_ai_reply(self, reply, masked):
+        import ai_actions
+        answer = reply.get('answer') or ''
+        self._ai_history = (getattr(self, '_ai_history', []) + [(self._ai_q, answer)])[-2:]
+        self._set_controls_enabled(True)
+        self.ai_input.clear()
+        doc_items = [c for c in reply.get('changes') or [] if c['do'] == 'document.write']
+        others = {**reply, 'changes': [c for c in reply.get('changes') or [] if c['do'] != 'document.write']}
+        parts = []
+        if doc_items:                                   # 공문 고쳐 쓰기: 바로 (Ctrl+Z 한 번이면 이전 내용)
+            try:
+                ai_actions.execute(doc_items, self._ai_app())
+                parts.append('완료 — Ctrl+Z를 누르면 이전 내용으로 돌아갑니다.')
+            except Exception as e:
+                parts.append(f'공문에 넣지 못했어요: {e}')
+        done = self.ai_confirm.show_reply(others)
+        if done:
+            parts.append(' · '.join(done) + ' 했어요.')
+        if masked:
+            from privacy import describe
+            parts.append(f'🛡 개인정보 {describe(masked)}을 가리고 보냈습니다.')
+        self.statusBar().showMessage(' '.join(parts) if parts else '완료')
+        if answer and (not doc_items or others['changes'] or others.get('deletes')):   # 공문만 고쳤으면 상태 줄로 충분
+            self.ai_answer.setText(html_escape(answer).replace('\n', '<br>'))
+            self.ai_answer.show()
+
+    def _on_ai_reply_failed(self, msg):
+        self._set_controls_enabled(True)
+        self.statusBar().showMessage(f'오류: {msg}')
 
     # ── 공통 AI 실행 ──
     # AI가 쓰는 동안 원래 내용을 보관한다. 오류·빈 답·취소면 원래 내용으로 되돌리고,

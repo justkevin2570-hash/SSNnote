@@ -8,6 +8,7 @@ from datetime import date, datetime
 import pytest
 
 import task_ai
+from PyQt5.QtCore import QRect  # noqa: E402
 
 TODAY = date(2026, 11, 12)          # 목요일
 TASKS = [
@@ -118,14 +119,15 @@ def test_dock_rect_flips_at_screen_edge():
     from PyQt5.QtCore import QRect
     from ui.ai_chat_window import dock_rect
     screen = QRect(0, 0, 1920, 1040)
+    # 1px 겹쳐 붙여 맞닿은 테두리가 한 줄
     r, where = dock_rect(QRect(100, 100, 300, 400), 'right', 320, screen)
-    assert where == 'right' and (r.x(), r.y(), r.width(), r.height()) == (400, 100, 320, 400)
+    assert where == 'right' and (r.x(), r.y(), r.width(), r.height()) == (399, 100, 320, 400)
     r, where = dock_rect(QRect(1700, 100, 200, 400), 'right', 320, screen)      # 오른쪽 자리 없음 → 왼쪽
-    assert where == 'left' and r.x() == 1700 - 320
+    assert where == 'left' and r.x() == 1700 - 320 + 1
     r, where = dock_rect(QRect(100, 100, 300, 400), 'bottom', 240, screen)
-    assert where == 'bottom' and (r.x(), r.y(), r.width(), r.height()) == (100, 500, 300, 240)
+    assert where == 'bottom' and (r.x(), r.y(), r.width(), r.height()) == (100, 499, 300, 240)
     r, where = dock_rect(QRect(100, 700, 300, 300), 'bottom', 240, screen)      # 아래 자리 없음 → 위
-    assert where == 'top' and r.y() == 700 - 240
+    assert where == 'top' and r.y() == 700 - 240 + 1
 
 
 _APP = None                         # QApplication을 붙잡아 둬야 다음 테스트에서도 창을 만들 수 있음
@@ -155,23 +157,41 @@ def win(tdb, tmp_path, monkeypatch):
     w.close()
 
 
+def test_inside_is_default_and_sits_under_task_list(win):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    assert c.side == 'inside' and c.parent() is w.ai_slot and c.is_shown()
+    assert w.list_split.indexOf(w.ai_slot) == 1                        # 업무 목록 아래
+    w.toggle_shade()
+    assert not c.is_shown()
+    w.toggle_shade()
+    assert c.is_shown()
+    w._toggle_ai_chat()                                                # 다시 누르면 숨기고 칸도 접힘
+    assert not c.is_shown() and w.ai_slot.isHidden() and db.get_setting(acw.OPEN_KEY) == '0'
+
+
 def test_toggle_attach_follow_and_remember(win):
     w, acw, db, app = win
     w._toggle_ai_chat()
     c = acw.instance()
+    c.set_side('right')                                                # 사용자가 바꾸면 기억
+    assert db.get_setting(acw.SIDE_KEY) == 'right' and c.parent() is None and w.ai_slot.isHidden()
     assert c.isVisible() and c.host is w and db.get_setting(acw.OPEN_KEY) == '1'
-    assert c.geometry().x() == w.frameGeometry().right() + 1          # 오른쪽에 붙음
+    assert c.geometry().x() == w.frameGeometry().right()              # 오른쪽에 1px 겹쳐 붙음
     w.move(150, 120)
     app.processEvents()
-    assert c.geometry().x() == w.frameGeometry().right() + 1 and c.geometry().y() == w.frameGeometry().y()
+    assert c.geometry().x() == w.frameGeometry().right() and c.geometry().y() == w.frameGeometry().y()
     c.set_side('bottom')
-    assert db.get_setting(acw.SIDE_KEY) == 'bottom' and c.geometry().y() == w.frameGeometry().bottom() + 1
+    assert db.get_setting(acw.SIDE_KEY) == 'bottom' and c.geometry().y() == w.frameGeometry().bottom()
     w.toggle_shade()                                                   # 접으면 함께 숨고
     assert not c.isVisible()
     w.toggle_shade()                                                   # 펼치면 다시 붙음
     assert c.isVisible()
-    w._toggle_ai_chat()                                                # 💬 다시 누르면 숨기기
-    assert not c.isVisible() and db.get_setting(acw.OPEN_KEY) == '0'
+    c.set_side('inside')                                               # 다시 안으로
+    assert c.parent() is w.ai_slot and c.is_shown()
+    w._toggle_ai_chat()
+    assert not c.is_shown() and db.get_setting(acw.OPEN_KEY) == '0'
 
 
 def test_chat_proposal_apply_refreshes_window_and_undo(win, monkeypatch):
@@ -181,8 +201,12 @@ def test_chat_proposal_apply_refreshes_window_and_undo(win, monkeypatch):
     w._refresh_tasks()
     w._toggle_ai_chat()
     c = acw.instance()
-    tasks = {t['id']: t for t in db.get_tasks(wid)}
-    reply = task_ai.parse_reply(_reply(add=[{'name': '새 일', 'deadline': ''}], done=[{'task_id': tid}]), tasks)
+    import ai_actions
+    from ui.ai_chat_window import ChatApp
+    ctx = ai_actions.build_state(ChatApp(c))
+    raw = json.dumps({'answer': '확인', 'actions': [{'do': 'task.add', 'name': '새 일'},
+                                                   {'do': 'task.done', 'task_id': tid}]}, ensure_ascii=False)
+    reply = ai_actions.parse_reply(raw, ctx)
     c._on_done(reply, {})
     assert c.proposal.isVisibleTo(c) and c.btn_apply.isVisibleTo(c)
     c._apply()
@@ -201,21 +225,36 @@ def test_ai_off_disables_input(win, monkeypatch, tmp_path):
     ai_connect.turn_off()
     w._toggle_ai_chat()
     c = acw.instance()
-    assert not c.input.isEnabled() and 'AI 꺼짐' in c.btn_status.text()
+    assert not c.btn_send.isEnabled() and c.input.isEnabled() and 'AI가 꺼져 있어요' in c.input.placeholderText()
+    assert not hasattr(c, 'btn_status')                                # 머리줄에 AI 설정 버튼 없음
     ai_client.save_ai_mode('openai')
     ai_connect.notify_changed()
-    assert c.input.isEnabled()
+    assert c.btn_send.isEnabled()
 
 
-def test_title_bar_ai_button_shows_open_state(win):
+def test_bottom_ai_button_shows_open_state(win):
     w, acw, db, app = win
-    btn = w.title_bar.btn_ai
-    assert not btn.icon().isNull() and btn.toolTip() == 'AI 대화 열기'
+    btn = w.btn_ai_bottom
+    assert not btn.icon().isNull() and btn.text() == '' and btn.toolTip() == 'AI 대화 열기'
     w._toggle_ai_chat()
     assert btn.property('active') is True and btn.toolTip() == 'AI 대화 숨기기'
     w._toggle_ai_chat()
     assert btn.property('active') is False and btn.toolTip() == 'AI 대화 열기'
 
+
+def test_title_bar_has_history_and_bottom_order(win):
+    w, acw, db, app = win
+    bar = w.title_bar
+    assert not hasattr(bar, 'btn_ai') and not hasattr(bar, 'btn_budget') and hasattr(bar, 'btn_history')
+    from PyQt5.QtWidgets import QPushButton
+    lay = w.btn_ai_bottom.parentWidget().layout()
+    names = [lay.itemAt(i).widget().text() for i in range(lay.count())
+             if isinstance(lay.itemAt(i).widget(), QPushButton)]
+    assert names == ['달력', '공문', '예산', '']                 # AI는 아이콘만
+    tl = bar.layout()
+    order = [tl.itemAt(i).widget() for i in range(tl.count()) if isinstance(tl.itemAt(i).widget(), QPushButton)]
+    assert order == [bar.btn_mode, bar.btn_history, bar.btn_menu, bar.btn_pin, bar.btn_close]
+    assert bar.btn_mode.width() <= bar.btn_mode.height()                 # 좌우 여백을 줄인 좁은 버튼
 
 def test_ai_chat_remembers_host_window(win):
     w, acw, db, app = win
@@ -233,5 +272,89 @@ def test_ai_chat_remembers_host_window(win):
     acw.auto_open(w2)                   # 기억한 창(w2) 옆에 붙음
     assert acw.instance(create=False).host is w2
     acw.reset_layout()
-    assert db.get_setting(acw.SIDE_KEY) == 'right'
+    assert db.get_setting(acw.SIDE_KEY) == 'inside'
     w2.close()
+
+
+def test_chat_messages_have_no_labels_user_bubble_right(win):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    c._q = '이번 주 마감?'
+    c._add_msg('user', '이번 주 마감?')
+    c._on_done({'answer': '- 공문 회신 (11월 14일)\n- 협의회 자료', 'changes': [], 'rejected': []}, {})
+    kinds = [k for k, _ in c.messages()]
+    assert kinds == ['user', 'ai']                                     # 처음 안내 글은 사라짐
+    user_row, ai_row = c._msgs
+    assert user_row._label.objectName() == 'UserBubble'
+    assert user_row.layout().itemAt(0).spacerItem() is not None        # 왼쪽이 비어 오른쪽에 붙음
+    text = ai_row._label.text()
+    assert '나' not in text[:3] and 'AI' not in text[:4] and '•&nbsp;공문 회신' in text
+
+
+def test_answer_html_lists_and_line_height():
+    from ui.ai_chat_window import answer_html
+    h = answer_html('첫 줄\n\n- 하나\n2. 둘', 155)
+    assert 'line-height:155%' in h and '•&nbsp;하나' in h and '2.&nbsp;둘' in h
+
+
+def test_ai_window_style_menu_and_settings_saved(win):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    from PyQt5.QtWidgets import QMenu
+    c._more_menu()
+    items = [a.text() for a in c._last_menu.actions() if not a.isSeparator()]
+    assert '업무창 안에 넣기' in items and '배경색·글자·줄간격' in items and '대화 지우기' in items
+    sub = next(a for a in c._last_menu.actions() if a.text() == '배경색·글자·줄간격').menu()
+    assert {'글꼴', '글자 크기', '줄 간격'} <= {a.text() for a in sub.actions()}
+    c.set_color('#D6EEFF')
+    c.set_scale(1.1)
+    c.set_gap(10)
+    assert (db.get_setting(acw.COLOR_KEY), db.get_setting(acw.SCALE_KEY), db.get_setting(acw.GAP_KEY)) == \
+        ('#D6EEFF', '1.1', '10')
+    c.set_color('=')                                                   # 업무창과 같게
+    w._apply_color('#FFD6E0')
+    from ui.theme import note_color
+    assert c._bg() == note_color('#FFD6E0')
+    c.set_color('')                                                    # 처음 값: 흰색
+    assert c._bg().upper() == '#FFFFFF'
+
+
+def test_clear_command_and_no_quick_buttons(win, monkeypatch):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    assert c.quick_buttons == []
+    c._add_msg('user', '이번 주 마감?')
+    c._on_done({'answer': '두 개예요', 'changes': [], 'rejected': []}, {})
+    c._history = [('이번 주 마감?', '두 개예요')]
+    started = []
+    monkeypatch.setattr(task_ai.TaskAskWorker, 'start', lambda self: started.append(1))
+    c.ask(' /Clear ')
+    assert [k for k, _ in c.messages()] == ['welcome'] and c._history == [] and not started
+    c.ask('/help')
+    assert c.messages()[-1][0] == 'error' and '모르는 명령' in c.messages()[-1][1] and not started
+
+
+def test_user_bubble_padding_is_even(win):
+    """말풍선 안 글자 둘레 여백: 위=아래, 왼쪽=오른쪽 (±2px)."""
+    w, acw, db, app = win
+    w.resize(340, 700)
+    w._toggle_ai_chat()
+    c = acw.instance()
+    row = c._add_msg('user', '이번 주 마감 알려줘')
+    for _ in range(5):
+        app.processEvents()
+    lbl = row._label
+    img = c.grab(QRect(lbl.mapTo(c, lbl.rect().topLeft()), lbl.size())).toImage()
+    W, H = img.width(), img.height()
+
+    def ink(x, y):
+        p = img.pixelColor(x, y)
+        return p.red() + p.green() + p.blue() < 600
+    ys = [y for y in range(H) if any(ink(x, y) for x in range(W))]
+    xs = [x for x in range(W) if any(ink(x, y) for y in range(H))]
+    assert ys and xs
+    assert abs(ys[0] - (H - 1 - ys[-1])) <= 2
+    assert abs(xs[0] - (W - 1 - xs[-1])) <= 2
