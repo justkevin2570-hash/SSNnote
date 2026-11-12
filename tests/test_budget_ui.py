@@ -521,3 +521,40 @@ def test_ai_button_shows_status_and_follows_changes(win, monkeypatch, tmp_path):
     monkeypatch.setattr(ai_connect, 'connect', lambda parent, mode, say=None: seen.setdefault('mode', mode))
     w._ai_menu()
     assert seen['mode'] == 'openai'
+
+
+# ── 화면 배치 기억 (보던 칸 · 펼침 · 비목 · 스크롤 · 창 크기) ─────────────
+def test_budget_view_state_remembered_and_reset(win):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'replace')
+    gid = db.add_budget_group('묶음')
+    db.set_budget_category_group(_cat_id(db, 'A'), gid)
+    w.refresh()
+    w._state_ready = True
+    w._set_tab(('G', gid))
+    w._overview_open = True
+    w._cost_filter = {_cat_id(db, 'A'): '운영수당'}
+    w._hide_done = {_cat_id(db, 'B')}
+    w._save_state()
+    saved = json.load(open(budget._STATE_FILE, encoding='utf-8'))
+    assert saved['view']['tab'] == ['G', gid] and saved['view']['overview_open'] is True
+    w2 = budget.BudgetWindow()                                     # 다음에 켰을 때
+    assert w2.active_tab == ('G', gid) and w2._overview_open is True
+    assert w2._cost_filter == {_cat_id(db, 'A'): '운영수당'} and w2._hide_done == {_cat_id(db, 'B')}
+    w2._state_ready = True
+    w2.reset_layout()                                              # 기본값으로
+    assert w2.active_tab == 'ALL' and not w2._overview_open and not any(w2._cost_filter.values())
+    assert json.load(open(budget._STATE_FILE, encoding='utf-8'))['view']['tab'] == 'ALL'
+    w2.close()
+
+
+def test_budget_state_not_saved_before_restore_and_deleted_tab_falls_back(win):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'replace')
+    json.dump({'x': 10, 'y': 10, 'width': 900, 'height': 600,
+               'view': {'tab': 999999, 'overview_open': True}}, open(budget._STATE_FILE, 'w'))
+    w2 = budget.BudgetWindow()
+    assert w2.active_tab == 'ALL'                                  # 지운 세부항목이면 전체로
+    w2._save_state()                                               # 아직 다 그리기 전: 덮어쓰지 않음
+    assert json.load(open(budget._STATE_FILE))['view']['overview_open'] is True
+    w2.close()

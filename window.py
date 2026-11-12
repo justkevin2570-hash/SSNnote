@@ -1264,6 +1264,8 @@ class MemoWindow(QMainWindow):
         add(settings, '개인정보 보호 모드', self._toggle_privacy_mode, checked=privacy_enabled())
         add(settings, 'AI 연결 (API 키)…', self._open_ai_settings, icon='ph.key')
         add(settings, 'Claude 연결…', self._open_claude_connect, icon='ph.link')
+        settings.addSeparator()
+        add(settings, '창 배치 기본값으로…', self._reset_layouts, icon='ph.arrows-counter-clockwise')
 
         # ── 도움말 ──
         help_menu = self._submenu(menu, '도움말', 150, icon='ph.question')
@@ -1928,6 +1930,35 @@ class MemoWindow(QMainWindow):
         if result['ok']:
             self._set_font(key)
         return result['ok']
+
+    def _reset_layouts(self):
+        """예산·공문 작성·AI 대화 창의 위치·크기·보던 칸을 처음 상태로 (업무·예산·공문 내용은 그대로)."""
+        ans = QMessageBox.question(
+            self, '창 배치 기본값으로',
+            '예산 관리 · 공문 작성 · AI 대화 창의 위치와 크기, 보던 칸을 처음 상태로 되돌릴까요?\n'
+            '업무 · 예산 · 공문 내용은 그대로예요.',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if ans != QMessageBox.Yes:
+            return
+        import os
+        import budget
+        from document_editor import DocumentEditorWindow
+        if getattr(budget, '_instance', None) is not None:
+            budget._instance.reset_layout()
+        else:
+            try:
+                os.remove(budget._STATE_FILE)
+            except OSError:
+                pass
+        ed = DocumentEditorWindow._instance
+        if ed is not None:
+            ed.reset_layout()
+        else:
+            try:
+                os.remove(DocumentEditorWindow._STATE_FILE)
+            except OSError:
+                pass
+        ai_chat_window.reset_layout()
 
     def _set_font(self, key, menu=None):
         """이 창의 글꼴 바꾸기 (업무 이름·메모·D-day·업무 추가 칸, 메모장 본문)."""

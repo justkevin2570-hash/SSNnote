@@ -994,6 +994,7 @@ class BudgetWindow(QMainWindow):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.verticalScrollBar().valueChanged.connect(self._schedule_save)   # 보던 자리 기억
         self.sections_container = QWidget()
         self.sections_layout = QVBoxLayout(self.sections_container)
         self.sections_layout.setContentsMargins(0, 0, 4, 0)
@@ -1319,6 +1320,7 @@ class BudgetWindow(QMainWindow):
     def _more_menu(self):
         m = self._menu()
         m.addAction('원가통계비목 목록…', lambda: _CostTypeDialog(self).exec_())
+        m.addAction('화면 배치 기본값으로', lambda: self.reset_layout())
         m.addSeparator()
         a = m.addAction('전체 지우기…', lambda: self._reset_all())
         a.setEnabled(bool(self.categories or self.items))
@@ -1424,6 +1426,7 @@ class BudgetWindow(QMainWindow):
         self._update_nav()
         self._rebuild_sections()
         self.scroll.verticalScrollBar().setValue(0)
+        self._schedule_save()
 
     # ── 합계 제외 · 그룹 ───────────────────────────────────────────
     def _tab_exists(self, tab):
@@ -1648,7 +1651,7 @@ class BudgetWindow(QMainWindow):
                 b.setText(f'{"▾" if on else "▸"}  완료 {n}건')
                 if on:
                     t.sync_geometry()
-            toggle.clicked.connect(lambda _, c=cat['id'], f=set_open: f(c in self._hide_done))
+            toggle.clicked.connect(lambda _, c=cat['id'], f=set_open: (f(c in self._hide_done), self._schedule_save()))
             set_open(open_)
             v.addWidget(wrap)
             v.addWidget(dtable)
@@ -1662,6 +1665,7 @@ class BudgetWindow(QMainWindow):
         cur = self._cost_filter.get(cat_id)
         self._cost_filter[cat_id] = None if cur == cost else cost
         self._apply_cost_filter(cat_id)
+        self._schedule_save()
 
     def _apply_cost_filter(self, cat_id):
         refs = self._sec_refs.get(cat_id)
@@ -1722,7 +1726,7 @@ class BudgetWindow(QMainWindow):
             box.setVisible(on)
             toggle.setText(f'{"▾" if on else "▸"}  원가통계비목별 합계')
 
-        toggle.clicked.connect(lambda: set_open(not self._overview_open))
+        toggle.clicked.connect(lambda: (set_open(not self._overview_open), self._schedule_save()))
         set_open(self._overview_open)
         self._update_cost_overview()
         return card
@@ -2236,7 +2240,10 @@ class BudgetWindow(QMainWindow):
         return not isinstance(w, (QLineEdit, QTextEdit, QPlainTextEdit, QComboBox))
 
     # ── 창 위치/크기 저장·복원 ────────────────────────────────────
+    # ── 화면 배치 기억 (창 위치·크기 + 보던 칸·펼침·비목·스크롤) ──────────
+    # 바꿀 때마다 잠깐 뒤 budget_state.json에 저장한다 (창을 닫지 않고 앱·PC를 꺼도 남게).
     def _restore_window_state(self):
+        self._saved_scroll = 0
         try:
             with open(_STATE_FILE, 'r', encoding='utf-8') as f:
                 s = json.load(f)
@@ -2244,22 +2251,102 @@ class BudgetWindow(QMainWindow):
             # 예전 창 크기가 새 화면(왼쪽 목록·버튼)에 좁으면 넓혀 준다
             self.setGeometry(*fit_to_screen(s['x'], s['y'], max(s['width'], px(1240)), s['height'],
                                             min_w=640, min_h=420))
+            self._restore_maximized = bool(s.get('maximized'))
         except Exception:
             from ui.common import default_geometry
             self.setGeometry(*default_geometry(px(1240), px(780), frac_w=0.92))
+            return
+        try:
+            v = s.get('view') or {}
+            tab = v.get('tab', 'ALL')
+            if isinstance(tab, list) and len(tab) == 2 and tab[0] == 'G':
+                tab = ('G', int(tab[1]))
+            elif tab != 'ALL':
+                tab = int(tab)
+            self.active_tab = tab
+            self._overview_open = bool(v.get('overview_open'))
+            self._hide_done = {int(c) for c in v.get('hide_done') or []}
+            self._cost_filter = {int(c): cost for c, cost in (v.get('cost_filter') or {}).items() if cost}
+            self._saved_scroll = int(v.get('scroll') or 0)
+        except (TypeError, ValueError):
+            self.active_tab = 'ALL'
+
+    def _state_dict(self):
+        g = self.normalGeometry() if self.isMaximized() else self.geometry()
+        tab = self.active_tab
+        return {'x': g.x(), 'y': g.y(), 'width': g.width(), 'height': g.height(),
+                'maximized': self.isMaximized(),
+                'view': {'tab': list(tab) if isinstance(tab, tuple) else tab,
+                         'overview_open': bool(self._overview_open),
+                         'hide_done': sorted(self._hide_done),
+                         'cost_filter': {str(c): cost for c, cost in self._cost_filter.items() if cost},
+                         'scroll': self.scroll.verticalScrollBar().value() if hasattr(self, 'scroll') else 0}}
+
+    def _save_state(self):
+        if not getattr(self, '_state_ready', False):
+            return                       # 처음 그리는 중에는 저장하지 않음 (기억한 값을 덮어쓰지 않게)
+        try:
+            os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
+            tmp = _STATE_FILE + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(self._state_dict(), f, ensure_ascii=False)
+            os.replace(tmp, _STATE_FILE)
+        except Exception:
+            pass
+
+    def _schedule_save(self, *_):
+        t = getattr(self, '_state_timer', None)
+        if t is None:
+            from PyQt5.QtCore import QTimer
+            t = self._state_timer = QTimer(self)
+            t.setSingleShot(True)
+            t.setInterval(800)
+            t.timeout.connect(self._save_state)
+        t.start()
+
+    def reset_layout(self):
+        """「화면 배치 기본값으로」: 창 크기·위치와 보던 칸·펼침을 처음 상태로 (예산 내용은 그대로)."""
+        from ui.common import default_geometry
+        self.showNormal()
+        self.setGeometry(*default_geometry(px(1240), px(780), frac_w=0.92))
+        self.active_tab = 'ALL'
+        self._overview_open = False
+        self._hide_done = set()
+        self._cost_filter = {}
+        self._saved_scroll = 0
+        self.refresh(keep_scroll=False)
+        self._save_state()
 
     def showEvent(self, event):
         super().showEvent(event)
         self.refresh(keep_scroll=False)
+        if not getattr(self, '_state_ready', False):
+            if getattr(self, '_restore_maximized', False):
+                self.showMaximized()
+            pos = getattr(self, '_saved_scroll', 0)
+            from PyQt5.QtCore import QTimer
+
+            def ready():
+                try:
+                    self.scroll.verticalScrollBar().setValue(pos)
+                    self._state_ready = True
+                except RuntimeError:
+                    pass
+            QTimer.singleShot(0, lambda: QTimer.singleShot(0, ready))
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._schedule_save()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._schedule_save()
 
     def closeEvent(self, event):
-        try:
-            os.makedirs(os.path.dirname(_STATE_FILE), exist_ok=True)
-            g = self.geometry()
-            with open(_STATE_FILE, 'w', encoding='utf-8') as f:
-                json.dump({'x': g.x(), 'y': g.y(), 'width': g.width(), 'height': g.height()}, f)
-        except Exception:
-            pass
+        t = getattr(self, '_state_timer', None)
+        if t is not None:
+            t.stop()
+        self._save_state()
         super().closeEvent(event)
 
 

@@ -895,6 +895,7 @@ class DocumentEditorWindow(QMainWindow):
         self.splitter.addWidget(body)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
+        self.splitter.splitterMoved.connect(self._schedule_state_save)   # 칸 폭을 끌어 바꾸면 기억
         root.addWidget(self.splitter, 1)
 
         # ── 입력 카드: 제목 · 관련 번호 · 붙임 · 자동 초안 ──
@@ -1803,23 +1804,77 @@ class DocumentEditorWindow(QMainWindow):
         __import__('os').environ.get('APPDATA', '.'), 'SSNnote', 'doc_editor_state.json'
     )
 
+    # 창 위치·크기·최대화·「받은 공문」 칸 폭. 바꿀 때마다 잠깐 뒤 저장 (창을 닫지 않고 앱·PC를 꺼도 남게)
+    _saved_panel_w = 0
+
     def _restore_window_state(self):
-        import json, os
+        import json
         try:
             with open(self._STATE_FILE, 'r', encoding='utf-8') as f:
                 s = json.load(f)
             self.setGeometry(*fit_to_screen(s['x'], s['y'], s['width'], s['height'], min_w=560, min_h=420))
+            self._restore_maximized = bool(s.get('maximized'))
+            self._saved_panel_w = int(s.get('panel_w') or 0)
         except Exception:
             self.setGeometry(*default_geometry(900, 680))   # 처음엔 화면 크기에 맞춘 크기로
 
-    def closeEvent(self, event):
+    def _save_window_state(self):
         import json, os
-        os.makedirs(os.path.dirname(self._STATE_FILE), exist_ok=True)
-        g = self.geometry()
-        with open(self._STATE_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'x': g.x(), 'y': g.y(),
-                       'width': g.width() - (self._panel_extra if self.panel.isVisible() else 0),
-                       'height': g.height()}, f)
+        if not getattr(self, '_state_ready', False):
+            return
+        try:
+            os.makedirs(os.path.dirname(self._STATE_FILE), exist_ok=True)
+            g = self.normalGeometry() if self.isMaximized() else self.geometry()
+            if self.panel.isVisible():
+                self._saved_panel_w = self.splitter.sizes()[0]
+            data = {'x': g.x(), 'y': g.y(),
+                    'width': g.width() - (self._panel_extra if self.panel.isVisible() else 0),
+                    'height': g.height(), 'maximized': self.isMaximized(),
+                    'panel_w': self._saved_panel_w}
+            tmp = self._STATE_FILE + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(data, f)
+            os.replace(tmp, self._STATE_FILE)
+        except Exception:
+            pass
+
+    def _schedule_state_save(self, *_):
+        t = getattr(self, '_state_timer', None)
+        if t is None:
+            t = self._state_timer = QTimer(self)
+            t.setSingleShot(True)
+            t.setInterval(800)
+            t.timeout.connect(self._save_window_state)
+        t.start()
+
+    def reset_layout(self):
+        """「화면 배치 기본값으로」: 창 크기·위치·받은 공문 칸 폭을 처음 상태로 (쓰던 글은 그대로)."""
+        self.showNormal()
+        self._show_panel(False)
+        self._saved_panel_w = 0
+        self.setGeometry(*default_geometry(900, 680))
+        self._save_window_state()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not getattr(self, '_state_ready', False):
+            if getattr(self, '_restore_maximized', False):
+                self.showMaximized()
+            QTimer.singleShot(0, lambda: setattr(self, '_state_ready', True))
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._schedule_state_save()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._schedule_state_save()
+
+    def closeEvent(self, event):
+        t = getattr(self, '_state_timer', None)
+        if t is not None:
+            t.stop()
+        self._save_window_state()
         self.panel.shutdown()
         if DocumentEditorWindow._instance is self:
             DocumentEditorWindow._instance = None
@@ -1904,6 +1959,8 @@ class DocumentEditorWindow(QMainWindow):
             need = self.panel.content_min_width()
             self.panel.setMinimumWidth(need)
             w = max(need, min(340, int(screen.width() * 0.22)))
+            if self._saved_panel_w:                      # 지난번에 끌어서 맞춘 칸 폭
+                w = max(need, min(self._saved_panel_w, int(screen.width() * 0.5)))
             self.panel.show()
             self.splitter.setSizes([w, max(self.width(), 600)])
             # 칸만큼 창을 넓힌다. 오른쪽에 자리가 없으면 창을 왼쪽으로 옮긴다 (화면 밖으로 안 나가게)

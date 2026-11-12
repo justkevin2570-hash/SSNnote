@@ -16,6 +16,7 @@ from .common import px
 from .theme import T, tc
 
 SIDE_KEY, SIZE_KEY, OPEN_KEY = 'ai_chat_side', 'ai_chat_size', 'ai_chat_open'
+HOST_KEY = 'ai_chat_host'           # 마지막으로 붙어 있던 업무창 id
 DEFAULT_SIZE = {'right': 320, 'bottom': 240}
 MIN_SIZE = {'right': 240, 'bottom': 170}
 GAP = 0                           # 업무창과 AI 창 사이 간격
@@ -322,6 +323,9 @@ class AiChatWindow(QWidget):
         self.raise_()
         self._mark_host(True)
         self._update_enabled()
+        wid = getattr(host, 'window_id', None)
+        if wid is not None:
+            _save(HOST_KEY, wid)                       # 다음에 켤 때 이 업무창 옆에
         if remember:
             _save(OPEN_KEY, '1')
 
@@ -569,7 +573,39 @@ def host_closed(host):
         w.detach()
 
 
+def _saved_host_alive(host):
+    """기억한 업무창이 아직 있고 펼쳐진 업무창(메모장 아님)인지 → 그 id, 아니면 None."""
+    try:
+        wid = int(_setting(HOST_KEY, '') or 0)
+    except ValueError:
+        return None
+    if not wid:
+        return None
+    try:
+        from db import get_all_windows
+        alive = {w['id'] for w in get_all_windows() if not w.get('memo_mode') and not w.get('collapsed')}
+    except Exception:
+        return None
+    return wid if wid in alive else None
+
+
+def reset_layout():
+    """「창 배치 기본값으로」: 오른쪽에 붙이기 · 기본 크기 (열림 여부·붙은 업무창은 그대로)."""
+    for side in ('right', 'bottom'):
+        _save(SIZE_KEY + '_' + side, DEFAULT_SIZE[side])
+    _save(SIDE_KEY, 'right')
+    w = instance(create=False)
+    if w is not None:
+        w.side = 'right'
+        w.dock_size = DEFAULT_SIZE['right']
+        w.follow()
+
+
 def auto_open(host):
-    """앱을 켰을 때 (처음엔 열림): 첫 업무창 옆에 붙인다."""
-    if saved_open() and instance(create=False) is None:
-        instance().attach(host, remember=False)
+    """앱을 켰을 때 (처음엔 열림): 지난번에 붙어 있던 업무창 옆에, 그 창이 없으면 먼저 뜬 업무창 옆에."""
+    if not saved_open() or instance(create=False) is not None:
+        return
+    want = _saved_host_alive(host)
+    if want is not None and want != getattr(host, 'window_id', None):
+        return                                         # 기억한 업무창이 스스로 붙임
+    instance().attach(host, remember=False)
