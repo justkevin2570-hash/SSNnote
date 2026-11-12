@@ -102,6 +102,20 @@ def init_db():
             );
         """)
 
+        # 예산 세부항목: 전체 합계에서 빼기 · 그룹 (v3.01)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS budget_groups (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL UNIQUE,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                collapsed  INTEGER NOT NULL DEFAULT 0
+            )""")
+        bcols = [r[1] for r in conn.execute('PRAGMA table_info(budget_categories)').fetchall()]
+        if 'excluded' not in bcols:
+            conn.execute('ALTER TABLE budget_categories ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0')
+        if 'group_id' not in bcols:
+            conn.execute('ALTER TABLE budget_categories ADD COLUMN group_id INTEGER DEFAULT NULL')
+
         # tasks 테이블에 window_id 컬럼 없으면 추가 (기존 DB 마이그레이션)
         cols = [r[1] for r in conn.execute('PRAGMA table_info(tasks)').fetchall()]
         if 'window_id' not in cols:
@@ -549,6 +563,66 @@ def delete_budget_category(cat_id):
         conn.execute('DELETE FROM budget_categories WHERE id=?', (cat_id,))
 
 
+def set_budget_category_excluded(cat_id, excluded):
+    """세부항목을 전체 합계에서 뺄지(1) 넣을지(0)."""
+    with _connect() as conn:
+        conn.execute('UPDATE budget_categories SET excluded=? WHERE id=?', (1 if excluded else 0, cat_id))
+
+
+def set_budget_category_group(cat_id, group_id):
+    """세부항목을 그룹에 넣기 (None이면 그룹에서 빼기). 세부항목 하나는 그룹 하나에만."""
+    with _connect() as conn:
+        conn.execute('UPDATE budget_categories SET group_id=? WHERE id=?', (group_id, cat_id))
+
+
+def get_budget_groups():
+    with _connect() as conn:
+        rows = conn.execute('SELECT * FROM budget_groups ORDER BY sort_order ASC, id ASC').fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_budget_group(name):
+    """새 그룹. 같은 이름이 있으면 None."""
+    with _connect() as conn:
+        try:
+            row = conn.execute('SELECT MAX(sort_order) FROM budget_groups').fetchone()
+            cur = conn.execute('INSERT INTO budget_groups (name, sort_order) VALUES (?, ?)',
+                               (name, (row[0] or 0) + 1))
+            return cur.lastrowid
+        except sqlite3.IntegrityError:
+            return None
+
+
+def rename_budget_group(group_id, new_name):
+    with _connect() as conn:
+        try:
+            conn.execute('UPDATE budget_groups SET name=? WHERE id=?', (new_name, group_id))
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def delete_budget_group(group_id):
+    """그룹만 지운다. 안의 세부항목은 그대로 두고 그룹에서만 뺀다."""
+    with _connect() as conn:
+        conn.execute('UPDATE budget_categories SET group_id=NULL WHERE group_id=?', (group_id,))
+        conn.execute('DELETE FROM budget_groups WHERE id=?', (group_id,))
+
+
+def set_budget_group_collapsed(group_id, collapsed):
+    with _connect() as conn:
+        conn.execute('UPDATE budget_groups SET collapsed=? WHERE id=?', (1 if collapsed else 0, group_id))
+
+
+def get_budget_items_in_total():
+    """전체 합계에 들어가는 예산 항목만 (합계에서 뺀 세부항목의 항목은 제외)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            'SELECT i.* FROM budget_items i JOIN budget_categories c ON c.id = i.category_id '
+            'WHERE c.excluded = 0 ORDER BY i.id ASC').fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_budget_items(category_id=None):
     with _connect() as conn:
         if category_id is None:
@@ -601,11 +675,14 @@ def toggle_budget_item_completed(item_id):
         return new_val
 
 
-def clear_budget_data():
+def clear_budget_data(keep_groups=False):
+    """예산 전부 지우기. keep_groups면 그룹(이름·순서)은 남긴다 (전체 교체로 다시 가져올 때)."""
     with _connect() as conn:
         conn.execute('DELETE FROM budget_expenses')
         conn.execute('DELETE FROM budget_items')
         conn.execute('DELETE FROM budget_categories')
+        if not keep_groups:
+            conn.execute('DELETE FROM budget_groups')
 
 
 # ── 사용 내역 (명목별 지출 기록) ─────────────────────────────────

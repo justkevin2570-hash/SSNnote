@@ -19,7 +19,8 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
     QHeaderView, QDialog, QMessageBox, QComboBox, QAbstractItemView,
     QProgressBar, QFileDialog, QButtonGroup, QTextEdit, QPlainTextEdit,
-    QMenu, QRadioButton, QProgressDialog, QLayout, QCompleter, QTextBrowser
+    QMenu, QRadioButton, QProgressDialog, QLayout, QCompleter, QTextBrowser,
+    QInputDialog, QCheckBox
 )
 from PyQt5.QtCore import Qt, QSize, QBuffer, QIODevice, QPoint, QRect, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QImage, QPixmap
@@ -28,6 +29,8 @@ from db import (get_budget_categories, add_budget_category, rename_budget_catego
                 delete_budget_category, get_budget_items, add_budget_item,
                 update_budget_item, delete_budget_item, set_budget_item_spent,
                 toggle_budget_item_completed, clear_budget_data,
+                set_budget_category_excluded, set_budget_category_group, get_budget_groups,
+                add_budget_group, rename_budget_group, delete_budget_group, set_budget_group_collapsed,
                 get_budget_expenses, add_budget_expense, save_budget_item_edit, delete_budget_expense)
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
 from ui.common import px
@@ -88,6 +91,7 @@ class C:
     NAV_LINE    = '#FCDDB4'    # 왼쪽 세부항목 테두리 (옅은 주황)
     NAV_LINE_HI = '#F9BE7C'
     NAV_LINE_ON = '#F59E0B'    # 선택한 세부항목
+    NAV_GROUP_BG = '#FFFAF3'   # 그룹 줄 바탕
 
 
 # ── 전체 QSS ─────────────────────────────────────────────────────
@@ -152,6 +156,16 @@ STYLE = f"""
     QLabel#NavName {{ font-weight: 700; }}
     QFrame#Nav[active="true"] QLabel#NavName {{ color: {C.ACCENT_HI}; }}
     QLabel#NavMeta {{ color: {C.MUTED}; font-size: 10pt; }}
+    QFrame#Nav[indent="true"] {{ margin-left: 14px; }}
+    QFrame#Nav[excluded="true"] QLabel#NavName {{ color: {C.FAINT}; }}
+    QFrame#Nav[group="true"] {{ background: {C.NAV_GROUP_BG}; }}
+    QFrame#Nav[group="true"]:hover {{ background: {C.HOVER}; }}
+    QFrame#Nav[group="true"][active="true"] {{ background: {C.ACCENT_SOFT}; }}
+    QLabel#ExTag {{
+        background: {C.HOVER}; color: {C.FAINT}; border-radius: 6px; padding: 1px 6px;
+        font-size: 10pt; font-weight: 600;
+    }}
+    QPushButton#NavFold {{ background: transparent; border: none; padding: 0; color: {C.MUTED}; font-weight: 800; }}
 
     QTableWidget {{
         background: {C.SURFACE}; border: none; gridline-color: transparent;
@@ -729,20 +743,42 @@ class _BudgetTable(QTableWidget):
 
 
 class _NavItem(QFrame):
-    """왼쪽 세부항목 목록의 한 줄: 이름 · 집행률 막대 · 잔액."""
+    """왼쪽 세부항목 목록의 한 줄: 이름 · 집행률 막대 · 잔액.
+    group=True면 그룹 줄(접기 ▾/▸ 단추), indent면 그룹 안 세부항목(왼쪽으로 들여 씀)."""
     clicked = pyqtSignal()
+    menuRequested = pyqtSignal(QPoint)
+    foldClicked = pyqtSignal()
 
-    def __init__(self, name):
+    def __init__(self, name, group=False, indent=False, excluded=False, collapsed=False):
         super().__init__()
         self.setObjectName('Nav')
         self.setProperty('active', 'false')
+        self.setProperty('group', 'true' if group else 'false')
+        self.setProperty('excluded', 'true' if excluded else 'false')
+        self.setProperty('indent', 'true' if indent else 'false')
         self.setCursor(Qt.PointingHandCursor)
         v = QVBoxLayout(self)
         v.setContentsMargins(10, 8, 10, 8)
         v.setSpacing(5)
+        top = QHBoxLayout()
+        top.setSpacing(4)
+        self.btn_fold = None
+        if group:
+            self.btn_fold = QPushButton('▸' if collapsed else '▾')
+            self.btn_fold.setObjectName('NavFold')
+            self.btn_fold.setFixedWidth(16)
+            self.btn_fold.setToolTip('펼치기' if collapsed else '접기')
+            self.btn_fold.clicked.connect(self.foldClicked.emit)
+            top.addWidget(self.btn_fold, 0, Qt.AlignTop)
         self.lbl_name = QLabel(name)
         self.lbl_name.setObjectName('NavName')
         self.lbl_name.setWordWrap(True)
+        top.addWidget(self.lbl_name, 1)
+        if excluded:
+            tag = QLabel('합계 제외')
+            tag.setObjectName('ExTag')
+            tag.setToolTip('전체 합계에 넣지 않는 세부항목이에요 (우클릭 → 전체 합계에 넣기)')
+            top.addWidget(tag, 0, Qt.AlignTop)
         row = QHBoxLayout()
         row.setSpacing(8)
         self.bar = QProgressBar()
@@ -757,7 +793,8 @@ class _NavItem(QFrame):
         row.addWidget(self.lbl_pct)
         self.lbl_meta = QLabel()
         self.lbl_meta.setObjectName('NavMeta')
-        v.addWidget(self.lbl_name)
+        self.lbl_meta.setWordWrap(True)
+        v.addLayout(top)
         v.addLayout(row)
         v.addWidget(self.lbl_meta)
 
@@ -780,6 +817,10 @@ class _NavItem(QFrame):
         if e.button() == Qt.LeftButton:
             self.clicked.emit()
 
+    def contextMenuEvent(self, e):
+        self.menuRequested.emit(e.globalPos())
+        e.accept()
+
 
 _IMAGE_EXTS = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
 _IMAGE_METHOD = {
@@ -795,7 +836,9 @@ class BudgetWindow(QMainWindow):
         _load_pretendard()
         self.categories = []
         self.items = []
-        self.active_tab = 'ALL'
+        self.groups = []
+        self._overview_scope = None       # 원가통계비목별 합계 범위 (None이면 전체 합계)
+        self.active_tab = 'ALL'          # 'ALL' · 세부항목 id · ('G', 그룹 id)
         self._overview_open = False
         self._items_by_id = {}
         self._row_refs = {}
@@ -1066,7 +1109,7 @@ class BudgetWindow(QMainWindow):
         self._hide_proposal()
         self._set_answer(f'Q. {q}\n\n생각하는 중…')
         self.ask_status.setText('AI가 예산 표를 보는 중…')
-        w = BudgetAskWorker(q, self.categories, self.items, self._ask_history)
+        w = BudgetAskWorker(q, self.categories, self.items, self._ask_history, groups=self.groups)
         w.done.connect(self._on_ask_done)
         w.failed.connect(self._on_ask_failed)
         self._ask_worker = w
@@ -1255,11 +1298,12 @@ class BudgetWindow(QMainWindow):
         pos = self.scroll.verticalScrollBar().value() if keep_scroll else 0
         self.categories = get_budget_categories()
         self.items = get_budget_items()
+        self.groups = get_budget_groups()
         self._items_by_id = {it['id']: it for it in self.items}
         self._expenses_by_item = {}
         for ex in get_budget_expenses():
             self._expenses_by_item.setdefault(ex['item_id'], []).append(ex)
-        if self.active_tab != 'ALL' and self.active_tab not in {c['id'] for c in self.categories}:
+        if not self._tab_exists(self.active_tab):
             self.active_tab = 'ALL'
         has = bool(self.categories)
         self.summary.setVisible(has)
@@ -1279,6 +1323,9 @@ class BudgetWindow(QMainWindow):
             return
         done = sum(1 for it in self.items if it['completed'])
         text = f'세부항목 {len(self.categories)}개 · 항목 {len(self.items)}개'
+        n_ex = len(self._excluded_ids())
+        if n_ex:
+            text += f' · 합계 제외 {n_ex}개'
         self.lbl_meta.setText(text + (f' · 완료 {done}개' if done else ''))
 
     # ── 왼쪽 목록 ──────────────────────────────────────────────────
@@ -1289,20 +1336,44 @@ class BudgetWindow(QMainWindow):
                 w.setParent(None)
                 w.deleteLater()
         self._nav_refs = {}
-        for key, name in [('ALL', '전체')] + [(c['id'], c['name']) for c in self.categories]:
-            nav = _NavItem(name)
+
+        def add(key, nav):
             nav.clicked.connect(lambda k=key: self._set_tab(k))
+            nav.menuRequested.connect(lambda pos, k=key: self._nav_menu(k, pos))
             self.nav_layout.addWidget(nav)
             self._nav_refs[key] = nav
+
+        add('ALL', _NavItem('전체'))
+        for g in self.groups:
+            members = self._group_members(g['id'])
+            if not members:
+                continue                      # 빈 그룹은 [세부항목 관리]에서만 보임
+            gnav = _NavItem(g['name'], group=True, collapsed=bool(g['collapsed']))
+            gnav.foldClicked.connect(lambda gid=g['id'], c=bool(g['collapsed']): self._fold_group(gid, not c))
+            add(('G', g['id']), gnav)
+            if not g['collapsed']:
+                for c in members:
+                    add(c['id'], _NavItem(c['name'], indent=True, excluded=bool(c.get('excluded'))))
+        group_ids = {g['id'] for g in self.groups}
+        for c in self.categories:
+            if c.get('group_id') not in group_ids:
+                add(c['id'], _NavItem(c['name'], excluded=bool(c.get('excluded'))))
         self.nav_layout.addStretch()
         self._update_nav()
 
     def _update_nav(self):
         for key, nav in self._nav_refs.items():
             if key == 'ALL':
-                b = sum(it['budget'] for it in self.items)
-                s = sum(it['spent'] for it in self.items)
-                nav.set_values(b, s, f' · {len(self.categories)}개 세부항목')
+                b, s = self._sum(self._total_items())
+                n_ex = len(self._excluded_ids())
+                extra = f' · {len(self.categories) - n_ex}개 세부항목'
+                if n_ex:
+                    extra += f'<br><span style="color:{C.FAINT}">합계 제외 {n_ex}개 뺌</span>'
+                nav.set_values(b, s, extra)
+            elif isinstance(key, tuple):
+                members = self._group_members(key[1])
+                b, s = self._sum(self._items_of({c['id'] for c in members}))
+                nav.set_values(b, s, f' · {len(members)}개 세부항목')
             else:
                 b, s = self._cat_totals(key)
                 nav.set_values(b, s)
@@ -1316,6 +1387,115 @@ class BudgetWindow(QMainWindow):
         self._rebuild_sections()
         self.scroll.verticalScrollBar().setValue(0)
 
+    # ── 합계 제외 · 그룹 ───────────────────────────────────────────
+    def _tab_exists(self, tab):
+        if tab == 'ALL':
+            return True
+        if isinstance(tab, tuple):
+            return bool(self._group_members(tab[1]))
+        return tab in {c['id'] for c in self.categories}
+
+    def _excluded_ids(self):
+        return {c['id'] for c in self.categories if c.get('excluded')}
+
+    def _total_items(self):
+        """전체 합계에 들어가는 항목 (합계에서 뺀 세부항목의 항목은 빼고)."""
+        ex = self._excluded_ids()
+        return [it for it in self.items if it['category_id'] not in ex]
+
+    def _items_of(self, cat_ids):
+        return [it for it in self.items if it['category_id'] in cat_ids]
+
+    @staticmethod
+    def _sum(items):
+        return sum(it['budget'] for it in items), sum(it['spent'] for it in items)
+
+    def _group_members(self, group_id):
+        return [c for c in self.categories if c.get('group_id') == group_id]
+
+    def _fold_group(self, group_id, collapsed):
+        set_budget_group_collapsed(group_id, collapsed)
+        self.groups = get_budget_groups()
+        self._rebuild_nav()
+
+    def _nav_menu(self, key, pos):
+        if key == 'ALL':
+            return
+        m = self._menu()
+        if isinstance(key, tuple):
+            gid = key[1]
+            g = next((g for g in self.groups if g['id'] == gid), None)
+            members = self._group_members(gid)
+            if not g:
+                return
+            all_ex = bool(members) and all(c.get('excluded') for c in members)
+            m.addAction('그룹 전체를 전체 합계에 넣기' if all_ex else '그룹 전체를 전체 합계에서 빼기',
+                        lambda: self._set_excluded([c['id'] for c in members], not all_ex))
+            m.addSeparator()
+            m.addAction('그룹 이름 바꾸기…', lambda: self._rename_group(gid))
+            m.addAction('그룹 풀기 (세부항목은 그대로 남아요)', lambda: self._delete_group(gid))
+        else:
+            cat = next((c for c in self.categories if c['id'] == key), None)
+            if not cat:
+                return
+            ex = bool(cat.get('excluded'))
+            m.addAction('전체 합계에 넣기' if ex else '전체 합계에서 빼기',
+                        lambda: self._set_excluded([key], not ex))
+            sub = m.addMenu('그룹으로 옮기기')
+            sub.setStyleSheet(STYLE)
+            for g in self.groups:
+                a = sub.addAction(g['name'], lambda gid=g['id']: self._move_to_group(key, gid))
+                a.setCheckable(True)
+                a.setChecked(cat.get('group_id') == g['id'])
+            if self.groups:
+                sub.addSeparator()
+            sub.addAction('새 그룹 만들기…', lambda: self._move_to_new_group(key))
+            if cat.get('group_id') is not None:
+                m.addAction('그룹에서 빼기', lambda: self._move_to_group(key, None))
+        m.exec_(pos)
+
+    def _set_excluded(self, cat_ids, excluded):
+        for cid in cat_ids:
+            set_budget_category_excluded(cid, excluded)
+        self.refresh()
+
+    def _move_to_group(self, cat_id, group_id):
+        set_budget_category_group(cat_id, group_id)
+        self.refresh()
+
+    def _ask_group_name(self, title, text=''):
+        name, ok = QInputDialog.getText(self, title, '그룹 이름', QLineEdit.Normal, text)
+        name = (name or '').strip()
+        return name if ok and name else None
+
+    def _move_to_new_group(self, cat_id):
+        name = self._ask_group_name('새 그룹')
+        if not name:
+            return
+        gid = add_budget_group(name)
+        if gid is None:
+            gid = next((g['id'] for g in get_budget_groups() if g['name'] == name), None)
+        if gid is not None:
+            self._move_to_group(cat_id, gid)
+
+    def _rename_group(self, group_id):
+        g = next((g for g in self.groups if g['id'] == group_id), None)
+        if not g:
+            return
+        name = self._ask_group_name('그룹 이름 바꾸기', g['name'])
+        if not name or name == g['name']:
+            return
+        if not rename_budget_group(group_id, name):
+            QMessageBox.warning(self, '바꾸기 실패', '같은 이름의 그룹이 이미 있어요.')
+            return
+        self.refresh()
+
+    def _delete_group(self, group_id):
+        delete_budget_group(group_id)
+        if self.active_tab == ('G', group_id):
+            self.active_tab = 'ALL'
+        self.refresh()
+
     # ── 오른쪽 표 ──────────────────────────────────────────────────
     def _rebuild_sections(self):
         self._row_refs = {}
@@ -1326,10 +1506,20 @@ class BudgetWindow(QMainWindow):
                 w.setParent(None)
                 w.deleteLater()
         self._overview_chips = {}
-        target = self.categories if self.active_tab == 'ALL' else \
-            [c for c in self.categories if c['id'] == self.active_tab]
-        if self.active_tab == 'ALL' and self.items:
-            self.sections_layout.addWidget(self._make_cost_overview())
+        tab = self.active_tab
+        if tab == 'ALL':
+            target = self.categories
+            self._overview_scope = None
+            if self.items:
+                self.sections_layout.addWidget(self._make_cost_overview())
+        elif isinstance(tab, tuple):
+            target = self._group_members(tab[1])
+            self._overview_scope = {c['id'] for c in target}
+            self.sections_layout.addWidget(self._make_group_head(tab[1]))
+            if self._items_of(self._overview_scope):
+                self.sections_layout.addWidget(self._make_cost_overview())
+        else:
+            target = [c for c in self.categories if c['id'] == tab]
         for cat in target:
             cat_items = [it for it in self.items if it['category_id'] == cat['id']]
             self.sections_layout.addWidget(self._make_section(cat, cat_items))
@@ -1359,6 +1549,11 @@ class BudgetWindow(QMainWindow):
                          color='#E11D48', size=12)
         drop.clicked.connect(lambda _, cid=cat['id']: self._delete_category(cid))
         hl.addWidget(name, 1)
+        if cat.get('excluded'):
+            tag = QLabel('합계 제외')
+            tag.setObjectName('ExTag')
+            tag.setToolTip('전체 합계에 넣지 않는 세부항목이에요 (왼쪽 목록에서 우클릭 → 전체 합계에 넣기)')
+            hl.addWidget(tag, 0, Qt.AlignVCenter)
         hl.addWidget(meta)
         hl.addWidget(chip)
         hl.addWidget(add)
@@ -1463,13 +1658,19 @@ class BudgetWindow(QMainWindow):
         head.addWidget(toggle)
         head.addStretch()
         v.addLayout(head)
-        sub = QLabel('세부항목을 가리지 않고 같은 비목끼리 합친 금액이에요.')
+        if self._overview_scope is None:
+            text = '세부항목을 가리지 않고 같은 비목끼리 합친 금액이에요.'
+            if self._excluded_ids():
+                text += ' 합계 제외 세부항목은 뺐어요.'
+        else:
+            text = '이 그룹의 세부항목끼리 같은 비목을 합친 금액이에요.'
+        sub = QLabel(text)
         sub.setObjectName('SectionMeta')
         box = QWidget()
         flow = _FlowLayout(box)
         flow.setContentsMargins(0, 2, 0, 0)
         self._overview_chips = {}
-        for cost in _cost_totals(self.items):
+        for cost in _cost_totals(self._overview_items()):
             lb = QLabel()
             lb.setObjectName('CostChip')
             flow.addWidget(lb)
@@ -1488,8 +1689,45 @@ class BudgetWindow(QMainWindow):
         self._update_cost_overview()
         return card
 
+    def _overview_items(self):
+        scope = getattr(self, '_overview_scope', None)
+        return self._total_items() if scope is None else self._items_of(scope)
+
+    def _make_group_head(self, group_id):
+        """그룹을 볼 때 맨 위: 그룹 이름과 묶인 세부항목을 합친 금액."""
+        g = next((g for g in self.groups if g['id'] == group_id), {'name': ''})
+        members = self._group_members(group_id)
+        b, s = self._sum(self._items_of({c['id'] for c in members}))
+        rem, pct = b - s, _pct(s, b)
+        card = QFrame()
+        card.setObjectName('Card')
+        hl = QHBoxLayout(card)
+        hl.setContentsMargins(18, 14, 18, 14)
+        hl.setSpacing(10)
+        tv = QVBoxLayout()
+        tv.setSpacing(2)
+        name = QLabel(f'{g["name"]} (그룹)')
+        name.setObjectName('SectionTitle')
+        names = ', '.join(c['name'] + (' (합계 제외)' if c.get('excluded') else '') for c in members)
+        sub = QLabel(f'묶인 세부항목 {len(members)}개: {names}')
+        sub.setObjectName('SectionMeta')
+        sub.setWordWrap(True)
+        tv.addWidget(name)
+        tv.addWidget(sub)
+        hl.addLayout(tv, 1)
+        rem_html = f'<span style="color:{C.NEG}"><b>{_fmt(rem)}원</b></span>' if rem < 0 else f'{_fmt(rem)}원'
+        meta = QLabel(f'예산 {_fmt(b)}원 · 집행 {_fmt(s)}원 · 잔액 {rem_html}')
+        meta.setObjectName('SectionMeta')
+        meta.setTextFormat(Qt.RichText)
+        chip = QLabel(f'{pct:.1f}%')
+        chip.setStyleSheet(f'background: {_LEVEL_SOFT[_level(pct)]}; color: {_text_color(pct)}; '
+                           f'border-radius: 10px; padding: 3px 10px; font-weight: 700;')
+        hl.addWidget(meta)
+        hl.addWidget(chip)
+        return card
+
     def _update_cost_overview(self):
-        totals = _cost_totals(self.items)
+        totals = _cost_totals(self._overview_items())
         for cost, lb in getattr(self, '_overview_chips', {}).items():
             try:
                 b, s, n = totals.get(cost, (0, 0, 0))
@@ -1665,8 +1903,7 @@ class BudgetWindow(QMainWindow):
             b.setStyleSheet(_cost_chip_qss(cb, cs))
 
     def _update_summary(self):
-        budget = sum(it['budget'] for it in self.items)
-        spent = sum(it['spent'] for it in self.items)
+        budget, spent = self._sum(self._total_items())
         rem = budget - spent
         pct = _pct(spent, budget)
         self.stat['budget'].setText(f'{_fmt(budget)}원')
@@ -1690,7 +1927,10 @@ class BudgetWindow(QMainWindow):
                                     '먼저 세부항목을 만들거나, 엑셀·캡처를 가져오세요.')
             self._open_category_manager()
             return
-        default_cat = cat_id or (self.active_tab if self.active_tab != 'ALL' else self.categories[0]['id'])
+        tab = self.active_tab
+        if isinstance(tab, tuple):                       # 그룹을 보는 중이면 그 그룹의 첫 세부항목
+            tab = (self._group_members(tab[1]) or self.categories)[0]['id']
+        default_cat = cat_id or (tab if tab != 'ALL' else self.categories[0]['id'])
         dlg = _ItemDialog(self.categories, None, default_cat, self)
         if dlg.exec_() == QDialog.Accepted and dlg.result_data:
             d = dlg.result_data
@@ -1881,8 +2121,10 @@ class BudgetWindow(QMainWindow):
 
     def _apply_import(self, categories, mode):
         """mode: append(모두 추가) · update(같은 이름의 세부항목은 새 내용으로 바꿈) · replace(전부 지우고 교체)."""
+        # 합계 제외 · 그룹 설정은 세부항목 이름으로 기억해 두었다가 다시 붙인다 (전체 교체여도 유지)
+        keep = {c['name']: (c.get('excluded') or 0, c.get('group_id')) for c in get_budget_categories()}
         if mode == 'replace':
-            clear_budget_data()
+            clear_budget_data(keep_groups=True)
         existing = {c['name']: c['id'] for c in get_budget_categories()}
         for cat in categories:
             cid = existing.get(cat['name'])
@@ -1899,6 +2141,13 @@ class BudgetWindow(QMainWindow):
                 existing[cat['name']] = cid
             for it in cat['items']:
                 add_budget_item(cid, it['cost_type'], it['description'], it['budget'], it['spent'])
+        groups = {g['id'] for g in get_budget_groups()}
+        for c in get_budget_categories():
+            ex, gid = keep.get(c['name'], (0, None))
+            if ex and not c.get('excluded'):
+                set_budget_category_excluded(c['id'], True)
+            if gid in groups and c.get('group_id') is None:
+                set_budget_category_group(c['id'], gid)
         self.active_tab = 'ALL'
         self.refresh(keep_scroll=False)
 
@@ -2509,15 +2758,17 @@ class _CategoryManagerDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle('세부항목(추경) 관리')
         self.setStyleSheet(STYLE)
-        self.setMinimumWidth(460)
-        self.setMinimumHeight(380)
+        self.setMinimumWidth(620)
+        self.setMinimumHeight(560)
         self._on_changed = on_changed
 
         v = QVBoxLayout(self)
         v.setContentsMargins(20, 18, 20, 18)
         v.setSpacing(10)
 
-        lbl = QLabel('추경 발생 시 세부항목을 새로 추가하거나 명칭 변경, 삭제가 가능합니다.')
+        lbl = QLabel('추경 발생 시 세부항목을 새로 추가하거나 명칭 변경, 삭제가 가능합니다.\n'
+                     '「합계 포함」을 끄면 전체 합계에서 빠지고, 「그룹」으로 비슷한 세부항목을 묶어 합친 금액을 볼 수 있어요.')
+        lbl.setWordWrap(True)
         lbl.setObjectName('Muted')
         v.addWidget(lbl)
 
@@ -2543,6 +2794,26 @@ class _CategoryManagerDialog(QDialog):
         self.list_layout.setSpacing(4)
         self.list_scroll.setWidget(self.list_container)
         v.addWidget(self.list_scroll, stretch=1)
+
+        # 그룹: 만들기 · 이름 바꾸기 · 풀기
+        gcap = QLabel('그룹')
+        gcap.setObjectName('StatLabel')
+        v.addWidget(gcap)
+        grow = QHBoxLayout()
+        grow.setSpacing(8)
+        self.edit_group = QLineEdit()
+        self.edit_group.setPlaceholderText('새 그룹 이름 (예: 방과후)')
+        self.edit_group.returnPressed.connect(self._add_group)
+        btn_gadd = QPushButton('그룹 추가')
+        btn_gadd.clicked.connect(self._add_group)
+        grow.addWidget(self.edit_group, 1)
+        grow.addWidget(btn_gadd)
+        v.addLayout(grow)
+        self.group_box = QWidget()
+        self.group_layout = QVBoxLayout(self.group_box)
+        self.group_layout.setContentsMargins(0, 0, 0, 0)
+        self.group_layout.setSpacing(4)
+        v.addWidget(self.group_box)
 
         btns = QHBoxLayout()
         self.btn_import = QPushButton('엑셀 가져오기')
@@ -2583,6 +2854,7 @@ class _CategoryManagerDialog(QDialog):
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(f'color: {C.FAINT}; padding: 20px;')
             self.list_layout.addWidget(empty)
+        groups = get_budget_groups()
         for cat in cats:
             row = QWidget()
             rl = QHBoxLayout(row)
@@ -2591,12 +2863,94 @@ class _CategoryManagerDialog(QDialog):
             edit = QLineEdit(cat['name'])
             edit.editingFinished.connect(
                 lambda cid=cat['id'], e=edit, old=cat['name']: self._rename_category(cid, e, old))
+            combo = QComboBox()
+            combo.setToolTip('이 세부항목을 넣을 그룹')
+            combo.addItem('그룹 없음', None)
+            for g in groups:
+                combo.addItem(g['name'], g['id'])
+            idx = combo.findData(cat.get('group_id'))
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.setMinimumWidth(110)
+            combo.currentIndexChanged.connect(
+                lambda _, cid=cat['id'], cb=combo: self._set_group(cid, cb.currentData()))
+            chk = QCheckBox('합계 포함')
+            chk.setToolTip('끄면 전체 합계(예산현액·집행액·잔액·집행률)에서 빠져요')
+            chk.setChecked(not cat.get('excluded'))
+            chk.toggled.connect(lambda on, cid=cat['id']: self._set_included(cid, on))
             btn_del = _icon_btn('fa5s.trash-alt', '세부항목 삭제', color='#E11D48', size=13)
             btn_del.clicked.connect(lambda _, cid=cat['id']: self._delete_category(cid))
             rl.addWidget(edit, stretch=1)
+            rl.addWidget(combo)
+            rl.addWidget(chk)
             rl.addWidget(btn_del)
             self.list_layout.addWidget(row)
         self.list_layout.addStretch()
+        self._rebuild_groups(groups, cats)
+
+    def _rebuild_groups(self, groups, cats):
+        while self.group_layout.count():
+            w = self.group_layout.takeAt(0).widget()
+            if w:
+                w.setParent(None)
+                w.deleteLater()
+        if not groups:
+            hint = QLabel('아직 그룹이 없어요. 위에서 만들거나, 왼쪽 목록에서 세부항목을 우클릭 → 그룹으로 옮기기.')
+            hint.setObjectName('Muted')
+            hint.setWordWrap(True)
+            self.group_layout.addWidget(hint)
+        for g in groups:
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(2, 0, 2, 0)
+            rl.setSpacing(6)
+            edit = QLineEdit(g['name'])
+            edit.editingFinished.connect(
+                lambda gid=g['id'], e=edit, old=g['name']: self._rename_group(gid, e, old))
+            n = sum(1 for c in cats if c.get('group_id') == g['id'])
+            cnt = QLabel(f'세부항목 {n}개')
+            cnt.setObjectName('Muted')
+            btn_del = _icon_btn('fa5s.times', '그룹 풀기 (세부항목은 그대로 남아요)', color=C.MUTED, size=13)
+            btn_del.clicked.connect(lambda _, gid=g['id']: self._delete_group(gid))
+            rl.addWidget(edit, 1)
+            rl.addWidget(cnt)
+            rl.addWidget(btn_del)
+            self.group_layout.addWidget(row)
+
+    def _set_group(self, cat_id, group_id):
+        set_budget_category_group(cat_id, group_id)
+        self._on_changed()
+
+    def _set_included(self, cat_id, on):
+        set_budget_category_excluded(cat_id, not on)
+        self._on_changed()
+
+    def _add_group(self):
+        name = self.edit_group.text().strip()
+        if not name:
+            return
+        if add_budget_group(name) is None:
+            QMessageBox.warning(self, '추가 실패', '같은 이름의 그룹이 이미 있어요.')
+            return
+        self.edit_group.clear()
+        self._rebuild_list()
+        self._on_changed()
+
+    def _rename_group(self, group_id, edit, old_name):
+        new_name = edit.text().strip()
+        if not new_name or new_name == old_name:
+            edit.setText(old_name)
+            return
+        if not rename_budget_group(group_id, new_name):
+            QMessageBox.warning(self, '변경 실패', '같은 이름의 그룹이 이미 있어요.')
+            edit.setText(old_name)
+            return
+        self._rebuild_list()
+        self._on_changed()
+
+    def _delete_group(self, group_id):
+        delete_budget_group(group_id)
+        self._rebuild_list()
+        self._on_changed()
 
     def _add_category(self):
         name = self.edit_new.text().strip()

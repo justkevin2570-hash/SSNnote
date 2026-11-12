@@ -1,6 +1,6 @@
 """dashboard.py — 「오늘 한눈에 보기」 집계 로직 (UI·DB 의존 없음).
 
-    summary = build_summary(db.get_open_tasks(), db.get_budget_items())
+    summary = build_summary(db.get_open_tasks(), db.get_budget_items_in_total())
 """
 
 from datetime import date, datetime, timedelta
