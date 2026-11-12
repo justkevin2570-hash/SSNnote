@@ -1,6 +1,6 @@
 {
   "version": "v2.97",
   "download_url": "https://github.com/justkevin2570-hash/SSNnote/releases/download/v2.97/SSNnote_Setup.exe",
-  "sha256": "",
+  "sha256": "DC9F8923766464015FCDAFDF93D219EBBDA2E617F3170C9DE0202DA817B5022B",
   "changelog": "- 📊 예산 사용 내역: 쓴 곳을 적지 않은 금액은 「명목 없음」 줄로 맨 위에 날짜 없이 표시\n- 📊 사용 내역이 없을 때 나오던 안내 문구와, 접힌 줄의 「사용 N건」·「명목 없음 …원」 요약을 없앰\n- 📊 기록 합계가 집행액보다 크면 접힌 줄에 빨간 「⚠ 기록 초과」 표시"
 }
