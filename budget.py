@@ -190,10 +190,9 @@ _ROW_H = 44
 # 열: 원가통계비목 · 산출내역 · 예산현액 · 집행액 · 잔액 · 집행률 · [수정][완료]
 # 넉넉할 때의 폭과, 좁아져도 이 아래로는 줄이지 않는 최소 폭(100% 배율 기준, _sizes()가 배율을 곱함).
 # 집행률·버튼 칸은 글꼴 폭으로 계산한다. 남는 폭은 산출내역이 가져간다.
-_COL_W = (150, 250, 118, 118, 118, 132, 0)
-_COL_MIN = (90, 110, 96, 96, 96, 0, 0)
-_COLS = ('원가통계비목', '산출내역', '예산현액', '집행액', '잔액', '집행률', '')
-_COL_SPENT = 3
+_COL_W = (150, 250, 118, 118, 132, 0)
+_COL_MIN = (90, 110, 96, 96, 0, 0)
+_COLS = ('원가통계비목', '산출내역', '예산현액', '잔액', '집행률', '')
 
 # 집행률 수준: 정상(포인트 색) · 80% 이상(주황) · 100% 이상(빨강) · 완료(회색)
 _LEVEL_BAR = {'ok': C.ACCENT, 'warn': '#D97706', 'over': '#E11D48', 'done': C.BORDER_HI}
@@ -511,11 +510,11 @@ def _sizes():
         # 금액 칸: 글꼴이 바뀌어도(맑은 고딕 ↔ Pretendard) 9자리 금액까지 안 잘리게 실제 글꼴로 잰다
         num_w = fm.horizontalAdvance('999,999,999') + pad + px(6)       # 넉넉할 때: 9자리 금액
         num_min = fm.horizontalAdvance('99,999,999') + pad              # 줄여도 이 아래로는 안 줄임: 8자리 금액
-        w = [px(x) for x in _COL_W[:5]]
-        m = [px(x) for x in _COL_MIN[:5]]
-        for i in (2, 3, 4):
+        w = [px(x) for x in _COL_W[:4]]
+        m = [px(x) for x in _COL_MIN[:4]]
+        for i in (2, 3):
             w[i], m[i] = max(w[i], num_w), max(m[i], num_min)
-        w, m = tuple(w) + (max(px(_COL_W[5]), pct_col), act_col), tuple(m) + (pct_col, act_col)
+        w, m = tuple(w) + (max(px(_COL_W[4]), pct_col), act_col), tuple(m) + (pct_col, act_col)
         # 왼쪽 세부항목 목록: 가장 긴 보조 글과 퍼센트가 안 잘리게
         meta = QLabel('잔액 99,999,999원 · 2개 세부항목')
         meta.setObjectName('NavMeta')
@@ -543,7 +542,7 @@ def _fit_columns(table):
     hdr = table.horizontalHeader()
     avail = table.viewport().width()
     col_w, col_min = list(_sizes()['w']), list(_sizes()['min'])
-    for col in (5, 6):                     # 집행률·버튼 칸: 화면에 실제로 그려질 크기(글꼴·배율 반영)에 맞춤
+    for col in (4, 5):                     # 집행률·버튼 칸: 화면에 실제로 그려질 크기(글꼴·배율 반영)에 맞춤
         need = _cell_widgets_width(table, col)
         col_min[col] = max(col_min[col], need)
         col_w[col] = max(col_w[col], need)
@@ -767,6 +766,7 @@ class BudgetWindow(QMainWindow):
         self.categories = []
         self.items = []
         self.active_tab = 'ALL'
+        self._overview_open = False
         self._items_by_id = {}
         self._row_refs = {}
         self._sec_refs = {}
@@ -1423,12 +1423,18 @@ class BudgetWindow(QMainWindow):
         v = QVBoxLayout(card)
         v.setContentsMargins(18, 14, 18, 14)
         v.setSpacing(8)
-        t = QLabel('원가통계비목별 합계')
-        t.setObjectName('SectionTitle')
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        toggle = QPushButton()
+        toggle.setCursor(Qt.PointingHandCursor)
+        toggle.setFlat(True)
+        toggle.setStyleSheet(f'QPushButton {{ text-align: left; border: none; background: transparent; '
+                             f'padding: 0; color: {C.TEXT}; font-size: 12pt; font-weight: 800; }}')
+        head.addWidget(toggle)
+        head.addStretch()
+        v.addLayout(head)
         sub = QLabel('세부항목을 가리지 않고 같은 비목끼리 합친 금액이에요.')
         sub.setObjectName('SectionMeta')
-        v.addWidget(t)
-        v.addWidget(sub)
         box = QWidget()
         flow = _FlowLayout(box)
         flow.setContentsMargins(0, 2, 0, 0)
@@ -1438,7 +1444,17 @@ class BudgetWindow(QMainWindow):
             lb.setObjectName('CostChip')
             flow.addWidget(lb)
             self._overview_chips[cost] = lb
+        v.addWidget(sub)
         v.addWidget(box)
+
+        def set_open(on):
+            self._overview_open = on
+            sub.setVisible(on)
+            box.setVisible(on)
+            toggle.setText(f'{"▾" if on else "▸"}  원가통계비목별 합계')
+
+        toggle.clicked.connect(lambda: set_open(not self._overview_open))
+        set_open(self._overview_open)
         self._update_cost_overview()
         return card
 
@@ -1459,8 +1475,7 @@ class BudgetWindow(QMainWindow):
         t.setHorizontalHeaderLabels(list(_COLS))
         for col in range(len(_COLS)):
             h = t.horizontalHeaderItem(col)
-            h.setTextAlignment((Qt.AlignRight if 2 <= col <= 5 else Qt.AlignLeft) | Qt.AlignVCenter)
-        t.horizontalHeaderItem(_COL_SPENT).setToolTip('집행액 칸을 눌러 바로 고칠 수 있어요')
+            h.setTextAlignment((Qt.AlignRight if 2 <= col <= 4 else Qt.AlignLeft) | Qt.AlignVCenter)
         t.verticalHeader().setVisible(False)
         t.verticalHeader().setDefaultSectionSize(_sizes()['row_h'])
         t.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -1488,7 +1503,6 @@ class BudgetWindow(QMainWindow):
         for i, item in enumerate(items):
             self._fill_row(t, 2 * i, item)
         t.blockSignals(False)
-        t.itemChanged.connect(lambda it, tb=t: self._on_cell_changed(tb, it))
         t.sync_geometry()
         return t
 
@@ -1517,16 +1531,11 @@ class BudgetWindow(QMainWindow):
         dcell = _DescCell(t, r, item, self._expense_ui.setdefault(item['id'], {}),
                           self._expenses_by_item.get(item['id'], []), self._delete_expense, done)
         t.setCellWidget(r, 1, dcell)
-        t.setSpan(r + 1, 1, 1, 4)                                  # 숨은 줄: 산출내역 ~ 집행률 칸을 하나로
+        t.setSpan(r + 1, 1, 1, 3)                                  # 숨은 줄: 산출내역 ~ 잔액 칸을 하나로
         t.setCellWidget(r + 1, 1, dcell.detail)
         t.setItem(r, 2, cell(_fmt(item['budget']), R))
-        sp = cell(_fmt(item['spent']), R, C.ACCENT_HI, bold=not done, editable=not done)
-        sp.setData(Qt.UserRole, item['id'])
-        if not done:
-            sp.setToolTip('눌러서 집행액 고치기 — Enter로 저장')
-        t.setItem(r, _COL_SPENT, sp)
         rem_it = cell(_fmt(rem), R, C.NEG if rem < 0 else C.TEXT, bold=rem < 0)
-        t.setItem(r, 4, rem_it)
+        t.setItem(r, 3, rem_it)
 
         wrap = QWidget()
         pl = QHBoxLayout(wrap)
@@ -1542,8 +1551,8 @@ class BudgetWindow(QMainWindow):
         lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         pl.addWidget(bar)
         pl.addWidget(lbl)
-        t.setItem(r, 5, cell('', R))
-        t.setCellWidget(r, 5, wrap)
+        t.setItem(r, 4, cell('', R))
+        t.setCellWidget(r, 4, wrap)
         self._set_pct(bar, lbl, pct, done)
         t.pct_labels.append(lbl)
 
@@ -1569,8 +1578,8 @@ class BudgetWindow(QMainWindow):
             b.setFixedHeight(sz['btn_h'])
             b.setCursor(Qt.PointingHandCursor)
             al.addWidget(b)
-        t.setItem(r, 6, cell('', R))
-        t.setCellWidget(r, 6, acts)
+        t.setItem(r, 5, cell('', R))
+        t.setCellWidget(r, 5, acts)
         t.action_buttons[r] = (b_edit, b_done)
         t.setRowHeight(r, sz['row_h'])
         self._row_refs[item['id']] = {'rem': rem_it, 'bar': bar, 'pct': lbl, 'desc': dcell}
@@ -1583,27 +1592,6 @@ class BudgetWindow(QMainWindow):
         bar.setStyleSheet(_bar_qss(_LEVEL_BAR[lvl]))
         lbl.setText(f'{pct:.1f}%')
         lbl.setStyleSheet(f'color: {_LEVEL_TEXT[lvl]}; font-weight: {400 if done else 700};')
-
-    # ── 집행액 바로 고치기 ─────────────────────────────────────────
-    def _on_cell_changed(self, table, it):
-        if it.column() != _COL_SPENT:
-            return
-        item = self._items_by_id.get(it.data(Qt.UserRole))
-        if not item or item['completed']:
-            return
-        val = _parse_amount(it.text())
-        table.blockSignals(True)
-        it.setText(_fmt(val))
-        table.blockSignals(False)
-        if val == item['spent']:
-            return
-        set_budget_item_spent(item['id'], val)
-        item['spent'] = val
-        self._update_row(item['id'])
-        self._update_section(item['category_id'])
-        self._update_cost_overview()
-        self._update_nav()
-        self._update_summary()
 
     def _update_row(self, item_id):
         refs = self._row_refs.get(item_id)

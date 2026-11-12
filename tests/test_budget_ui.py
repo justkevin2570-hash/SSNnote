@@ -42,19 +42,20 @@ def test_import_modes(win):
     assert [c['name'] for c in db.get_budget_categories()] == ['A'] and len(db.get_budget_items()) == 1
 
 
-def test_spent_cell_edit_saves_and_updates_totals(win):
+def test_spent_column_hidden_and_totals_follow(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     table = [t for t in w.findChildren(budget._BudgetTable)][0]
-    cell = table.item(0, budget._COL_SPENT)
-    cell.setText('700')                                   # 셀에서 고친 것처럼
+    headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+    assert '집행액' not in headers and headers[3] == '잔액'      # 집행액 열은 없음
     item = next(i for i in db.get_budget_items() if i['description'] == '강사 수당')
-    assert item['spent'] == 700
-    assert cell.text() == '700'
+    db.set_budget_item_spent(item['id'], 700)
+    w.refresh()
+    table = [t for t in w.findChildren(budget._BudgetTable)][0]
     assert w.stat['spent'].text() == '700원' and w.stat['remaining'].text() == '800원'
-    assert table.item(0, 4).text() == '300'
+    assert table.item(0, 3).text() == '300'
 
 
 def test_completed_items_shown_by_default_and_can_fold(win):
@@ -180,11 +181,18 @@ def test_cost_chips_totals_and_filter(win):
     w._apply_import(cats, 'append')
     w.show()
     app.processEvents()
+    assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 카드
+    assert not w._overview_chips['교육운영비'].isVisible()        # 기본은 접힘
+    w._overview_open = True
+    w._rebuild_sections()
+    app.processEvents()
+    assert w._overview_chips['교육운영비'].isVisible()            # 펼치면 보임
+    w._overview_open = False
+    w._rebuild_sections()
     cid = w.categories[0]['id']
     chips = w._sec_refs[cid]['chips']
     assert list(chips) == ['교육운영비', '운영수당']
     assert '잔액 600원' in chips['교육운영비'].text()              # 1500 - 900
-    assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 카드
     table = w._sec_refs[cid]['tables'][0]
     h_all = table.height()
     chips['운영수당'].click()                                    # 운영수당 줄만
@@ -192,8 +200,10 @@ def test_cost_chips_totals_and_filter(win):
     assert table.height() < h_all
     chips['운영수당'].click()                                    # 다시 누르면 전부
     assert not any(table.isRowHidden(2 * i) for i in range(3))
-    table.item(0, budget._COL_SPENT).setText('900')             # 집행액 고치면 칩도 다시 계산
-    assert '잔액 100원' in chips['교육운영비'].text()
+    iid = next(i['id'] for i in db.get_budget_items() if i['description'] == '간식')
+    db.set_budget_item_spent(iid, 900)                          # 집행액이 바뀌면 칩도 다시 계산
+    w.refresh()
+    assert '잔액 100원' in w._sec_refs[cid]['chips']['교육운영비'].text()
 
 
 def test_item_dialog_has_cost_completer(win):
