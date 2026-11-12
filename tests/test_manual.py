@@ -70,3 +70,14 @@ def test_help_shows_address_when_browser_fails(win):
          um.patch.object(QMessageBox, 'exec_', lambda self: shown.append(self.text()) or 0):
         win.show_help()
     assert shown and 'docs/manual.md' in shown[0]
+
+
+def test_manual_documents_claude_subscription_and_new_features():
+    text = open(MANUAL, encoding='utf-8').read()
+    for heading in ('### Claude 구독으로 AI 쓰기', '### 공문 선택 부분 다듬기',
+                    '### 예산 AI에게 지시하기 (잔액 맞추기, 되돌리기)'):
+        assert heading in text, heading
+    sub = text.split('### Claude 구독으로 AI 쓰기', 1)[1].split('\n## ', 1)[0]
+    for phrase in ('구독 사용량에서 차감', '본인만 사용', '저장하지 않습니다', '[설치]', '[Claude로 로그인]', '[연결 확인]'):
+        assert phrase in sub, phrase
+    assert '--bare' not in text and 'setup-token' not in text          # 안내에 금지 방식을 권하지 않음

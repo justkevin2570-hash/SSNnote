@@ -91,6 +91,15 @@ def init_db():
                 spent       INTEGER NOT NULL DEFAULT 0,
                 completed   INTEGER NOT NULL DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS budget_expenses (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id    INTEGER NOT NULL,
+                amount     INTEGER NOT NULL DEFAULT 0,
+                purpose    TEXT NOT NULL DEFAULT '',
+                spent_on   TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
         """)
 
         # tasks 테이블에 window_id 컬럼 없으면 추가 (기존 DB 마이그레이션)
@@ -534,6 +543,8 @@ def rename_budget_category(cat_id, new_name):
 
 def delete_budget_category(cat_id):
     with _connect() as conn:
+        conn.execute('DELETE FROM budget_expenses WHERE item_id IN '
+                     '(SELECT id FROM budget_items WHERE category_id=?)', (cat_id,))
         conn.execute('DELETE FROM budget_items WHERE category_id=?', (cat_id,))
         conn.execute('DELETE FROM budget_categories WHERE id=?', (cat_id,))
 
@@ -571,6 +582,7 @@ def update_budget_item(item_id, category_id, cost_type, description, budget, spe
 
 def delete_budget_item(item_id):
     with _connect() as conn:
+        conn.execute('DELETE FROM budget_expenses WHERE item_id=?', (item_id,))
         conn.execute('DELETE FROM budget_items WHERE id=?', (item_id,))
 
 
@@ -591,8 +603,54 @@ def toggle_budget_item_completed(item_id):
 
 def clear_budget_data():
     with _connect() as conn:
+        conn.execute('DELETE FROM budget_expenses')
         conn.execute('DELETE FROM budget_items')
         conn.execute('DELETE FROM budget_categories')
+
+
+# ── 사용 내역 (명목별 지출 기록) ─────────────────────────────────
+
+def get_budget_expenses():
+    """모든 사용 내역 (최근 날짜 먼저)."""
+    with _connect() as conn:
+        rows = conn.execute('SELECT * FROM budget_expenses ORDER BY spent_on DESC, id DESC').fetchall()
+        return [dict(r) for r in rows]
+
+
+def _insert_expense(conn, item_id, amount, purpose, spent_on):
+    cur = conn.execute(
+        'INSERT INTO budget_expenses (item_id, amount, purpose, spent_on) VALUES (?,?,?,?)',
+        (item_id, amount, purpose.strip(), spent_on))
+    return cur.lastrowid
+
+
+def add_budget_expense(item_id, amount, purpose, spent_on):
+    """사용 내역을 적고 집행액을 그만큼 더한다 (한 번에)."""
+    with _connect() as conn:
+        eid = _insert_expense(conn, item_id, amount, purpose, spent_on)
+        conn.execute('UPDATE budget_items SET spent = spent + ? WHERE id=?', (amount, item_id))
+        return eid
+
+
+def save_budget_item_edit(item_id, category_id, cost_type, description, budget, spent, expense=None):
+    """항목 수정 + (있으면) 이번에 쓴 금액의 사용 내역 기록. 집행액은 spent로 정한다 (이미 더해진 값)."""
+    with _connect() as conn:
+        conn.execute(
+            'UPDATE budget_items SET category_id=?, cost_type=?, description=?, budget=?, spent=? WHERE id=?',
+            (category_id, cost_type, description, budget, spent, item_id))
+        if expense:
+            _insert_expense(conn, item_id, expense['amount'], expense['purpose'], expense['spent_on'])
+
+
+def delete_budget_expense(expense_id, adjust_spent=True):
+    """사용 내역 한 건 삭제. adjust_spent면 집행액도 그만큼 줄인다 (되돌리기 때는 집행액을 따로 맞춘다)."""
+    with _connect() as conn:
+        row = conn.execute('SELECT item_id, amount FROM budget_expenses WHERE id=?', (expense_id,)).fetchone()
+        if not row:
+            return
+        conn.execute('DELETE FROM budget_expenses WHERE id=?', (expense_id,))
+        if adjust_spent:
+            conn.execute('UPDATE budget_items SET spent = spent - ? WHERE id=?', (row['amount'], row['item_id']))
 
 
 # ── 앱 설정 (key/value) ─────────────────────────────────────────

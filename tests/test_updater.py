@@ -110,7 +110,7 @@ def test_stage_then_install_on_startup_relaunches(upd):
     assert updater.install_on_startup() is True
     cmd = launched[-1]
     assert cmd[0] == data['path'] and '/VERYSILENT' in cmd and '/NORELAUNCH' not in cmd
-    assert json.loads((d / 'ready.json').read_text())['attempts'] == 1
+    assert json.loads((d / 'ready.json').read_text(encoding='utf-8'))['attempts'] == 1
     assert updater.install_on_quit() is False                           # 같은 실행에서 두 번 띄우지 않음
 
 

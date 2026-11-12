@@ -1,17 +1,22 @@
 """
 ai_client.py — AI 제공자 추상화 레이어
 
-지원 제공자: OpenCode(Go·Zen), Claude(Anthropic), ChatGPT(OpenAI), EXAONE(LG AI연구원) — 모두 API 키로 연결.
+지원 제공자: OpenCode(Go·Zen), Claude(Anthropic), ChatGPT(OpenAI) — API 키로 연결. Claude 구독은 내 PC의 Claude Code로 연결.
   · OpenCode  : 모델마다 OpenAI(chat-completions) 또는 Claude(messages) 방식
   · Claude    : Anthropic Messages API
   · ChatGPT   : OpenAI Responses API
-  · EXAONE    : OpenAI 호환(chat-completions). 텍스트 전용·항상 생각하는 모델 → 이미지는 보내지 않고,
-                개인정보는 항상 가려서 보낸다 (약관 7.8: 타인의 개인정보가 든 글을 넣지 말 것)
 다른 제공자로 교체 시 이 파일의 어댑터만 수정하면 됩니다.
 """
 
 import os
+import sys
+import json
 import base64
+import atexit
+import shutil
+import subprocess
+import tempfile
+import threading
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap
 
@@ -28,14 +33,12 @@ OPENCODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'opencode_model.txt')
 OPENCODE_PLAN_FILE  = os.path.join(APPDATA_DIR, 'opencode_plan.txt')
 OPENCODE_VISION_FILE = os.path.join(APPDATA_DIR, 'opencode_vision_models.json')
 OPENCODE_MODELS_FILE = os.path.join(APPDATA_DIR, 'opencode_models.json')   # {id: {image, protocol}}
-EXAONE_KEY_FILE     = os.path.join(APPDATA_DIR, 'exaone_key.txt')
-EXAONE_MODEL_FILE   = os.path.join(APPDATA_DIR, 'exaone_model.txt')
-EXAONE_KEY_DATE_FILE = os.path.join(APPDATA_DIR, 'exaone_key_date.txt')     # 키를 넣은 날 (30일 안내용)
+CLAUDE_CODE_PATH_FILE  = os.path.join(APPDATA_DIR, 'claude_code_path.txt')  # 사용자가 지정한 claude 경로 (비우면 자동)
+CLAUDE_CODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'claude_code_model.txt')
 
 # 접속 주소 (None = 각 SDK 기본 주소). 시험에서만 바꾼다.
 CLAUDE_BASE_URL = None
 OPENAI_BASE_URL = None
-EXAONE_BASE_URL = 'https://api.exaone.ai/v1'      # docs.exaone.ai: 기본 주소 https://api.exaone.ai, POST /v1/chat/completions
 
 # ── 자격증명 암호화 헬퍼 (Windows DPAPI, 미지원 시 평문 폴백) ──
 def _read_secret(path: str) -> str:
@@ -61,10 +64,12 @@ def _write_secret(path: str, val: str):
 _session_keys: dict[str, str] = {}
 
 # AI 모드
-_AI_MODES = ('none', 'claude', 'openai', 'opencode', 'exaone')
-PROVIDER_LABELS = {'opencode': 'OpenCode', 'claude': 'Claude', 'openai': 'ChatGPT', 'exaone': 'EXAONE'}
+_AI_MODES = ('none', 'claude', 'openai', 'opencode', 'claude_code')
+PROVIDER_LABELS = {'opencode': 'OpenCode', 'claude': 'Claude', 'openai': 'ChatGPT',
+                   'claude_code': 'Claude 구독'}
 # 예전 버전에서 쓰던(지금은 지원하지 않는) 모드 → 안내용 이름
-_LEGACY_MODES = {'external': 'Gemini', 'gemini': 'Gemini', 'nvidia': 'NVIDIA', 'internal': 'Ollama(내부 AI)'}
+_LEGACY_MODES = {'external': 'Gemini', 'gemini': 'Gemini', 'nvidia': 'NVIDIA', 'internal': 'Ollama(내부 AI)',
+                 'exaone': 'EXAONE'}
 
 # Claude — 서버에서 목록을 못 받을 때 쓰는 예비 목록 (2026-11)
 CLAUDE_DEFAULT_MODEL = 'claude-haiku-5-5'
@@ -292,7 +297,7 @@ def _read_mode_file() -> str:
 
 
 def load_ai_mode() -> str:
-    """'opencode' | 'claude' | 'openai' | 'exaone' | 'none'. 예전 모드(Gemini·NVIDIA·Ollama)는 'none'."""
+    """'opencode' | 'claude' | 'openai' | 'claude_code' | 'none'. 지원하지 않는 예전 모드(Gemini·NVIDIA·Ollama·EXAONE)는 'none'."""
     mode = _read_mode_file()
     return mode if mode in _AI_MODES else 'none'
 
@@ -359,56 +364,27 @@ def save_claude_model(model: str):
     _save_text(CLAUDE_MODEL_FILE, model)
 
 
-# ── EXAONE 키·모델 ───────────────────────────────────────────────
-# EXAONE(LG AI연구원) — K-EXAONE 2.5. 문서(docs.exaone.ai) 기준: 모델 이름은 하나, 목록 조회 주소는 없음,
-# 텍스트 전용, 항상 생각(추론)한 뒤 답함, 키는 발급 30일 뒤 자동으로 꺼짐, 현재 무료·비상업적 이용.
-EXAONE_DEFAULT_MODEL = 'k-exaone_v2.5'
-EXAONE_SIGNUP_URL = 'https://docs.exaone.ai'
-EXAONE_KEY_DAYS = 30            # 키 유효기간 (약관 3.4)
-EXAONE_NOTICE_DAYS = 25         # 이때부터 미리 알려 줌
-EXAONE_REASONING = 'low'        # 생각 정도 low/high/max (기본 max는 느림 — 공문 작성에는 low로 충분)
-EXAONE_MIN_TOKENS = 8000        # 생각 과정도 max_tokens에 들어가므로 넉넉히
+# ── Claude 구독(Claude Code) 설정 ─────────────────────────────────
+# 키가 없다: 로그인은 Claude Code가 자기 자리에 보관한다. 여기서는 실행 파일 경로와 모델 이름만 저장한다.
+CLAUDE_CODE_MODELS = (('', '기본 모델'), ('sonnet', 'Sonnet'), ('opus', 'Opus'), ('haiku', 'Haiku'))
 
 
-def load_exaone_key() -> str:
-    return _load_key('exaone', EXAONE_KEY_FILE)
+def load_claude_code_path() -> str:
+    return _load_text(CLAUDE_CODE_PATH_FILE, '')
 
 
-def save_exaone_key(key: str, persist: bool = True):
-    _save_key('exaone', EXAONE_KEY_FILE, key, persist)
-    from datetime import date
-    _save_text(EXAONE_KEY_DATE_FILE, date.today().isoformat())
+def save_claude_code_path(path: str):
+    _save_text(CLAUDE_CODE_PATH_FILE, path)
 
 
-def load_exaone_model() -> str:
-    return _load_text(EXAONE_MODEL_FILE, EXAONE_DEFAULT_MODEL)
+def load_claude_code_model() -> str:
+    """CLI 별칭(sonnet·opus·haiku) 또는 '' (CLI 기본 모델)."""
+    v = _load_text(CLAUDE_CODE_MODEL_FILE, '')
+    return v if v in ('sonnet', 'opus', 'haiku') else ''
 
 
-def save_exaone_model(model: str):
-    _save_text(EXAONE_MODEL_FILE, model)
-
-
-def exaone_key_age_days(today=None):
-    """EXAONE 키를 이 앱에 넣은 지 며칠째인지 (모르면 None)."""
-    from datetime import date
-    raw = _load_text(EXAONE_KEY_DATE_FILE, '')
-    try:
-        return ((today or date.today()) - date.fromisoformat(raw)).days
-    except ValueError:
-        return None
-
-
-def exaone_key_notice(today=None) -> str:
-    """EXAONE 키가 곧(또는 이미) 꺼질 때의 안내. 해당 없으면 ''."""
-    if load_ai_mode() != 'exaone':
-        return ''
-    age = exaone_key_age_days(today)
-    if age is None or age < EXAONE_NOTICE_DAYS:
-        return ''
-    if age >= EXAONE_KEY_DAYS:
-        return (f'EXAONE 키를 넣은 지 {age}일이 지났어요. 키는 발급 후 {EXAONE_KEY_DAYS}일이 지나면 꺼지니 '
-                '안 되면 docs.exaone.ai에서 새로 발급받아 다시 연결해 주세요.')
-    return (f'EXAONE 키를 넣은 지 {age}일째예요. {EXAONE_KEY_DAYS}일이 지나면 꺼지니 곧 새로 발급받으세요.')
+def save_claude_code_model(model: str):
+    _save_text(CLAUDE_CODE_MODEL_FILE, model if model in ('sonnet', 'opus', 'haiku') else '')
 
 
 # ── ChatGPT 키·모델 ──────────────────────────────────────────────
@@ -596,17 +572,10 @@ def friendly_error(e: Exception, model: str = '', provider: str = '') -> str:
     code = getattr(e, 'status_code', None)
     text = str(e)
     if code == 401:
-        if provider == 'exaone':
-            return ('EXAONE API 키가 맞지 않거나 기간이 끝났어요.\n'
-                    f'EXAONE 키는 발급 후 {EXAONE_KEY_DAYS}일이 지나면 자동으로 꺼져요. '
-                    'docs.exaone.ai에서 새로 발급받아 다시 연결해 주세요.')
         if provider == 'opencode':
             return 'API 키가 맞지 않습니다.\n키를 다시 확인하고, 요금제(Go/Zen)를 바르게 골랐는지도 확인해 주세요.'
         return 'API 키가 맞지 않습니다. 키를 다시 확인해 주세요.'
     if code in (402, 403):
-        if provider == 'exaone':
-            return ('EXAONE을 쓸 수 없어요. 키가 꺼졌거나 이용 조건(만 19세 이상 가입 등)을 확인해야 해요.\n'
-                    'docs.exaone.ai에서 키 상태를 확인해 주세요.')
         if provider == 'opencode':
             return '이 요금제에서 쓸 수 없거나 잔액·사용 한도가 부족합니다.\nOpenCode 콘솔에서 요금제와 잔액을 확인해 주세요.'
         return '이 키로는 이 모델을 쓸 수 없거나 결제(크레딧)가 필요합니다.\n제공사 콘솔에서 결제 정보와 권한을 확인해 주세요.'
@@ -614,13 +583,8 @@ def friendly_error(e: Exception, model: str = '', provider: str = '') -> str:
         return '무료 모델은 OpenCode 앱 안에서만 쓸 수 있습니다. 유료 모델을 골라 주세요.'
     if code == 429 and ('insufficient_quota' in text or 'credit balance' in text):
         return '크레딧(잔액)이 부족합니다. 제공사 콘솔에서 결제 정보를 확인해 주세요.'
-    if code == 429 and provider == 'exaone':
-        return 'EXAONE 사용 한도에 걸렸어요. 잠시(1분쯤) 뒤에 다시 시도해 주세요.'
     if code == 429:
         return '사용 한도에 걸렸습니다. 잠시 후 다시 시도하거나 다른 모델을 고르세요.'
-    if code == 404 and provider == 'exaone':
-        return (f'EXAONE 모델 "{model}"을(를) 찾을 수 없어요. 모델 이름이 바뀌었을 수 있으니 '
-                'docs.exaone.ai의 모델 목록을 확인해 주세요.')
     if code == 404:
         return f'모델 "{model}"을(를) 찾을 수 없습니다. 다른 모델을 골라 주세요.' if model else '요청한 주소를 찾을 수 없습니다.'
     if code is not None and code >= 500:
@@ -665,20 +629,24 @@ def test_openai(key: str, model: str):
         return False, friendly_error(e, model, 'openai')
 
 
-def test_exaone(key: str, model: str):
+def test_claude_code(model: str = None):
+    """짧은 질문 한 번으로 Claude 구독 연결을 확인한다. (ok, 한국어 메시지 — 성공이면 걸린 시간 포함)."""
+    import time
+    t0 = time.monotonic()
     try:
-        ExaoneAdapter._client(key, max_retries=0, timeout=60).chat.completions.create(
-            model=model, max_tokens=512, extra_body={'reasoning_effort': EXAONE_REASONING},
-            messages=[{"role": "user", "content": _PING}])
-        return True, '연결 성공'
+        _claude_ask('간단히 답하세요.', '안녕이라고만 답해', model=model, timeout=CLAUDE_CODE_TIMEOUT)
+        return True, f'연결 성공 ({time.monotonic() - t0:.1f}초)'
+    except ClaudeCodeError as e:
+        return False, str(e)
     except Exception as e:
-        return False, friendly_error(e, model, 'exaone')
+        return False, f'연결 실패: {e}'
 
 
 def load_external_model_name() -> str:
     """현재 AI 제공자의 모델 이름 ('' = AI 꺼짐)."""
     return {'claude': load_claude_model, 'openai': load_openai_model,
-            'opencode': load_opencode_model, 'exaone': load_exaone_model}.get(load_ai_mode(), lambda: '')()
+            'opencode': load_opencode_model,
+            'claude_code': lambda: load_claude_code_model() or '기본 모델'}.get(load_ai_mode(), lambda: '')()
 
 
 def ai_status_text() -> str:
@@ -825,6 +793,210 @@ class ClaudeAdapter:
                                   image_b64=image_b64, max_tokens=max_tokens)
 
 
+# ── Claude 구독 (이 PC의 Claude Code CLI를 자식 프로세스로 실행) ──────
+# 앱은 로그인 파일·토큰을 열거나 저장하지 않는다. --bare는 쓰지 않는다(OAuth 로그인을 읽지 않음).
+CLAUDE_CODE_TIMEOUT = 120            # 한 번 묻는 제한 시간(초)
+CLAUDE_CODE_LOGIN_TIMEOUT = 600      # 브라우저에서 승인할 시간(초)
+CLAUDE_CODE_INSTALL_PAGE = 'https://code.claude.com/docs'
+_SYSTEM_ARG_MAX = 16000              # 명령줄 길이 제한(Windows 32K) 안에 두려고, 이보다 길면 질문 앞에 붙여 보냄
+_CLAUDE_DROP_ENV = ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN')
+_CLAUDE_MSG_NOT_INSTALLED = 'Claude Code가 설치돼 있지 않아요. AI 설정 → Claude 구독 → [설치]를 눌러 주세요.'
+_CLAUDE_MSG_LOGIN = 'Claude에 로그인돼 있지 않아요. [Claude로 로그인]을 눌러 주세요.'
+_CLAUDE_MSG_LIMIT = '구독 사용 한도에 도달했어요. 잠시 후 다시 시도하세요.'
+_CLAUDE_MSG_TIMEOUT = 'Claude 응답이 너무 오래 걸려요. 다시 시도해 주세요.'
+_CLAUDE_MSG_CANCEL = '취소했어요.'
+_claude_procs: dict = {}             # 실행 중인 claude 프로세스 → 취소 여부
+_claude_lock = threading.Lock()
+
+
+class ClaudeCodeError(RuntimeError):
+    """사용자에게 그대로 보여 줄 한국어 오류."""
+
+
+def find_claude_cli():
+    """claude 실행 파일 경로 (없으면 None). 지정 경로 → PATH → 흔한 설치 위치 순."""
+    custom = load_claude_code_path()
+    if custom and os.path.isfile(custom):
+        return custom
+    found = shutil.which('claude')
+    if found:
+        return found
+    home = os.path.expanduser('~')
+    local = os.environ.get('LOCALAPPDATA', os.path.join(home, 'AppData', 'Local'))
+    appdata = os.environ.get('APPDATA', os.path.join(home, 'AppData', 'Roaming'))
+    for c in (os.path.join(home, '.local', 'bin', 'claude.exe'),
+              os.path.join(appdata, 'npm', 'claude.cmd'),
+              os.path.join(local, 'Programs', 'claude', 'claude.exe')):
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def cancel_claude_code():
+    """실행 중인 Claude Code 프로세스를 끊는다 (취소 버튼·앱 종료)."""
+    with _claude_lock:
+        for p in list(_claude_procs):
+            _claude_procs[p] = True
+            try:
+                p.terminate()
+            except OSError:
+                pass
+
+
+atexit.register(cancel_claude_code)
+
+
+def _run_claude(args, stdin_text=None, timeout=CLAUDE_CODE_TIMEOUT) -> subprocess.CompletedProcess:
+    """claude를 앱 전용 빈 폴더에서 실행한다. 구독 로그인을 쓰도록 API 키 환경변수는 뺀다.
+    실행 파일이 없거나 시간이 넘으면 ClaudeCodeError, 취소하면 취소 오류."""
+    exe = find_claude_cli()
+    if not exe:
+        raise ClaudeCodeError(_CLAUDE_MSG_NOT_INSTALLED)
+    env = {k: v for k, v in os.environ.items() if k not in _CLAUDE_DROP_ENV}
+    kw = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
+    workdir = tempfile.mkdtemp(prefix='ssnnote_claude_')     # 메모 DB 폴더·사용자 프로젝트 설정을 읽지 않도록
+    try:
+        try:
+            proc = subprocess.Popen([exe, *args], cwd=workdir, env=env, stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    encoding='utf-8', errors='replace', **kw)
+        except FileNotFoundError:
+            raise ClaudeCodeError(_CLAUDE_MSG_NOT_INSTALLED)
+        with _claude_lock:
+            _claude_procs[proc] = False
+        try:
+            out, err = proc.communicate(stdin_text or '', timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            raise ClaudeCodeError(_CLAUDE_MSG_TIMEOUT)
+        finally:
+            with _claude_lock:
+                cancelled = _claude_procs.pop(proc, False)
+        if cancelled:
+            raise ClaudeCodeError(_CLAUDE_MSG_CANCEL)
+        return subprocess.CompletedProcess(args, proc.returncode, out or '', err or '')
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _claude_friendly(text: str) -> str:
+    """Claude Code 출력에서 알아볼 수 있는 오류(로그인·한도)를 찾는다. 모르면 ''."""
+    low = (text or '').lower()
+    if any(w in low for w in ('usage limit', 'rate limit', 'rate_limit', '429', 'limit reached')):
+        return _CLAUDE_MSG_LIMIT
+    if any(w in low for w in ('/login', 'log in', 'login', 'not logged', 'authenticate', '401', 'unauthorized')):
+        return _CLAUDE_MSG_LOGIN
+    return ''
+
+
+def _claude_result_text(p: subprocess.CompletedProcess) -> str:
+    """--output-format json 결과에서 답 글(result)만 꺼낸다. 실패면 ClaudeCodeError."""
+    raw = (p.stdout or '').strip()
+    try:
+        data = json.loads(raw) if raw else None
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or p.returncode != 0 or data.get('is_error') is True:
+        detail = str((data or {}).get('result') or '') or (p.stderr or '').strip() or raw
+        raise ClaudeCodeError(_claude_friendly(detail) or f'Claude 연결 실패: {detail[-300:]}')
+    return str(data.get('result') or '').strip()
+
+
+def _claude_ask(system: str, prompt: str, model: str = None, timeout: int = CLAUDE_CODE_TIMEOUT) -> str:
+    """질문 한 번 → 답 글. 도구는 모두 끄고, 질문은 표준입력으로 보낸다."""
+    args = ['-p', '--output-format', 'json', '--no-session-persistence', '--tools', '']
+    model = load_claude_code_model() if model is None else model
+    if model:
+        args += ['--model', model]
+    stdin_text = prompt
+    if len(system) > _SYSTEM_ARG_MAX:
+        stdin_text = system + '\n\n' + prompt
+    else:
+        args += ['--system-prompt', system]
+    return _claude_result_text(_run_claude(args, stdin_text, timeout=timeout))
+
+
+class ClaudeCodeAdapter:
+    """이 PC에 설치된 Claude Code로 Claude 구독(Pro/Max)을 쓴다. 본인 전용, 사용량은 구독 한도에서 차감."""
+    requires_api_key = False     # 키가 없다: 로그인 여부는 호출할 때 Claude Code가 확인한다
+    supports_image = False       # 이미지는 보내지 않고 PC에서 읽은 글자로 대신 보낸다
+
+    @staticmethod
+    def get_api_key() -> str:
+        return 'subscription'    # 화면 표시용 표식일 뿐, 키가 아니다
+
+    @classmethod
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
+        """한 번에 답 전체를 받는다. 글 한도(max_tokens)는 CLI에 대응 옵션이 없어 무시한다."""
+        return _claude_ask(system, prompt)
+
+    @classmethod
+    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
+        """1차 구현: 답을 다 받은 뒤 한 번에 보낸다 (동작 우선)."""
+        try:
+            full = cls.complete(system, prompt)
+        except ClaudeCodeError as e:
+            on_error(str(e))
+            return
+        except Exception as e:
+            on_error(f'Claude 구독 연결에 실패했어요: {e}')
+            return
+        if full:
+            on_chunk(full)
+        on_done(full)
+
+
+def claude_code_status() -> dict:
+    """{'installed', 'logged_in', 'email', 'plan', 'path'}. claude auth status --json 결과로 판단한다 (토큰은 읽지 않음)."""
+    path = find_claude_cli()
+    st = {'installed': bool(path), 'logged_in': False, 'email': '', 'plan': '', 'path': path or ''}
+    if not path:
+        return st
+    try:
+        p = _run_claude(['auth', 'status', '--json'], timeout=30)
+        data = json.loads(p.stdout or '{}')
+    except (ClaudeCodeError, ValueError):
+        return st
+    if p.returncode == 0 and isinstance(data, dict) and data.get('loggedIn') is True \
+            and data.get('authMethod') == 'claude.ai':
+        st.update(logged_in=True, email=str(data.get('email') or ''),
+                  plan=str(data.get('subscriptionType') or data.get('planTier') or ''))
+    return st
+
+
+def install_claude_code():
+    """Claude Code 공식 Windows 설치 명령(PowerShell)을 숨김 창에서 실행하고 끝날 때까지 기다린다.
+    출처: code.claude.com/docs 설치 안내 — irm https://claude.ai/install.ps1 | iex"""
+    kw = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
+    try:
+        p = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+                            'irm https://claude.ai/install.ps1 | iex'],
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace', timeout=900, **kw)
+    except FileNotFoundError:
+        raise ClaudeCodeError('PowerShell을 찾지 못했어요. 공식 설치 안내를 보고 직접 설치해 주세요.')
+    except subprocess.TimeoutExpired:
+        raise ClaudeCodeError('설치가 너무 오래 걸려요. 인터넷 연결을 확인하고 다시 시도해 주세요.')
+    if p.returncode != 0 or not find_claude_cli():
+        tail = ((p.stderr or p.stdout or '').strip())[-200:]
+        raise ClaudeCodeError('설치에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.'
+                              + (f'\n{tail}' if tail else ''))
+
+
+def claude_code_login():
+    """claude auth login --claudeai: 브라우저에서 Claude 공식 페이지로 로그인한다. 끝날 때까지 기다린다 (뒤 스레드에서 호출)."""
+    p = _run_claude(['auth', 'login', '--claudeai'], timeout=CLAUDE_CODE_LOGIN_TIMEOUT)
+    if p.returncode != 0:
+        raise ClaudeCodeError('Claude 로그인이 끝나지 않았어요. 브라우저에서 승인했는지 확인하고 다시 시도해 주세요.')
+
+
+def claude_code_logout():
+    p = _run_claude(['auth', 'logout'], timeout=30)
+    if p.returncode != 0:
+        raise ClaudeCodeError('Claude 로그아웃에 실패했어요. ' + ((p.stderr or p.stdout or '').strip()[-200:]))
+
+
 # ── OpenAIAdapter (ChatGPT, Responses API) ───────────────────────
 
 class OpenAIAdapter:
@@ -945,77 +1117,10 @@ class OpenCodeAdapter:
         return _chat_complete(cls._client(), model, system, prompt, image_b64=image_b64, max_tokens=max_tokens)
 
 
-# ── ExaoneAdapter (LG AI연구원 K-EXAONE, OpenAI 호환 chat-completions) ──
-
-def _exaone_stream(client, model, system, prompt, on_chunk, on_done, max_tokens=16000):
-    """EXAONE 스트리밍. 항상 먼저 '생각'하므로 생각 과정(reasoning_content)은 화면에 보내지 않고
-    답(content)만 보낸다. 답이 줄바꿈으로 시작할 수 있어 앞쪽 빈 줄은 뺀다."""
-    full, started = "", False
-    with client.chat.completions.create(
-            model=model, stream=True, max_tokens=max(max_tokens, EXAONE_MIN_TOKENS),
-            extra_body={'reasoning_effort': EXAONE_REASONING},
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}]) as stream:
-        for chunk in stream:
-            if not chunk.choices:
-                continue
-            text = chunk.choices[0].delta.content or ""
-            if not text:
-                continue
-            if not started:
-                text = text.lstrip()
-                if not text:
-                    continue
-                started = True
-            full += text
-            on_chunk(text)
-    on_done(full)
-
-
-class ExaoneAdapter:
-    requires_api_key = True
-    supports_image = False      # 텍스트 전용 모델 — 이미지는 PC에서 읽은 글자로 대신 보낸다
-    always_mask = True          # 개인정보 보호 모드와 상관없이 개인정보를 가려서 보낸다 (약관 7.8)
-
-    @staticmethod
-    def get_api_key() -> str:
-        return load_exaone_key()
-
-    @staticmethod
-    def _model() -> str:
-        return load_exaone_model()
-
-    @staticmethod
-    def _client(key: str = None, **kw):
-        from openai import OpenAI
-        return OpenAI(api_key=key if key is not None else load_exaone_key(), base_url=EXAONE_BASE_URL, **kw)
-
-    @classmethod
-    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
-        model = cls._model()
-        try:
-            _exaone_stream(cls._client(), model, system, prompt, on_chunk, on_done)
-        except Exception as e:
-            on_error(friendly_error(e, model, 'exaone'))
-
-    @classmethod
-    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
-        if image_b64:
-            raise RuntimeError('EXAONE은 이미지를 읽지 못해요. 캡처는 PC에서 읽은 글자로 보내야 해요.')
-        r = cls._client().chat.completions.create(
-            model=cls._model(), max_tokens=max(max_tokens, EXAONE_MIN_TOKENS),
-            extra_body={'reasoning_effort': EXAONE_REASONING},
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}])
-        choice = r.choices[0]
-        text = (choice.message.content or '').strip()
-        if not text and getattr(choice, 'finish_reason', '') == 'length':
-            raise RuntimeError('EXAONE이 생각하는 데 글자 한도를 다 써서 답이 비었어요. 질문을 줄이거나 다시 시도해 주세요.')
-        return text
-
-
 # ── 어댑터 선택 ──────────────────────────────────────────────────
 
 _ADAPTERS = {'claude': ClaudeAdapter, 'openai': OpenAIAdapter, 'opencode': OpenCodeAdapter,
-             'exaone': ExaoneAdapter}
+             'claude_code': ClaudeCodeAdapter}
 
 
 def get_adapter():
@@ -1024,10 +1129,7 @@ def get_adapter():
 
 
 def masking_required() -> bool:
-    """AI로 보내는 글의 개인정보를 가려야 하는지: 개인정보 보호 모드가 켜져 있거나,
-    이 AI가 항상 가려서 보내야 하는 곳(EXAONE)이면 True."""
-    if getattr(get_adapter(), 'always_mask', False):
-        return True
+    """AI로 보내는 글의 개인정보를 가려야 하는지: 개인정보 보호 모드가 켜져 있으면 True."""
     try:
         from school_profile import privacy_enabled
         return privacy_enabled()
@@ -1036,8 +1138,8 @@ def masking_required() -> bool:
 
 
 def text_only_required() -> bool:
-    """이미지를 AI에 보내지 않고 PC에서 읽은 글자만 보내야 하는지: 개인정보 보호 모드가 켜져 있거나,
-    이 AI가 이미지를 읽지 못하면(EXAONE) True."""
+    """이미지를 AI에 보내지 않고 PC에서 읽은 글자만 보내야 하는지: 이 AI가 이미지를 읽지 못하거나(Claude 구독),
+    개인정보 보호 모드가 켜져 있으면 True."""
     if get_adapter() is not None and not getattr(get_adapter(), 'supports_image', True):
         return True
     try:
@@ -1066,6 +1168,7 @@ class AiStreamThread(QThread):
 
     def stop(self):
         self._is_running = False
+        cancel_claude_code()      # Claude 구독을 쓰는 중이면 실행 중인 claude도 끊는다
 
     def _retry_prompt(self, error_msg: str) -> str:
         return (
@@ -1078,13 +1181,13 @@ class AiStreamThread(QThread):
     def run(self):
         adapter = get_adapter()
         if adapter is None:
-            self.error_signal.emit("AI가 꺼져 있습니다. [AI 설정]에서 OpenCode·Claude·ChatGPT·EXAONE 중 하나를 연결하세요.")
+            self.error_signal.emit("AI가 꺼져 있습니다. [AI 설정]에서 OpenCode·Claude·ChatGPT·Claude 구독 중 하나를 연결하세요.")
             return
         if not adapter.get_api_key():
             self.error_signal.emit("API 키가 설정되지 않았습니다. [AI 설정]을 눌러 키를 입력하세요.")
             return
 
-        # 개인정보 보호 모드(또는 EXAONE처럼 항상 가려야 하는 AI): AI로 나가는 글에서 개인정보를 가린다
+        # 개인정보 보호 모드가 켜져 있으면 AI로 나가는 글에서 개인정보를 가린다
         try:
             from school_profile import mask_for_ai
             if masking_required():

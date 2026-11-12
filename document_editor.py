@@ -10,10 +10,10 @@ import qtawesome as qta
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QTextEdit, QPushButton,
     QVBoxLayout, QHBoxLayout, QGridLayout, QWidget, QLabel, QLineEdit,
-    QMessageBox, QInputDialog, QFrame, QSpinBox, QCheckBox, QDialog,
+    QMessageBox, QInputDialog, QFrame, QSpinBox, QCheckBox, QDialog, QComboBox,
 )
-from PyQt5.QtCore import Qt, QTimer, QSize, QEvent
-from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat
+from PyQt5.QtCore import Qt, QTimer, QSize, QEvent, QThread, pyqtSignal
+from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QColor
 from ai_client import (AiStreamThread, PROVIDER_LABELS,
                         load_ai_mode, save_ai_mode, legacy_ai_name, load_external_model_name,
                         load_claude_key, save_claude_key, load_claude_model, save_claude_model,
@@ -24,8 +24,12 @@ from ai_client import (AiStreamThread, PROVIDER_LABELS,
                         load_opencode_model, save_opencode_model,
                         OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
                         fetch_opencode_models, save_opencode_model_info, test_opencode,
-                        load_exaone_key, save_exaone_key, load_exaone_model, save_exaone_model,
-                        test_exaone, exaone_key_notice, EXAONE_SIGNUP_URL, EXAONE_KEY_DAYS)
+                        ClaudeCodeError, claude_code_status, claude_code_login, claude_code_logout,
+                        install_claude_code, test_claude_code, CLAUDE_CODE_MODELS, CLAUDE_CODE_INSTALL_PAGE,
+                        load_claude_code_model, save_claude_code_model,
+                        load_claude_code_path, save_claude_code_path, masking_required)
+from school_profile import mask_for_ai
+from doc_polish import (POLISH_SYSTEM, build_polish_prompt, diff_spans, restore_masked, leftover_masks)
 from db import save_official_document, get_official_documents
 import doc_style   # 내 공문 스타일: 비슷한 저장 공문 + 나만의 작성 규칙을 AI에 함께 보냄
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
@@ -483,19 +487,336 @@ class ApiKeyDialog(QDialog):
         return self._save_cb.isChecked()
 
 
+class _BgCall(QThread):
+    """오래 걸리는 일(claude 실행 등)을 뒤 스레드에서 한다. 끝나면 done(결과), 실패하면 failed(메시지)."""
+    done = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, fn, *args):
+        super().__init__()
+        self._fn, self._args = fn, args
+
+    def run(self):
+        try:
+            self.done.emit(self._fn(*self._args))
+        except Exception as e:
+            self.failed.emit(str(e))
+
+
+class ClaudeCodeDialog(QDialog):
+    """Claude 구독 연결: 설치 → 로그인 → 모델 → 연결 확인 → 저장. 모든 claude 호출은 뒤 스레드에서."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._job = None
+        self._st = None
+        self.setWindowTitle('Claude 구독 연결')
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setStyleSheet(_style())
+        self.setFixedWidth(px(480))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(10)
+
+        head = QLabel('Claude 구독 연결')
+        head.setObjectName('DialogTitle')
+        layout.addWidget(head)
+        intro = QLabel('Claude Pro/Max 구독으로 동작합니다 · 사용량은 Claude 채팅·Claude Code와 같은 한도에서 차감 · '
+                       '본인만 사용하세요 · 로그인 정보는 Claude Code가 보관하며 서서니노트는 저장하지 않습니다.')
+        intro.setObjectName('Hint')
+        intro.setWordWrap(True)
+        intro.ensurePolished()                                 # 줄바꿈 높이를 미리 계산해 잘리지 않게
+        intro.setMinimumHeight(intro.heightForWidth(px(480) - 44))
+        layout.addWidget(intro)
+
+        self.lbl_status = QLabel('확인 중…')
+        self.lbl_status.setStyleSheet(f'color: {C.TEXT}; font-weight: 700;')
+        self.lbl_status.setWordWrap(True)
+        layout.addWidget(self.lbl_status)
+        self.lbl_progress = QLabel()
+        self.lbl_progress.setObjectName('Hint')
+        self.lbl_progress.setWordWrap(True)
+        layout.addWidget(self.lbl_progress)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self.btn_install = QPushButton('설치')
+        self.btn_install.setIcon(qta.icon('fa5s.download', color=C.ACCENT))
+        self.btn_install.setCursor(Qt.PointingHandCursor)
+        self.btn_install.clicked.connect(self._install)
+        self.btn_account = QPushButton('Claude로 로그인')
+        self.btn_account.setCursor(Qt.PointingHandCursor)
+        self.btn_account.clicked.connect(self._login_or_logout)
+        row.addWidget(self.btn_install)
+        row.addWidget(self.btn_account)
+        row.addStretch()
+        layout.addLayout(row)
+
+        self.lbl_link = QLabel(f'설치가 안 되면 공식 설치 안내를 보세요: '
+                               f'<a href="{CLAUDE_CODE_INSTALL_PAGE}">{CLAUDE_CODE_INSTALL_PAGE}</a>')
+        self.lbl_link.setObjectName('Hint')
+        self.lbl_link.setOpenExternalLinks(True)
+        layout.addWidget(self.lbl_link)
+
+        layout.addSpacing(4)
+        lbl_model = QLabel('AI 모델')
+        lbl_model.setObjectName('FieldLabel')
+        layout.addWidget(lbl_model)
+        self.cmb_model = QComboBox()
+        for value, label in CLAUDE_CODE_MODELS:
+            self.cmb_model.addItem(label, value)
+        self.cmb_model.setCurrentIndex(max(0, self.cmb_model.findData(load_claude_code_model())))
+        layout.addWidget(self.cmb_model)
+
+        lbl_path = QLabel('claude 실행 파일 (비우면 자동으로 찾아요)')
+        lbl_path.setObjectName('FieldLabel')
+        layout.addWidget(lbl_path)
+        self.edit_path = QLineEdit(load_claude_code_path())
+        self.edit_path.setPlaceholderText('예: C:\\Users\\내이름\\.local\\bin\\claude.exe')
+        self.edit_path.setMinimumHeight(34)
+        layout.addWidget(self.edit_path)
+
+        test_row = QHBoxLayout()
+        test_row.setSpacing(8)
+        self.btn_test = QPushButton('연결 확인')
+        self.btn_test.clicked.connect(self._test)
+        self.lbl_test = QLabel()
+        self.lbl_test.setWordWrap(True)
+        test_row.addWidget(self.btn_test)
+        test_row.addWidget(self.lbl_test, 1)
+        layout.addLayout(test_row)
+        layout.addSpacing(6)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self.btn_save = QPushButton('저장')
+        self.btn_save.setObjectName('Primary')
+        self.btn_save.setMinimumHeight(34)
+        self.btn_save.setDefault(True)
+        self.btn_save.clicked.connect(self._save)
+        btn_cancel = QPushButton('취소')
+        btn_cancel.setMinimumHeight(34)
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self.btn_save)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+        keep_light(self)
+        self.btn_install.hide()
+        self.btn_account.hide()
+        self.lbl_link.hide()
+
+        self._refresh_status()
+
+    # ── 뒤 스레드 실행: 한 번에 하나만, 끝나면 on_done / 실패하면 on_fail ──
+    def _run(self, fn, *args, progress='', on_done, on_fail=None):
+        if self._job is not None and self._job.isRunning():
+            return False
+        self._set_busy(True, progress)
+        job = _BgCall(fn, *args)
+        job.done.connect(lambda r: self._finish(on_done, r))
+        job.failed.connect(lambda m: self._finish_fail(on_fail, m))
+        self._job = job
+        job.start()
+        return True
+
+    def _set_busy(self, busy, progress=''):
+        self.lbl_progress.setText(progress)
+        for w in (self.btn_install, self.btn_account, self.btn_test, self.btn_save):
+            w.setEnabled(not busy)
+
+    def _finish(self, on_done, result):
+        self._set_busy(False)
+        on_done(result)
+
+    def _finish_fail(self, on_fail, msg):
+        self._set_busy(False)
+        if on_fail:
+            on_fail(msg)
+        else:
+            self._show_error('Claude 구독', msg)
+
+    def _show_error(self, title, msg):
+        self.lbl_progress.setText('')
+        QMessageBox.warning(self, title, msg)
+
+    # ── 상태 ──
+    def _refresh_status(self, note=''):
+        self.lbl_status.setText('확인 중…')
+        self._run(claude_code_status, on_done=lambda st: self._after_status(st, note))
+
+    def _after_status(self, st, note=''):
+        self._show_status(st)
+        self.lbl_progress.setText(note)
+
+    def _show_status(self, st):
+        self._st = st
+        if not st['installed']:
+            text, color = '설치 안 됨 — [설치]를 눌러 주세요.', C.WARN
+        elif st['logged_in']:
+            plan = st['plan'].capitalize() if st['plan'] else ''
+            who = ' · '.join(x for x in (st['email'], f'{plan} 구독' if plan else '') if x)
+            text, color = f'✓ 로그인됨 ({who})', C.OK
+        else:
+            text, color = '로그인 필요 — [Claude로 로그인]을 눌러 주세요.', C.WARN
+        self.lbl_status.setText(text)
+        self.lbl_status.setStyleSheet(f'color: {color}; font-weight: 700;')
+        self.btn_install.setVisible(not st['installed'])
+        self.lbl_link.setVisible(not st['installed'])
+        self.btn_account.setVisible(st['installed'])
+        self.btn_account.setText('로그아웃' if st['logged_in'] else 'Claude로 로그인')
+
+    # ── 동작 ──
+    def _install(self):
+        self._run(install_claude_code, progress='Claude Code를 설치하는 중… (1~2분 걸릴 수 있어요)',
+                  on_done=lambda _: self._refresh_status('설치했어요.'),
+                  on_fail=lambda m: self._show_error('설치 실패', m))
+
+    def _login_or_logout(self):
+        if self._st and self._st.get('logged_in'):
+            ans = QMessageBox.question(self, 'Claude 로그아웃', 'Claude 구독 로그인을 끊을까요?',
+                                       QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ans != QMessageBox.Yes:
+                return
+            self._run(claude_code_logout, progress='로그아웃하는 중…',
+                      on_done=lambda _: self._refresh_status('로그아웃했어요.'),
+                      on_fail=lambda m: self._show_error('로그아웃 실패', m))
+            return
+        self._run(claude_code_login, progress='브라우저에서 Claude 로그인 후 승인해 주세요…',
+                  on_done=lambda _: self._refresh_status('로그인했어요.'),
+                  on_fail=lambda m: self._show_error('로그인 실패', m))
+
+    def _test(self):
+        self._save_path_and_model()
+        self.lbl_test.setText('확인하는 중… (몇 초 걸려요)')
+        self._run(test_claude_code, self.cmb_model.currentData() or '',
+                  on_done=self._show_test, on_fail=lambda m: self._show_test((False, m)))
+
+    def _show_test(self, result):
+        ok, msg = result
+        self.lbl_test.setText(('✓ ' if ok else '⚠ ') + msg)
+        self.lbl_test.setStyleSheet(f'color: {C.OK if ok else C.WARN};')
+
+    def _save_path_and_model(self):
+        save_claude_code_path(self.edit_path.text().strip())
+        save_claude_code_model(self.cmb_model.currentData() or '')
+
+    def _save(self):
+        path = self.edit_path.text().strip()
+        if path and not os.path.isfile(path):
+            QMessageBox.warning(self, 'Claude 구독', '그 경로에 claude 파일이 없어요. 경로를 확인하거나 비워 두세요.')
+            return
+        if not (self._st and self._st.get('installed')):
+            QMessageBox.warning(self, 'Claude 구독', '먼저 [설치]를 눌러 Claude Code를 설치해 주세요.')
+            return
+        if not self._st.get('logged_in'):
+            QMessageBox.warning(self, 'Claude 구독', '먼저 [Claude로 로그인]을 눌러 로그인해 주세요.')
+            return
+        self._save_path_and_model()
+        save_ai_mode('claude_code')
+        self.accept()
+
+
+class PolishDialog(QDialog):
+    """선택 부분 다듬기 비교: 왼쪽 원문 · 오른쪽 다듬은 글(고칠 수 있음). 바뀐 단어는 색으로 표시."""
+    _DEL = QColor('#FDE2E2')      # 원문에서 빠진 단어
+    _INS = QColor('#DCFCE7')      # 다듬은 글에서 새로 들어간 단어
+
+    def __init__(self, original: str, polished: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('선택 부분 다듬기')
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        self.setStyleSheet(_style())
+        self.setMinimumSize(px(780), px(440))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 18)
+        layout.setSpacing(10)
+        head = QLabel('선택 부분 다듬기')
+        head.setObjectName('DialogTitle')
+        layout.addWidget(head)
+        hint = QLabel('왼쪽은 원래 글, 오른쪽은 다듬은 글입니다. 오른쪽 글은 직접 고칠 수 있어요. '
+                      '바뀐 단어는 색으로 표시됩니다.')
+        hint.setObjectName('Hint')
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        cols = QHBoxLayout()
+        cols.setSpacing(12)
+        left = QVBoxLayout()
+        lbl_l = QLabel('원문')
+        lbl_l.setObjectName('FieldLabel')
+        left.addWidget(lbl_l)
+        self._left = QTextEdit()
+        self._left.setReadOnly(True)
+        self._left.setPlainText(original)
+        left.addWidget(self._left, 1)
+        right = QVBoxLayout()
+        lbl_r = QLabel('다듬은 글 (고칠 수 있어요)')
+        lbl_r.setObjectName('FieldLabel')
+        right.addWidget(lbl_r)
+        self._right = QTextEdit()
+        self._right.setPlainText(polished)
+        self._right.textChanged.connect(self._highlight)
+        right.addWidget(self._right, 1)
+        cols.addLayout(left, 1)
+        cols.addLayout(right, 1)
+        layout.addLayout(cols, 1)
+
+        self._warn = QLabel('⚠ 가린 표시(○○·***)가 남아 있어요. 원래 값으로 고친 뒤 적용하세요.')
+        self._warn.setStyleSheet(f'color: {C.WARN}; font-weight: 600;')
+        layout.addWidget(self._warn)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self._btn_apply = QPushButton('적용')
+        self._btn_apply.setObjectName('Primary')
+        self._btn_apply.setMinimumHeight(34)
+        self._btn_apply.setDefault(True)
+        self._btn_apply.clicked.connect(self.accept)
+        btn_cancel = QPushButton('취소')
+        btn_cancel.setMinimumHeight(34)
+        btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self._btn_apply)
+        btn_row.addWidget(btn_cancel)
+        layout.addLayout(btn_row)
+        keep_light(self)
+        self._highlight()
+
+    def result_text(self) -> str:
+        return self._right.toPlainText().strip()
+
+    def _highlight(self):
+        left_spans, right_spans = diff_spans(self._left.toPlainText(), self._right.toPlainText())
+        self._left.setExtraSelections(self._selections(self._left, left_spans, self._DEL))
+        self._right.setExtraSelections(self._selections(self._right, right_spans, self._INS))
+        self._warn.setVisible(leftover_masks(self._right.toPlainText()))
+
+    @staticmethod
+    def _selections(edit, spans, color):
+        out = []
+        for s, e in spans:
+            cur = QTextCursor(edit.document())
+            cur.setPosition(s)
+            cur.setPosition(e, QTextCursor.KeepAnchor)
+            sel = QTextEdit.ExtraSelection()
+            sel.cursor = cur
+            sel.format.setBackground(color)
+            out.append(sel)
+        return out
+
+
 # AI 제공자별 설정 정보
 _PROVIDERS = {
-    'opencode': {'desc': 'Go·Zen 요금제'},
-    'exaone':   {'desc': 'LG AI연구원 · 현재 무료'},
-    'claude':   {'desc': 'Anthropic API 키',
+    'opencode': {'desc': '해당 API키 필요'},
+    'claude_code': {'desc': '유료 구독 필요'},
+    'claude':   {'desc': '해당 API키 필요',
                  'key_label': 'Anthropic(Claude) API 키를 입력하세요.',
-                 'hint': '키 발급: console.anthropic.com → API Keys (사용한 만큼 결제)',
                  'load_key': load_claude_key, 'save_key': save_claude_key,
                  'load_model': load_claude_model, 'save_model': save_claude_model,
                  'fetch': fetch_claude_models, 'test': test_claude},
-    'openai':   {'desc': 'OpenAI API 키',
+    'openai':   {'desc': '해당 API키 필요',
                  'key_label': 'OpenAI(ChatGPT) API 키를 입력하세요.',
-                 'hint': '키 발급: platform.openai.com → API keys (ChatGPT 구독과 별도, 사용한 만큼 결제)',
                  'load_key': load_openai_key, 'save_key': save_openai_key,
                  'load_model': load_openai_model, 'save_model': save_openai_model,
                  'fetch': fetch_openai_models, 'test': test_openai},
@@ -506,6 +827,8 @@ class DocumentEditorWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ai_thread = None
+        self._polish = None            # 다듬기 중인 글 정보 (None = 다듬는 중 아님)
+        self._polish_undo = None       # 마지막 다듬기 적용 (되돌리기용)
         self._capturing = False
         DocumentEditorWindow._instance = self
         self.init_ui()
@@ -557,7 +880,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_apikey.setObjectName('Chip')
         self.btn_apikey.setCursor(Qt.PointingHandCursor)
         self.btn_apikey.setMinimumHeight(30)
-        self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · EXAONE)')
+        self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · Claude 구독)')
         self.btn_apikey.clicked.connect(self._show_ai_settings_menu)
         hl.addWidget(self.btn_apikey)
         self.btn_help = QPushButton()
@@ -680,6 +1003,8 @@ class DocumentEditorWindow(QMainWindow):
         self.editor.setPlaceholderText(
             "제목을 넣고 [자동 초안]을 누르거나, 아래에 AI에게 부탁할 내용을 적어 보세요."
         )
+        self.editor.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.editor.customContextMenuRequested.connect(self._show_editor_menu)
         layout.addWidget(self.editor, stretch=1)
 
         # ── AI 요청 칸 ──
@@ -740,11 +1065,159 @@ class DocumentEditorWindow(QMainWindow):
 
         self.setStyleSheet(_style())
         self.statusBar().setSizeGripEnabled(False)
+        self._polish_link = QLabel()                         # 다듬기 적용 뒤 [되돌리기] 링크
+        self._polish_link.setTextFormat(Qt.RichText)
+        self._polish_link.linkActivated.connect(lambda _: self._undo_polish())
+        self._polish_link.hide()
+        self.statusBar().addPermanentWidget(self._polish_link)
         self.statusBar().showMessage("준비 완료")
         self._apply_ai_mode()
         self._update_draft_button()  # 초기 상태: 빈칸이면 비활성
         self._update_doc_type_chip()
         self._apply_editor_line_height()
+
+    # ── 선택 부분 다듬기 ──
+    def _show_editor_menu(self, pos):
+        from PyQt5.QtWidgets import QMenu, QAction
+        menu = self.editor.createStandardContextMenu()
+        first = menu.actions()[0] if menu.actions() else None
+        act = QAction('선택 부분 다듬기  (선택이 없으면 본문 전체)', menu)
+        act.setEnabled(bool(self.editor.toPlainText().strip()) and self._polish is None)
+        act.triggered.connect(self.polish_selection)
+        menu.insertAction(first, act)
+        menu.insertSeparator(first)
+        menu.exec_(self.editor.mapToGlobal(pos))
+
+    def polish_selection(self):
+        """선택한 글(없으면 본문 전체)을 AI가 공문 문체로 다듬는다. 결과는 비교 창에서 확인한 뒤 적용."""
+        if self._polish is not None or (self.ai_thread and self.ai_thread.isRunning()):
+            return
+        if load_ai_mode() == 'none':
+            self.statusBar().showMessage('AI가 꺼져 있어요. [AI 설정]에서 연결하면 다듬을 수 있어요.')
+            return
+        cursor = self.editor.textCursor()
+        if cursor.hasSelection():
+            start, end = cursor.selectionStart(), cursor.selectionEnd()
+            text = cursor.selectedText().replace('\u2029', '\n')
+        else:
+            start, end = 0, self.editor.document().characterCount() - 1
+            text = self.editor.toPlainText()
+        if not text.strip():
+            self.statusBar().showMessage('다듬을 글이 없습니다. 글을 선택하거나 본문을 써 주세요.')
+            return
+
+        counts = {}
+        masked = text
+        if masking_required():
+            masked, counts = mask_for_ai(text)      # 가린 채로 보내고, 답이 오면 되살린다 (doc_polish)
+        title = self.title_input.text().strip()
+        examples = []
+        try:
+            docs = get_official_documents()
+            for d in docs:
+                d['doc_type'] = d.get('doc_type') or _detect_doc_type(d.get('title', ''))
+            examples = doc_style.search_similar(title, docs, doc_type=self._current_doc_type(), top_k=2) if title else []
+        except Exception:
+            pass
+        prompt = build_polish_prompt(masked, doc_style.style_notes_prompt(), doc_style.examples_prompt(examples))
+
+        self._polish = {'start': start, 'end': end, 'original': text, 'masked': masked, 'counts': counts}
+        self._set_polish_busy(True)
+        self.statusBar().showMessage('선택한 글을 AI가 다듬는 중… (Esc: 멈추기)')
+        self.ai_thread = AiStreamThread(prompt, system=POLISH_SYSTEM, structured=False)
+        self.ai_thread.finished_signal.connect(self._on_polish_done)
+        self.ai_thread.error_signal.connect(self._on_polish_error)
+        self.ai_thread.start()
+
+    def _set_polish_busy(self, busy: bool):
+        self.editor.setReadOnly(busy)           # 다듬는 동안 본문은 고정 (선택 위치가 어긋나지 않게)
+        self._set_controls_enabled(not busy)
+        if busy:
+            self._hide_polish_link()
+
+    def _cancel_polish(self):
+        if self.ai_thread and self.ai_thread.isRunning():
+            self.ai_thread.stop()
+        self._polish = None
+        self._set_polish_busy(False)
+        self.statusBar().showMessage('다듬기를 멈췄어요. 원래 글 그대로예요.')
+
+    def _on_polish_error(self, msg):
+        if self._polish is None:
+            return
+        self._polish = None
+        self._set_polish_busy(False)
+        self.statusBar().showMessage(f'다듬기 오류: {msg}')
+
+    def _on_polish_done(self, result):
+        ctx, self._polish = self._polish, None
+        self._set_polish_busy(False)
+        if ctx is None:
+            return
+        polished = (result or '').strip()
+        if not polished:
+            self.statusBar().showMessage('AI가 빈 답을 보냈어요. 원래 글 그대로예요. 다시 시도해 주세요.')
+            return
+        if ctx['counts']:
+            polished, restored = restore_masked(polished, ctx['original'], ctx['masked'])
+            if not restored:
+                self.statusBar().showMessage('가린 개인정보를 되살릴 수 없어 적용하지 않았어요. '
+                                             '개인정보가 든 부분을 빼고 다시 다듬어 주세요.')
+                return
+        dlg = PolishDialog(ctx['original'], polished, self)
+        if dlg.exec_() != QDialog.Accepted:
+            self.statusBar().showMessage('다듬기를 취소했어요. 원래 글 그대로예요.')
+            return
+        self._apply_polish(ctx['start'], ctx['end'], ctx['original'], dlg.result_text())
+
+    def _apply_polish(self, start, end, original, new_text) -> bool:
+        if self.editor.toPlainText()[start:end] != original:
+            self.statusBar().showMessage('그 사이 본문이 바뀌어서 적용하지 못했어요. 다시 선택해 주세요.')
+            return False
+        self._replace_range(start, end, new_text)
+        self._polish_undo = {'start': start, 'old': original, 'new': new_text}
+        self.statusBar().showMessage('다듬은 글을 적용했어요. Ctrl+Z를 누르면 원래 글로 돌아갑니다.')
+        self._polish_link.setText('<a href="undo" style="color:%s;">되돌리기</a>' % C.ACCENT)
+        self._polish_link.show()
+        return True
+
+    def _undo_polish(self):
+        info = self._polish_undo
+        if not info:
+            return
+        self._polish_undo = None
+        self._hide_polish_link()
+        cur = self.editor.toPlainText()
+        s, new = info['start'], info['new']
+        if cur[s:s + len(new)] != new:
+            self.statusBar().showMessage('적용한 뒤 글이 더 바뀌어서 되돌리지 못했어요. Ctrl+Z를 써 주세요.')
+            return
+        self._replace_range(s, s + len(new), info['old'])
+        self.statusBar().showMessage('다듬기 전 글로 되돌렸어요.')
+
+    def _hide_polish_link(self):
+        self._polish_link.hide()
+
+    def _replace_range(self, start, end, text):
+        """본문의 [start, end) 글을 text로 바꾼다 — 편집 한 번이라 Ctrl+Z 한 번이면 원래대로."""
+        from PyQt5.QtGui import QTextBlockFormat
+        cursor = self.editor.textCursor()
+        self._bulk_edit = True
+        try:
+            cursor.beginEditBlock()
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.KeepAnchor)
+            cursor.insertText(text)
+            cursor.setPosition(start)
+            cursor.setPosition(start + len(text), QTextCursor.KeepAnchor)
+            fmt = QTextBlockFormat()
+            fmt.setLineHeight(123, QTextBlockFormat.ProportionalHeight)
+            cursor.mergeBlockFormat(fmt)
+            cursor.endEditBlock()
+        finally:
+            self._bulk_edit = False
+        cursor.setPosition(start + len(text))
+        self.editor.setTextCursor(cursor)
 
     # ── AI 초안 생성 ──
     def generate_draft(self):
@@ -1074,7 +1547,9 @@ class DocumentEditorWindow(QMainWindow):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
-            if self.ai_thread and self.ai_thread.isRunning():
+            if self._polish is not None:
+                self._cancel_polish()          # 다듬기 중이면 본문은 건드리지 않고 멈추기만
+            elif self.ai_thread and self.ai_thread.isRunning():
                 self._cancel_ai()          # AI가 쓰는 중이면 먼저 멈추기만
             elif self._confirm_discard():
                 self.close()
@@ -1102,6 +1577,9 @@ class DocumentEditorWindow(QMainWindow):
              '제목을 넣고 Enter나 [자동 초안]을 누르면 공문 뼈대가 들어가고, '
              'AI가 연결되어 있으면 내용까지 채웁니다. 공문 종류는 제목으로 정해져 버튼 옆에 보이고, '
              '눌러서 직접 고를 수 있습니다. 쓰던 본문은 Ctrl+Z로 되찾을 수 있습니다.'),
+            ('fa5s.pen', '선택 부분 다듬기',
+             '본문 글을 드래그한 뒤 우클릭 → 「선택 부분 다듬기」 (선택이 없으면 본문 전체). '
+             '원문과 나란히 비교하고 고쳐서 [적용]하세요. 적용 후 Ctrl+Z나 상태 줄의 [되돌리기]로 원래 글에 돌아갑니다.'),
             ('fa5s.user-edit', '내 스타일로',
              '[저장 후 나가기]로 저장한 공문 중 제목이 비슷한 것을 AI가 예시로 보고 같은 말투로 씁니다. '
              '저장할수록 더 닮아 갑니다. 꼭 지킬 규칙은 [AI 설정] → 나만의 작성 규칙에 적어 두세요.'),
@@ -1182,11 +1660,8 @@ class DocumentEditorWindow(QMainWindow):
         if ai_available:
             model = load_external_model_name()
             self.btn_apikey.setText(f'{PROVIDER_LABELS[mode]} · {model}')
-            notice = exaone_key_notice() if mode == 'exaone' else ''
-            self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.WARN if notice else C.OK))
-            self.btn_apikey.setToolTip(notice or 'AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · EXAONE)')
-            if notice:
-                self.statusBar().showMessage(notice)
+            self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.OK))
+            self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · Claude 구독)')
             self.ai_input.setPlaceholderText('AI에게 요청  (예: 장소를 시청각실로 바꾸고 일시는 11월 10일로 해줘)')
             return
         self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.OFF))
@@ -1196,7 +1671,7 @@ class DocumentEditorWindow(QMainWindow):
             self.btn_apikey.setIcon(qta.icon('fa5s.exclamation-circle', color=C.WARN))
             self.ai_input.setPlaceholderText(
                 f'이전에 쓰던 {legacy}는 더 이상 지원하지 않아요 — 위의 [AI 다시 연결 필요]를 눌러 '
-                'OpenCode·Claude·ChatGPT·EXAONE 중 하나를 연결하세요.')
+                'OpenCode·Claude·ChatGPT·Claude 구독 중 하나를 연결하세요.')
         else:
             self.btn_apikey.setText('AI 꺼짐 · 연결하기')
             self.ai_input.setPlaceholderText('AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]에서 연결하면 쓸 수 있어요.')
@@ -1211,7 +1686,7 @@ class DocumentEditorWindow(QMainWindow):
         title = menu.addAction('AI 연결')
         title.setEnabled(False)
         acts = {}
-        for key in ('opencode', 'claude', 'openai', 'exaone'):
+        for key in ('opencode', 'claude', 'openai', 'claude_code'):
             mark = '✓  ' if mode == key else '     '
             a = menu.addAction(f'{mark}{PROVIDER_LABELS[key]}\t{_PROVIDERS[key]["desc"]}')
             acts[a] = key
@@ -1236,8 +1711,8 @@ class DocumentEditorWindow(QMainWindow):
             self._setup_claude_ai()
         elif acts.get(action) == 'openai':
             self._setup_openai_ai()
-        elif acts.get(action) == 'exaone':
-            self._setup_exaone_ai()
+        elif acts.get(action) == 'claude_code':
+            self._setup_claude_code_ai()
 
     def _edit_style_notes(self):
         """나만의 작성 규칙 — 자동 초안·AI 대화 때마다 AI에 함께 보낸다."""
@@ -1301,7 +1776,7 @@ class DocumentEditorWindow(QMainWindow):
         """Claude·ChatGPT: API 키 → 모델(서버의 최신 목록) → 연결 시험 → 저장."""
         p = _PROVIDERS[mode]
         label = PROVIDER_LABELS[mode]
-        dlg = ApiKeyDialog(f'{label} 연결', p['key_label'], p['load_key'](), self, hint=p['hint'])
+        dlg = ApiKeyDialog(f'{label} 연결', p['key_label'], p['load_key'](), self)
         if dlg.exec_() != dlg.Accepted:
             return
         key = dlg.key()
@@ -1335,35 +1810,13 @@ class DocumentEditorWindow(QMainWindow):
         self._apply_ai_mode()
         self.statusBar().showMessage(f'{label} · {model} 연결 완료.')
 
-    def _setup_exaone_ai(self):
-        """EXAONE(LG AI연구원): API 키 → 연결 시험 → 저장. 모델은 하나뿐이라 고르는 단계가 없다."""
-        hint = (f'키 발급: {EXAONE_SIGNUP_URL} → 「API Key 발급하기」 (만 19세 이상, 현재 무료·비상업적 이용)\n'
-                f'· 키는 발급 후 {EXAONE_KEY_DAYS}일이 지나면 자동으로 꺼져요 — 그때 새로 발급받아 다시 연결하세요.\n'
-                '· 가입할 때 「입력·결과물을 학습에 활용」 선택 동의는 끄는 것을 권해요.\n'
-                '· 이 AI는 이미지를 읽지 못해 캡처는 PC에서 읽은 글자로 보내고, '
-                '개인정보는 보호 모드와 상관없이 항상 가려서 보냅니다.')
-        dlg = ApiKeyDialog('EXAONE 연결', 'EXAONE API 키를 입력하세요.', load_exaone_key(), self, hint=hint)
-        if dlg.exec_() != dlg.Accepted:
+    def _setup_claude_code_ai(self):
+        """Claude 구독: 이 PC의 Claude Code로 구독 사용 (설치·로그인·확인·저장은 대화상자 안에서)."""
+        dlg = ClaudeCodeDialog(self)
+        if dlg.exec_() != QDialog.Accepted:
             return
-        key = dlg.key()
-        if not key:
-            self.statusBar().showMessage('EXAONE API 키가 비어 있습니다.')
-            return
-        model = load_exaone_model()
-        self._busy(f'EXAONE · {model} 연결 확인 중... (생각하는 모델이라 조금 걸려요)')
-        try:
-            ok, msg = test_exaone(key, model)
-        finally:
-            self._idle()
-        if not ok:
-            self.statusBar().showMessage('EXAONE 연결 실패')
-            QMessageBox.warning(self, 'EXAONE 연결 실패', msg)
-            return
-        save_exaone_key(key, persist=dlg.should_save())
-        save_exaone_model(model)
-        save_ai_mode('exaone')
         self._apply_ai_mode()
-        self.statusBar().showMessage(f'EXAONE · {model} 연결 완료.')
+        self.statusBar().showMessage(f'Claude 구독 · {load_external_model_name()} 연결 완료.')
 
     def _setup_claude_ai(self):
         self._setup_keyed_ai('claude')
@@ -1381,8 +1834,7 @@ class DocumentEditorWindow(QMainWindow):
             return
         plan = plan_keys[labels.index(label)]
 
-        dlg = ApiKeyDialog('OpenCode 연결', 'OpenCode API 키를 입력하세요.', load_opencode_key(), self,
-                           hint='키 발급: opencode.ai 로그인 → 콘솔 → API Keys')
+        dlg = ApiKeyDialog('OpenCode 연결', 'OpenCode API 키를 입력하세요.', load_opencode_key(), self)
         if dlg.exec_() != dlg.Accepted:
             return
         key = dlg.key()

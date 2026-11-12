@@ -42,19 +42,20 @@ def test_import_modes(win):
     assert [c['name'] for c in db.get_budget_categories()] == ['A'] and len(db.get_budget_items()) == 1
 
 
-def test_spent_cell_edit_saves_and_updates_totals(win):
+def test_spent_column_hidden_and_totals_follow(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     table = [t for t in w.findChildren(budget._BudgetTable)][0]
-    cell = table.item(0, budget._COL_SPENT)
-    cell.setText('700')                                   # 셀에서 고친 것처럼
+    headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+    assert '집행액' not in headers and headers[3] == '잔액'      # 집행액 열은 없음
     item = next(i for i in db.get_budget_items() if i['description'] == '강사 수당')
-    assert item['spent'] == 700
-    assert cell.text() == '700'
+    db.set_budget_item_spent(item['id'], 700)
+    w.refresh()
+    table = [t for t in w.findChildren(budget._BudgetTable)][0]
     assert w.stat['spent'].text() == '700원' and w.stat['remaining'].text() == '800원'
-    assert table.item(0, 4).text() == '300'
+    assert table.item(0, 3).text() == '300'
 
 
 def test_completed_items_shown_by_default_and_can_fold(win):
@@ -180,20 +181,29 @@ def test_cost_chips_totals_and_filter(win):
     w._apply_import(cats, 'append')
     w.show()
     app.processEvents()
+    assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 카드
+    assert not w._overview_chips['교육운영비'].isVisible()        # 기본은 접힘
+    w._overview_open = True
+    w._rebuild_sections()
+    app.processEvents()
+    assert w._overview_chips['교육운영비'].isVisible()            # 펼치면 보임
+    w._overview_open = False
+    w._rebuild_sections()
     cid = w.categories[0]['id']
     chips = w._sec_refs[cid]['chips']
     assert list(chips) == ['교육운영비', '운영수당']
     assert '잔액 600원' in chips['교육운영비'].text()              # 1500 - 900
-    assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 카드
     table = w._sec_refs[cid]['tables'][0]
     h_all = table.height()
     chips['운영수당'].click()                                    # 운영수당 줄만
-    assert [table.isRowHidden(r) for r in range(3)] == [True, False, True]
+    assert [table.isRowHidden(2 * i) for i in range(3)] == [True, False, True]   # 항목 줄 (2칸씩 — 사이에 사용 내역 줄)
     assert table.height() < h_all
     chips['운영수당'].click()                                    # 다시 누르면 전부
-    assert not any(table.isRowHidden(r) for r in range(3))
-    table.item(0, budget._COL_SPENT).setText('900')             # 집행액 고치면 칩도 다시 계산
-    assert '잔액 100원' in chips['교육운영비'].text()
+    assert not any(table.isRowHidden(2 * i) for i in range(3))
+    iid = next(i['id'] for i in db.get_budget_items() if i['description'] == '간식')
+    db.set_budget_item_spent(iid, 900)                          # 집행액이 바뀌면 칩도 다시 계산
+    w.refresh()
+    assert '잔액 100원' in w._sec_refs[cid]['chips']['교육운영비'].text()
 
 
 def test_item_dialog_has_cost_completer(win):
@@ -356,3 +366,43 @@ def test_save_left_cancel_right(win):
         assert left.mapTo(dlg, left.rect().topLeft()).x() < right.mapTo(dlg, right.rect().topLeft()).x()
         assert left.isDefault() and not right.autoDefault()
         dlg.close()
+
+
+def _item_id(db, desc):
+    return next(i['id'] for i in db.get_budget_items() if i['description'] == desc)
+
+
+def test_target_balance_shows_table_then_apply_and_undo(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    iid = _item_id(db, '강사 수당')                          # 예산 1,000 · 집행 200
+    _ai(monkeypatch, lambda p: json.dumps({'answer': '강사 수당 잔액을 300원으로 맞출게요.',
+                                           'set_remaining': [{'item_id': iid, 'remaining': 300}]}, ensure_ascii=False))
+    w.refresh()
+    w._ask('강사 수당 잔액 300원으로 맞춰줘')
+    text = w.lbl_proposal.text()
+    assert not w.ask_proposal.isHidden() and '이렇게 바꿀까요' in text and '실제 집행 내역과 맞는지' in text
+    assert '200' in text and '700' in text                  # 집행액 200 → 700 (앱이 계산)
+    w._apply_spend()
+    assert _spent(db, iid) == 700
+    assert not w.btn_undo_apply.isHidden() and '1개 항목' in w.ask_status.text()
+    w._undo_apply()
+    assert _spent(db, iid) == 200 and w.btn_undo_apply.isHidden()
+
+
+def test_rejected_suggestion_is_grey_and_cannot_be_applied(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    iid = _item_id(db, '강사 수당')
+    _ai(monkeypatch, lambda p: json.dumps({'answer': '잔액을 맞출게요.',
+                                           'set_remaining': [{'item_id': iid, 'remaining': 99999}]}))
+    w.refresh()
+    w._ask('잔액 99999원으로')
+    assert '제외: 강사 수당' in w.lbl_proposal.text() and '예산보다' in w.lbl_proposal.text()
+    assert not w.btn_apply_spend.isEnabled()
+    w._apply_spend()
+    assert _spent(db, iid) == 200
+
+
+def _spent(db, iid):
+    return next(i for i in db.get_budget_items() if i['id'] == iid)['spent']
