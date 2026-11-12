@@ -63,7 +63,7 @@ def test_font_choice_saved_per_window_and_used_by_rows(env):
     assert db.get_window_font(wid) == ''
 
 
-def test_missing_font_falls_back_and_is_disabled_in_menu(env):
+def test_missing_font_falls_back_and_menu_offers_install(env):
     make, db, common = env
     assert not common.note_font_available('malgun')
     assert common.note_family('malgun') == common._pretendard_family()
@@ -74,10 +74,86 @@ def test_missing_font_falls_back_and_is_disabled_in_menu(env):
     memo = [a.menu() for a in m.actions() if a.menu()][0]
     fm = [a.menu() for a in memo.actions() if a.menu() and a.text() == '글꼴'][0]
     acts = {a.text(): a for a in fm.actions()}
-    assert acts['Pretendard'].isEnabled() and acts['리틱체'].isEnabled()
-    assert not acts['맑은 고딕 (이 PC에 설치되지 않음)'].isEnabled()
-    assert not acts['리틱체 Narrow (이 PC에 설치되지 않음)'].isEnabled()
-    assert len(acts) == 4
+    assert len(acts) == 4 and acts['Pretendard'].isEnabled() and acts['리틱체'].isEnabled()
+    assert acts['리틱체 Narrow (설치 필요)'].isEnabled()             # 눌러서 받는 곳 안내
+    assert acts['맑은 고딕 (설치 필요)'].isEnabled()
+
+
+def _fake_dialog(monkeypatch, clicks):
+    """안내 창 버튼을 차례로 누른 것처럼. 누를 때마다 창의 글을 모아 둔다."""
+    from PyQt5.QtWidgets import QDialog, QLabel
+    shown = []
+
+    def exec_(dlg):
+        for name in clicks:
+            if dlg.result() or not hasattr(dlg, '_buttons'):
+                break
+            dlg._buttons[name].click()
+            shown.append(' '.join(lb.text() for lb in dlg.findChildren(QLabel)))
+        return dlg.result()
+    monkeypatch.setattr(QDialog, 'exec_', exec_)
+    return shown
+
+
+def test_missing_font_dialog_opens_official_download_then_checks(env, monkeypatch):
+    make, db, common = env
+    w = make()
+    opened = []
+    from PyQt5.QtGui import QDesktopServices
+    monkeypatch.setattr(QDesktopServices, 'openUrl', lambda url: opened.append(url.toString()) or True)
+    shown = _fake_dialog(monkeypatch, ['받기', '설치 확인', '닫기'])
+    assert w._font_missing('reatic_narrow') is False
+    assert opened and opened[0].startswith('https://www.reaticindustry.com/')
+    assert 'REATIC-Narrow.ttf' in shown[0] and 'REATIC-NarrowBold.ttf' in shown[0]
+    assert '아직 찾지 못했어요' in shown[1]
+    # 이제 설치됐다고 치면 [설치 확인]으로 바로 바뀜
+    fam = common._pretendard_family()
+    monkeypatch.setitem(common._NOTE_SPECS, 'reatic_narrow', (('없는 Narrow', ''), (fam, '')))
+    _fake_dialog(monkeypatch, ['설치 확인'])
+    assert w._font_missing('reatic_narrow') is True
+    assert w._font_key == 'reatic_narrow' and db.get_window_font(w.window_id) == 'reatic_narrow'
+
+
+def test_malgun_missing_has_no_download(env, monkeypatch):
+    make, db, common = env
+    w = make()
+    shown = _fake_dialog(monkeypatch, ['설치 확인'])
+    w._font_missing('malgun')
+    assert '받기' not in w._font_dialog._buttons
+    assert 'Windows 설정' in shown[0] and 'reaticindustry' not in shown[0]
+
+
+def test_font_installed_after_start_is_loaded_from_file(env, monkeypatch, tmp_path):
+    """앱을 켠 뒤 설치한 글꼴: Windows 글꼴 파일을 찾아 앱에 불러와 바로 쓴다."""
+    make, db, common = env
+    import shutil
+    src = os.path.join(common._base_path(), 'assets', 'font', 'Pretendard-Thin.ttf')
+    dst = tmp_path / 'REATIC-Narrow.ttf'
+    shutil.copy(src, dst)
+    from ui import font_detect
+    monkeypatch.setattr(font_detect, 'installed_font_files', lambda: [str(dst), str(tmp_path / 'other.ttf')])
+    calls = []
+    real = common.QFontDatabase.addApplicationFont
+    monkeypatch.setattr(common.QFontDatabase, 'addApplicationFont',
+                        staticmethod(lambda p: calls.append(p) or real(p)))
+    monkeypatch.setitem(common._NOTE_SPECS, 'reatic_narrow', (('없는 Narrow', ''),))
+    common.refresh_installed_fonts()
+    assert not common.note_font_available('reatic_narrow')          # 파일은 불러왔지만 이름이 안 맞음
+    assert calls == [str(dst)]
+    common.refresh_installed_fonts()
+    common.note_font_available('reatic_narrow')
+    assert calls == [str(dst)]                                         # 같은 파일은 한 번만 불러옴
+
+
+def test_find_files_matches_names(tmp_path):
+    from ui import font_detect
+    files = [r'C:\Users\a\AppData\Local\Microsoft\Windows\Fonts\REATIC-Narrow.otf',
+             r'C:\Users\a\AppData\Local\Microsoft\Windows\Fonts\reatic-narrow.ttf',
+             r'C:\Windows\Fonts\REATIC-NarrowBold.ttf', r'C:\Windows\Fonts\malgun.ttf']
+    found = font_detect.find_files(('REATIC-Narrow', 'REATIC-NarrowBold'), files=[f.replace('\\', '/') for f in files])
+    assert found['REATIC-Narrow'].endswith('reatic-narrow.ttf')            # .ttf 먼저
+    assert found['REATIC-NarrowBold'].endswith('REATIC-NarrowBold.ttf')
+    assert font_detect.find_files(('REATIC-Regular',), files=[]) == {}
 
 
 def test_memo_window_font(env):

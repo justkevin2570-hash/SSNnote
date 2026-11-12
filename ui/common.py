@@ -101,6 +101,14 @@ _CURRENT_NOTE_FONT = DEFAULT_NOTE_FONT
 # 같은 pt에서도 글꼴마다 실제 글자 크기가 달라, 한글 높이를 Pretendard에 맞추는 배율
 # (리틱체: 12pt에서 한글 높이 18px ↔ Pretendard 16px → 16/18. Narrow도 높이는 같고 폭만 좁음)
 NOTE_FONT_SCALE = {'reatic': 16 / 18, 'reatic_narrow': 16 / 18}
+# 설치 여부를 파일로도 찾을 글꼴: (꼭 있어야 하는 파일, 있으면 함께 쓰는 굵은 파일)
+NOTE_FONT_FILES = {'reatic': ('REATIC-Regular', 'REATIC-Bold'),
+                   'reatic_narrow': ('REATIC-Narrow', 'REATIC-NarrowBold')}
+# 설치되지 않았을 때 안내할 공식 받는 곳 (재배포 금지 글꼴이라 앱·저장소에 넣지 않고 공식 사이트에서 받게 함)
+REATIC_SITE = 'https://www.reaticindustry.com/'
+REATIC_DOWNLOAD = ('https://www.reaticindustry.com/_files/archives/'
+                   '3ae519_5c5d974ad6304c8eb9d143cd9d8a6479.zip?dn=%EB%A6%AC%ED%8B%B1%EC%B2%B4.zip')
+NOTE_FONT_DOWNLOAD = {'reatic': REATIC_DOWNLOAD, 'reatic_narrow': REATIC_DOWNLOAD}
 
 
 def _pretendard_family():
@@ -110,6 +118,7 @@ def _pretendard_family():
 
 
 _INSTALLED = {}                  # 글꼴 고르기 값 → (설치된 글꼴 이름, 모양) (업무 줄마다 찾지 않게 기억)
+_LOADED_FILES = set()            # 앱이 직접 불러온 글꼴 파일 (앱을 켠 뒤 설치한 글꼴)
 
 
 def refresh_installed_fonts():
@@ -117,16 +126,53 @@ def refresh_installed_fonts():
     _INSTALLED.clear()
 
 
+def _match_spec(key):
+    """Qt 글꼴 목록에서 (글꼴 이름, 모양 이름) 찾기."""
+    cands = _NOTE_SPECS.get(key) or ()
+    if not cands:
+        return ('', '')
+    fdb = QFontDatabase()
+    have = set(fdb.families())
+    for fam, style in cands:
+        if fam not in have:
+            continue
+        styles = fdb.styles(fam)
+        if style and style not in styles:
+            continue
+        if not style and styles and all(st.lower().startswith('narrow') for st in styles):
+            continue                   # 'REATIC'에 Narrow 모양만 있으면 일반 리틱체가 아님
+        return (fam, style)
+    return ('', '')
+
+
+def _load_installed_files(key):
+    """Windows에 설치된 글꼴 파일을 찾아 앱에 불러온다 (앱을 켠 뒤 설치해도 다시 켤 필요 없게). 불러왔으면 True."""
+    stems = NOTE_FONT_FILES.get(key)
+    if not stems:
+        return False
+    try:
+        from .font_detect import find_files
+        found = find_files(stems)
+    except Exception:
+        return False
+    if stems[0] not in found:
+        return False
+    loaded = False
+    for stem in stems:
+        path = found.get(stem)
+        if path and path not in _LOADED_FILES:
+            if QFontDatabase.addApplicationFont(path) != -1:
+                _LOADED_FILES.add(path)
+                loaded = True
+    return loaded
+
+
 def _installed_spec(key):
     """이 PC에 설치된 (글꼴 이름, 모양 이름). 없으면 ('', '')."""
     if key not in _INSTALLED:
-        spec = ('', '')
-        cands = _NOTE_SPECS.get(key) or ()
-        if cands:
-            fdb = QFontDatabase()
-            have = set(fdb.families())
-            spec = next(((fam, style) for fam, style in cands
-                         if fam in have and (not style or style in fdb.styles(fam))), ('', ''))
+        spec = _match_spec(key)
+        if not spec[0] and _load_installed_files(key):
+            spec = _match_spec(key)
         _INSTALLED[key] = spec
     return _INSTALLED[key]
 
