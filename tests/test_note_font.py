@@ -102,3 +102,17 @@ def test_line_height_includes_font_leading():
     import inspect
     from ui import task_row
     assert 'setLeadingIncluded(True)' in inspect.getsource(task_row._AutoHeightEdit._update_height)
+
+
+def test_reatic_size_scaled_to_pretendard(env):
+    """리틱체는 같은 pt에서 글자가 커서 한글 높이를 Pretendard에 맞춰 작게 그린다 (설치 안 됐으면 보정 없음)."""
+    make, db, common = env
+    assert common.note_scale('pretendard') == 1.0
+    assert abs(common.note_scale('reatic') - 16 / 18) < 1e-9          # (테스트에서는 설치된 것으로 침)
+    assert abs(common.note_font(12, 'reatic').pointSizeF() - 12 * 16 / 18) < 0.01
+    assert common.note_scale('malgun') == 1.0                         # 없는 글꼴 → Pretendard로, 보정 없음
+    wid = db.get_first_window_id()
+    db.add_task(wid, '공문 회신', '2026-11-20')
+    w = make()
+    w._set_font('reatic')
+    assert abs(w._task_rows()[0].name_edit.font().pointSizeF() - 12 * 16 / 18) < 0.01

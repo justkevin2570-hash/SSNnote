@@ -91,6 +91,9 @@ NOTE_FONTS = (('pretendard', 'Pretendard'), ('reatic', '리틱체'), ('malgun', 
 DEFAULT_NOTE_FONT = 'pretendard'
 _NOTE_FAMILY_NAMES = {'reatic': ('리틱체', 'REATIC'), 'malgun': ('맑은 고딕', 'Malgun Gothic')}
 _CURRENT_NOTE_FONT = DEFAULT_NOTE_FONT
+# 같은 pt에서도 글꼴마다 실제 글자 크기가 달라, 한글 높이를 Pretendard에 맞추는 배율
+# (리틱체: 12pt에서 한글 높이 18px ↔ Pretendard 16px → 16/18)
+NOTE_FONT_SCALE = {'reatic': 16 / 18}
 
 
 def _pretendard_family():
@@ -136,9 +139,19 @@ def current_note_font() -> str:
     return _CURRENT_NOTE_FONT
 
 
+def note_scale(key=None) -> float:
+    """고른 글꼴의 크기 보정 배율 (그 글꼴이 이 PC에 없어 Pretendard로 그리면 1)."""
+    key = key or _CURRENT_NOTE_FONT
+    if key == 'pretendard' or not _installed_family(key):
+        return 1.0
+    return NOTE_FONT_SCALE.get(key, 1.0)
+
+
 def note_font(size=11, key=None):
-    """업무창·메모장 글자용 QFont (고른 글꼴, 없으면 Pretendard)."""
-    return QFont(note_family(key), size)
+    """업무창·메모장 글자용 QFont (고른 글꼴, 없으면 Pretendard). 글꼴별 크기 보정을 넣는다."""
+    f = QFont(note_family(key))
+    f.setPointSizeF(size * note_scale(key))
+    return f
 
 def mi_icon(codepoint, size=18, color=None):
     """Fluent Icons 코드포인트를 QIcon으로 변환. 색을 안 주면 테마의 기본 아이콘 회색."""
