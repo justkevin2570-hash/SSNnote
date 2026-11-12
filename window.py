@@ -1995,8 +1995,22 @@ class MemoWindow(QMainWindow):
         elif self._ai_chat_usable():
             ai_chat_window.host_shown(self)
 
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        # 다른 앱에 갔다가 돌아와 업무창이 활성화될 때: 열어 둔 AI 대화가 꺼져 있으면 다시 붙인다
+        if e.type() == QEvent.ActivationChange and self.isActiveWindow():
+            try:
+                if self._ai_chat_usable():
+                    ai_chat_window.host_shown(self)
+            except (AttributeError, RuntimeError):         # 아직 만드는 중 · 닫힌 창
+                pass
+
     def hideEvent(self, e):
         super().hideEvent(e)
+        if e.spontaneous():
+            # 윈도우가 숨긴 것(바탕화면 보기 · 다른 앱으로 옮겨 감 등): 업무창이 돌아오면 그대로 보여야 하니
+            # AI 대화 창은 건드리지 않는다. 앱이 직접 숨길 때(접기 · 메모 모드 · 트레이로)만 함께 숨김.
+            return
         ai_chat_window.host_hidden(self)
 
     # ── AI 대화 창 (ui/ai_chat_window.py — 앱 전체에 하나, 업무창 옆에 붙음) ──
