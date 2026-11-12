@@ -275,7 +275,7 @@ def test_ask_disabled_when_ai_off(win, monkeypatch):
     import ai_client
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
     w._apply_import(CATS, 'append')
-    assert not w.ask_input.isEnabled() and 'AI가 꺼져' in w.ask_input.placeholderText()
+    assert not w.ask_send.isEnabled() and w.ask_input.isEnabled() and 'AI가 꺼져' in w.ask_input.placeholderText()
 
 
 # ── 항목 창: Enter는 저장, 저장 왼쪽 · 취소 오른쪽 ──
@@ -505,12 +505,12 @@ def test_ai_button_shows_status_and_follows_changes(win, monkeypatch, tmp_path):
     monkeypatch.setattr(ai_connect, 'load_external_model_name', lambda: 'sonnet')
     ai_connect.turn_off()
     assert w.btn_ai.text() == 'AI 꺼짐 · 연결하기'
-    assert not w.ask_input.isEnabled()
+    assert not w.ask_send.isEnabled()
 
     ai_client.save_ai_mode('claude_code')                     # 다른 창(공문 작성)에서 연결했다고 치고
     ai_connect.notify_changed()
     assert w.btn_ai.text() == 'Claude 구독 · sonnet'
-    assert w.ask_input.isEnabled()
+    assert w.ask_send.isEnabled()
 
     monkeypatch.setattr(ai_connect, 'show_menu', lambda *a, **k: 'none')   # 메뉴에서 [AI 끄기]
     w._ai_menu()
@@ -558,3 +558,17 @@ def test_budget_state_not_saved_before_restore_and_deleted_tab_falls_back(win):
     w2._save_state()                                               # 아직 다 그리기 전: 덮어쓰지 않음
     assert json.load(open(budget._STATE_FILE))['view']['overview_open'] is True
     w2.close()
+
+
+def test_budget_ask_clear_command(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'replace')
+    w._ask_history = [('질문', '답')]
+    w._set_answer('Q. 질문\n\n답')
+    started = []
+    import budget_ai
+    monkeypatch.setattr(budget_ai.BudgetAskWorker, 'start', lambda self: started.append(1))
+    w._ask('/CLEAR ')
+    assert w._ask_history == [] and w.ask_answer.isHidden() and not started
+    w._ask('/모름')
+    assert '모르는 명령' in w.ask_status.text() and not started

@@ -1025,7 +1025,6 @@ class MemoWindow(QMainWindow):
             Command('📌 항상 위에 ' + ('고정 끄기' if on_top else '고정'), self.toggle_always_on_top,
                     'Ctrl+Shift+F', 'pin top 핀'),
             Command('↕️ 메모장 접기/펼치기', self.toggle_shade, 'Ctrl+Shift+R', 'shade fold collapse'),
-            Command('🌙 다크 모드 켜기/끄기', self._toggle_theme, '', 'dark light theme 테마 어둡게 밝게 설정'),
             Command('🛡️ 개인정보 보호 모드 ' + ('끄기' if privacy_enabled() else '켜기'),
                     self._toggle_privacy_mode, '', 'privacy 보안 마스킹 설정'),
             Command('🔑 AI 연결 (API 키)', self._open_ai_settings, '', 'ai api key opencode 오픈코드 claude 클로드 chatgpt 챗지피티 openai 설정'),
@@ -1117,22 +1116,6 @@ class MemoWindow(QMainWindow):
         self._claude_dlg = ClaudeConnectDialog()
         self._claude_dlg.show()
 
-    def _toggle_theme(self):
-        """라이트 ↔ 다크. 화면들이 켤 때 색을 정하므로 다음 실행부터 적용."""
-        from ui.theme import MODE, set_theme
-        from db import get_setting
-        saved = get_setting('theme', MODE)
-        new = 'light' if saved == 'dark' else 'dark'
-        set_theme(new)
-        label = '다크' if new == 'dark' else '라이트'
-        if new == MODE:
-            msg = f'{label} 모드로 되돌렸습니다. 지금 화면 그대로 유지됩니다.'
-        else:
-            msg = (f'{label} 모드로 바꿨습니다.\n\n'
-                   '트레이 아이콘 → 종료 후 서서니 노트를 다시 켜면 적용됩니다.\n'
-                   '(예산 관리·공문 작성 창은 아직 라이트로 표시됩니다)')
-        QMessageBox.information(self, '화면 테마', msg)
-
     def _toggle_privacy_mode(self):
         from school_profile import privacy_enabled, set_privacy_enabled
         set_privacy_enabled(not privacy_enabled())
@@ -1174,12 +1157,9 @@ class MemoWindow(QMainWindow):
             gaps=gaps, gap=self._row_gap, on_gap=done(self._set_row_gap))
 
     def _show_memo_menu(self, btn):
-        """메모장(메모 전용 창)의 「…」 메뉴: 배경색·글자·줄간격 · 다크 모드 · 메모장 삭제 — 이것뿐."""
+        """메모장(메모 전용 창)의 「…」 메뉴: 배경색·글자·줄간격 · 메모장 삭제 — 이것뿐."""
         menu = menu_style.make_menu(self)
         self._style_submenu(menu, with_row_gap=False)
-        from db import get_setting as _gs
-        from ui.theme import MODE as _mode
-        self._menu_add(menu, '다크 모드 (다시 켜면 적용)', self._toggle_theme, checked=_gs('theme', _mode) == 'dark')
         menu.addSeparator()
         self._menu_add(menu, '메모장 삭제', self.delete_memo, icon='ph.trash')
         self._last_menu = menu  # 테스트·디버그용 참조
@@ -1245,10 +1225,7 @@ class MemoWindow(QMainWindow):
         auto_up = updater.auto_enabled()
         add(settings, '자동 업데이트', lambda: updater.set_auto_enabled(not auto_up), checked=auto_up)
         settings.addSeparator()
-        from db import get_setting as _gs
-        from ui.theme import MODE as _mode
         from school_profile import privacy_enabled
-        add(settings, '다크 모드 (다시 켜면 적용)', self._toggle_theme, checked=_gs('theme', _mode) == 'dark')
         add(settings, '개인정보 보호 모드', self._toggle_privacy_mode, checked=privacy_enabled())
         add(settings, 'AI 연결 (API 키)…', self._open_ai_settings, icon='ph.key')
         add(settings, 'Claude 연결…', self._open_claude_connect, icon='ph.link')

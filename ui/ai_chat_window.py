@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineEdi
                              QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from .common import DEFAULT_NOTE_FONT, NOTE_FONTS, TITLE_BAR_HEIGHT, note_font, px
-from .theme import DARK, T, note_color, tc, tct
+from .theme import T, note_color, tc, tct
 
 SIDE_KEY, SIZE_KEY, OPEN_KEY = 'ai_chat_side', 'ai_chat_size', 'ai_chat_open'
 HOST_KEY = 'ai_chat_host'           # 마지막으로 붙어 있던 업무창 id
@@ -31,6 +31,9 @@ GAP = -1                          # 업무창과 1px 겹쳐 테두리 한 줄을
 BORDER = 'rgba(0,0,0,0.4)'        # 업무창 테두리와 같은 색
 LINE_HEIGHT = {0: 135, 5: 155, 10: 175, 15: 195}       # 줄 간격 단계 → AI 답 줄 높이(%)
 GAPS = (('기본', 0), ('넓게', 5), ('더 넓게', 10), ('아주 넓게', 15))
+SAME_AS_NOTE = '='                # 배경색 「업무창과 같게」 ('' = 처음 값 흰색)
+BUBBLE_PAD_V, BUBBLE_PAD_H = 8, 12                     # 내 질문 말풍선 안쪽 여백 (위아래 · 좌우 같게)
+CLEAR_CMDS = ('/clear',)                               # 입력칸 명령: 대화 지우기
 
 
 # ── 붙는 자리 계산 (화면 없이 시험할 수 있게 따로) ─────────────────
@@ -194,7 +197,7 @@ class AiChatWindow(QWidget):
         self.chat = QWidget()
         self.chat.setObjectName('AiChatList')
         self.chat_layout = QVBoxLayout(self.chat)
-        self.chat_layout.setContentsMargins(0, 2, 4, 2)
+        self.chat_layout.setContentsMargins(0, 2, 0, 2)          # 말풍선 오른쪽 끝 = 보내기 버튼 오른쪽 끝
         self.chat_layout.setSpacing(10)
         self.chat_layout.addStretch()
         self.scroll.setWidget(self.chat)
@@ -228,19 +231,7 @@ class AiChatWindow(QWidget):
         self.proposal.hide()
         body.addWidget(self.proposal)
 
-        quick = QHBoxLayout()
-        quick.setSpacing(4)
-        from task_ai import QUICK
-        self.quick_buttons = []
-        for label, q in QUICK:
-            b = QPushButton(label)
-            b.setObjectName('Quick')
-            b.setCursor(Qt.PointingHandCursor)
-            b.clicked.connect(lambda _, q=q: self.ask(q))
-            quick.addWidget(b)
-            self.quick_buttons.append(b)
-        quick.addStretch()
-        body.addLayout(quick)
+        self.quick_buttons = []           # 빠른 질문 버튼은 없앰 (직접 묻기)
 
         row = QHBoxLayout()
         row.setSpacing(6)
@@ -277,22 +268,23 @@ class AiChatWindow(QWidget):
 
     # ── 모양 (배경색·글자·줄간격 · 붙는 자리) ──────────────────────
     def _bg(self):
-        """AI 창 바탕색 (표시색). 고르지 않았으면 붙은 업무창과 같은 색."""
+        """AI 창 바탕색 (표시색). 처음(고르지 않음)은 흰색, 「=」를 고르면 붙은 업무창과 같은 색."""
         c = self.color
-        if not c:
+        if c == SAME_AS_NOTE:
             try:
-                c = getattr(self.host, '_bg_color', '') or ''
+                c = getattr(self.host, '_bg_color', '') or '#FEFFA7'
             except RuntimeError:
-                c = ''
-        return note_color(c or '#FEFFA7')
+                c = '#FEFFA7'
+        return note_color(c) if c else tc('#FFFFFF')
 
     def _apply_style(self):
         bg = self._bg()
-        head_bg = QColor(bg).darker(115).name()           # 업무창 제목줄과 같은 계산
+        # 머리줄: 업무창 제목줄과 같은 계산(바탕보다 진하게). 흰 바탕이면 아주 옅은 회색
+        head_bg = QColor(bg).darker(104 if QColor(bg).lightness() > 250 else 115).name()
         inside = self.side == 'inside'
         ink = tct('#1E293B')
         faint = tct('#64748B')
-        bubble = tc('rgba(0,0,0,0.07)') if not DARK else 'rgba(255,255,255,0.10)'
+        bubble = tc('rgba(0,0,0,0.07)')
         f = note_font(10 * self.scale, self.font_key)
         family = f.family()
         size = f.pointSizeF()
@@ -308,7 +300,7 @@ class AiChatWindow(QWidget):
             QScrollBar::handle:vertical {{ background: {tc('rgba(0,0,0,0.22)')}; border-radius: 3px; min-height: 24px; }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
-            QLabel#UserBubble {{ background: {bubble}; border-radius: 14px; padding: 7px 12px; }}
+            QLabel#UserBubble {{ background: {bubble}; border-radius: 14px; padding: {BUBBLE_PAD_V}px {BUBBLE_PAD_H}px; }}
             QLabel#Faint {{ color: {faint}; font-size: {max(8.0, size - 1):.1f}pt; }}
             QLabel#Error {{ color: {tc('#BE123C')}; }}
             QPushButton {{ background: {tc('rgba(255,255,255,0.55)')}; border: 1px solid {tc('rgba(0,0,0,0.12)')};
@@ -326,7 +318,7 @@ class AiChatWindow(QWidget):
         """)
         self.layout().setContentsMargins(0, 0, 0, 0) if inside else self.layout().setContentsMargins(1, 1, 1, 1)
         self.head.setFixedHeight(px(30) if inside else TITLE_BAR_HEIGHT)   # 바깥: 업무창 제목줄과 같은 높이
-        icon_color = QColor(0, 0, 0, 165) if not DARK else QColor(255, 255, 255, 190)
+        icon_color = QColor(0, 0, 0, 165)
         from .chrome import ai_chat_icon
         self.title_icon.setPixmap(ai_chat_icon(icon_color).pixmap(px(18), px(18)))
         for b in (self.btn_more, self.btn_hide):
@@ -430,6 +422,12 @@ class AiChatWindow(QWidget):
         elif kind == 'note' and w._link:
             lbl.setTextFormat(Qt.RichText)
             lbl.setText(f'{html.escape(text)} <a href="undo">되돌리기</a>')
+        elif kind == 'user':
+            # 말풍선: 줄 높이를 넣으면 늘어난 간격이 글자 아래에만 붙어 글자가 위로 뜬다 → 그냥 글
+            lbl.setTextFormat(Qt.PlainText)
+            lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            lbl.setIndent(0)                   # 기본 들여쓰기(글자 x 반 폭)가 왼쪽에만 붙어 좌우가 어긋남
+            lbl.setText(text)
         else:
             lbl.setTextFormat(Qt.RichText)
             body = html.escape(text).replace('\n', '<br>')
@@ -634,9 +632,9 @@ class AiChatWindow(QWidget):
     def _update_enabled(self):
         busy = self._worker is not None and self._worker.isRunning()
         ready = self._ai_ready()
-        for w in [self.input, self.btn_send] + self.quick_buttons:
-            w.setEnabled(ready and not busy)
-        self.input.setPlaceholderText('AI에게 물어보기 (Enter)' if ready
+        self.input.setEnabled(not busy)               # AI가 꺼져 있어도 /clear는 되게
+        self.btn_send.setEnabled(ready and not busy)
+        self.input.setPlaceholderText('AI에게 물어보기 (Enter) · /clear 대화 지우기' if ready
                                       else 'AI가 꺼져 있어요 — 메뉴 → 설정 → AI 연결에서 연결하세요')
 
     def _on_ai_changed(self):
@@ -646,7 +644,9 @@ class AiChatWindow(QWidget):
             pass
 
     def _clear_chat(self):
+        """대화 지우기 (⋯ → 대화 지우기, 입력칸 /clear): 대화 · 이전 질문 기억 · 넣기 확인 칸."""
         self._history = []
+        self._undo = None
         self._hide_proposal()
         self._show_welcome()
 
@@ -654,6 +654,16 @@ class AiChatWindow(QWidget):
     def ask(self, question):
         q = (question or '').strip()
         if not q or (self._worker is not None and self._worker.isRunning()) or self.host is None:
+            return
+        if q.startswith('/'):                          # 입력칸 명령 (AI에게 보내지 않음)
+            self.input.clear()
+            if q.lower() in CLEAR_CMDS:
+                self._clear_chat()
+            else:
+                self._add_msg('error', f'모르는 명령이에요: {q} — /clear(대화 지우기)만 쓸 수 있어요.')
+            return
+        if not self._ai_ready():
+            self._add_msg('error', 'AI가 꺼져 있어요. 메뉴 → 설정 → AI 연결에서 연결하세요.')
             return
         import task_ai
         tasks, labels = task_ai.task_windows_tasks()

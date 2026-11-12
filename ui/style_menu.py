@@ -11,7 +11,7 @@ from .theme import PALETTE, note_color, tc
 
 TITLE = '배경색·글자·줄간격'
 SIZES = (('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2))
-SAME_AS_NOTE = ''                  # AI 창: 「업무창과 같게」
+SAME_AS_NOTE = '='                 # AI 창: 「업무창과 같게」
 
 
 def color_swatches(menu, current, on_pick, same_as_note=False):
@@ -23,7 +23,11 @@ def color_swatches(menu, current, on_pick, same_as_note=False):
     grid.setHorizontalSpacing(8)
     grid.setVerticalSpacing(8)
     cur = (current or '').upper()
-    items = ([SAME_AS_NOTE] if same_as_note else []) + list(PALETTE)
+    if same_as_note:                     # AI 창: 흰색(처음 값) · 「=」 업무창과 같게 · 메모 색들
+        cur = cur or '#FFFFFF'
+        items = ['#FFFFFF', SAME_AS_NOTE] + [c for c in PALETTE if c.upper() != '#FFFFFF']
+    else:
+        items = list(PALETTE)
     for i, color in enumerate(items):
         cb = QPushButton()
         cb.setFixedSize(24, 24)

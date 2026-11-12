@@ -1132,15 +1132,26 @@ class BudgetWindow(QMainWindow):
     def _update_ask_enabled(self):
         busy = self._ask_worker is not None and self._ask_worker.isRunning()
         ready = self._ai_ready()
-        for w in [self.ask_input, self.ask_send] + self.quick_buttons:
+        for w in [self.ask_send] + self.quick_buttons:
             w.setEnabled(ready and not busy)
+        self.ask_input.setEnabled(not busy)            # AI가 꺼져 있어도 /clear는 되게
         self.ask_input.setPlaceholderText(
-            '예산에 대해 묻거나 지시하세요 — 예: 협의회비 잔액 30만원으로 맞춰줘'
+            '예산에 대해 묻거나 지시하세요 — 예: 협의회비 잔액 30만원으로 맞춰줘 · /clear 대화 지우기'
             if ready else 'AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]를 눌러 연결하면 쓸 수 있어요')
 
     def _ask(self, question):
         q = (question or '').strip()
         if not q or (self._ask_worker is not None and self._ask_worker.isRunning()):
+            return
+        if q.startswith('/'):                          # 입력칸 명령 (AI에게 보내지 않음)
+            self.ask_input.clear()
+            if q.lower() == '/clear':
+                self._clear_ask()
+            else:
+                self.ask_status.setText(f'모르는 명령이에요: {q} — /clear(대화 지우기)만 쓸 수 있어요.')
+            return
+        if not self._ai_ready():
+            self.ask_status.setText('AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]를 눌러 연결하세요.')
             return
         from budget_ai import BudgetAskWorker
         self._ask_q = q
@@ -1173,6 +1184,15 @@ class BudgetWindow(QMainWindow):
     def _on_ask_failed(self, msg):
         self._set_answer(f'Q. {self._ask_q}\n\n⚠ {msg}')
         self.ask_status.setText('')
+
+    def _clear_ask(self):
+        """/clear: 답 칸 · 이전 질문 기억 · 넣기 확인 칸 지우기 (넣은 예산은 그대로)."""
+        self._ask_history = []
+        self._ask_q = ''
+        self._hide_proposal()
+        self.ask_answer.clear()
+        self.ask_answer.hide()
+        self.ask_status.setText('대화를 지웠어요.')
 
     def _set_answer(self, text):
         """답 칸: 글 길이에 맞춰 높이를 정하되 170px까지 (넘으면 스크롤)."""

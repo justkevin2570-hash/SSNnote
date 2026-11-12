@@ -8,6 +8,7 @@ from datetime import date, datetime
 import pytest
 
 import task_ai
+from PyQt5.QtCore import QRect  # noqa: E402
 
 TODAY = date(2026, 11, 12)          # 목요일
 TASKS = [
@@ -220,11 +221,11 @@ def test_ai_off_disables_input(win, monkeypatch, tmp_path):
     ai_connect.turn_off()
     w._toggle_ai_chat()
     c = acw.instance()
-    assert not c.input.isEnabled() and 'AI가 꺼져 있어요' in c.input.placeholderText()
+    assert not c.btn_send.isEnabled() and c.input.isEnabled() and 'AI가 꺼져 있어요' in c.input.placeholderText()
     assert not hasattr(c, 'btn_status')                                # 머리줄에 AI 설정 버튼 없음
     ai_client.save_ai_mode('openai')
     ai_connect.notify_changed()
-    assert c.input.isEnabled()
+    assert c.btn_send.isEnabled()
 
 
 def test_title_bar_ai_button_shows_open_state(win):
@@ -294,7 +295,48 @@ def test_ai_window_style_menu_and_settings_saved(win):
     c.set_gap(10)
     assert (db.get_setting(acw.COLOR_KEY), db.get_setting(acw.SCALE_KEY), db.get_setting(acw.GAP_KEY)) == \
         ('#D6EEFF', '1.1', '10')
-    c.set_color('')                                                    # 업무창과 같게
+    c.set_color('=')                                                   # 업무창과 같게
     w._apply_color('#FFD6E0')
     from ui.theme import note_color
     assert c._bg() == note_color('#FFD6E0')
+    c.set_color('')                                                    # 처음 값: 흰색
+    assert c._bg().upper() == '#FFFFFF'
+
+
+def test_clear_command_and_no_quick_buttons(win, monkeypatch):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    assert c.quick_buttons == []
+    c._add_msg('user', '이번 주 마감?')
+    c._on_done({'answer': '두 개예요', 'changes': [], 'rejected': []}, {})
+    c._history = [('이번 주 마감?', '두 개예요')]
+    started = []
+    monkeypatch.setattr(task_ai.TaskAskWorker, 'start', lambda self: started.append(1))
+    c.ask(' /Clear ')
+    assert [k for k, _ in c.messages()] == ['welcome'] and c._history == [] and not started
+    c.ask('/help')
+    assert c.messages()[-1][0] == 'error' and '모르는 명령' in c.messages()[-1][1] and not started
+
+
+def test_user_bubble_padding_is_even(win):
+    """말풍선 안 글자 둘레 여백: 위=아래, 왼쪽=오른쪽 (±2px)."""
+    w, acw, db, app = win
+    w.resize(340, 700)
+    w._toggle_ai_chat()
+    c = acw.instance()
+    row = c._add_msg('user', '이번 주 마감 알려줘')
+    for _ in range(5):
+        app.processEvents()
+    lbl = row._label
+    img = c.grab(QRect(lbl.mapTo(c, lbl.rect().topLeft()), lbl.size())).toImage()
+    W, H = img.width(), img.height()
+
+    def ink(x, y):
+        p = img.pixelColor(x, y)
+        return p.red() + p.green() + p.blue() < 600
+    ys = [y for y in range(H) if any(ink(x, y) for x in range(W))]
+    xs = [x for x in range(W) if any(ink(x, y) for y in range(H))]
+    assert ys and xs
+    assert abs(ys[0] - (H - 1 - ys[-1])) <= 2
+    assert abs(xs[0] - (W - 1 - xs[-1])) <= 2
