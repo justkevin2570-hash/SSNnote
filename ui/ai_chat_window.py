@@ -179,7 +179,7 @@ class AiChatWindow(QWidget):
         self.title.setObjectName('AiTitle')
         self.btn_more = self._icon('ph.dots-three-bold', '붙는 자리 · 배경색·글자·줄간격 · 대화 지우기')
         self.btn_more.clicked.connect(self._more_menu)
-        self.btn_hide = self._icon('ph.x-bold', '숨기기 (업무창 제목줄의 AI 버튼으로 다시 열기)')
+        self.btn_hide = self._icon('ph.x-bold', '')
         self.btn_hide.clicked.connect(self.hide_by_user)
         self._head_layout = hl
         self._head_mirrored = None

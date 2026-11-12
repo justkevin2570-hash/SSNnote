@@ -1033,11 +1033,10 @@ class MemoWindow(QMainWindow):
             Command('🗂 작성 공문', lambda: self._show_history(1), '', 'document 공문 저장 기록 지난 기록'),
             Command('📌 항상 위에 ' + ('고정 끄기' if on_top else '고정'), self.toggle_always_on_top,
                     'Ctrl+Shift+F', 'pin top 핀'),
-            Command('↕️ 메모장 접기/펼치기', self.toggle_shade, 'Ctrl+Shift+R', 'shade fold collapse'),
+            Command('↕️ 업무창 접기/펼치기', self.toggle_shade, 'Ctrl+Shift+R', 'shade fold collapse'),
             Command('🛡️ 개인정보 보호 모드 ' + ('끄기' if privacy_enabled() else '켜기'),
                     self._toggle_privacy_mode, '', 'privacy 보안 마스킹 설정'),
-            Command('🔑 AI 연결 (API 키)', self._open_ai_settings, '', 'ai api key opencode 오픈코드 claude 클로드 chatgpt 챗지피티 openai 설정'),
-            Command('🤖 Claude 연결', self._open_claude_connect, '', 'claude mcp ai 연결 클로드 설정'),
+            Command('🔑 AI 연결', self._open_ai_settings, '', 'ai api key opencode 오픈코드 claude 클로드 chatgpt 챗지피티 openai 설정'),
             Command('💡 사용 설명서', self.show_help, '', 'help 도움말'),
             Command('⬇️ 업데이트 확인', lambda: updater.check_for_update_manual(self), '', 'update 버전 도움말'),
         ]
@@ -1110,20 +1109,6 @@ class MemoWindow(QMainWindow):
         if editor is not None:
             editor.raise_()
             QTimer.singleShot(250, editor._show_ai_settings_menu)
-
-    def _open_claude_connect(self):
-        """Claude Code / Claude 데스크톱 앱에 서서니 노트 연결 (MCP)."""
-        from ui.claude_connect_dialog import ClaudeConnectDialog
-        old = getattr(self, '_claude_dlg', None)
-        try:
-            if old is not None and old.isVisible():
-                old.raise_()
-                old.activateWindow()
-                return
-        except RuntimeError:
-            pass
-        self._claude_dlg = ClaudeConnectDialog()
-        self._claude_dlg.show()
 
     def _toggle_privacy_mode(self):
         from school_profile import privacy_enabled, set_privacy_enabled
@@ -1236,8 +1221,7 @@ class MemoWindow(QMainWindow):
         settings.addSeparator()
         from school_profile import privacy_enabled
         add(settings, '개인정보 보호 모드', self._toggle_privacy_mode, checked=privacy_enabled())
-        add(settings, 'AI 연결 (API 키)…', self._open_ai_settings, icon='ph.key')
-        add(settings, 'Claude 연결…', self._open_claude_connect, icon='ph.link')
+        add(settings, 'AI 연결', self._open_ai_settings, icon='ph.key')
         settings.addSeparator()
         add(settings, '창 배치 기본값으로…', self._reset_layouts, icon='ph.arrows-counter-clockwise')
 
@@ -1246,11 +1230,11 @@ class MemoWindow(QMainWindow):
         add(help_menu, '사용 설명서', self.show_help, icon='ph.book-open')
         add(help_menu, '업데이트 확인', lambda: updater.check_for_update_manual(self), icon='ph.arrow-clockwise')
 
-        # ── 메모장 삭제 (첫 메모장 제외) ──
+        # ── 업무창 삭제 (첫 업무창 제외) ──
         _all_ids = [w['id'] for w in get_all_windows()]
         if not _all_ids or self.window_id != min(_all_ids):
             menu.addSeparator()
-            add(menu, '메모장 삭제', self.delete_memo, icon='ph.trash')
+            add(menu, '업무창 삭제', self.delete_memo, icon='ph.trash')
 
         self._last_menu = menu  # 테스트·디버그용 참조
         pos = btn.mapToGlobal(btn.rect().bottomLeft())
@@ -1461,8 +1445,9 @@ class MemoWindow(QMainWindow):
 
     def delete_memo(self):
         confirm = QMessageBox(self)
-        confirm.setWindowTitle('메모장 삭제')
-        confirm.setText('이 메모장을 삭제할까요?\n업무 목록도 함께 삭제됩니다.')
+        kind = '메모장' if self._force_memo_mode else '업무창'
+        confirm.setWindowTitle(f'{kind} 삭제')
+        confirm.setText(f'이 {kind}을 삭제할까요?' + ('' if self._force_memo_mode else '\n업무 목록도 함께 삭제됩니다.'))
         confirm.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         confirm.setDefaultButton(QMessageBox.No)
         confirm.setStyleSheet("font-family: 'Malgun Gothic'; font-size: 11pt;")

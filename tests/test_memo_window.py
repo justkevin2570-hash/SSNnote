@@ -86,3 +86,24 @@ def test_memo_font_is_pretendard_and_stays_after_size_change(make):
     for scale, pt in ((1.1, 13), (1.2, 14), (1.0, 12)):         # 글자 크기를 바꿔도 글꼴은 그대로
         w._set_scale(scale)
         assert w.memo_editor.font().family() == want and w.memo_editor.font().pointSize() == pt
+
+
+
+def test_menu_words_match_app(make):
+    """Claude 연결은 메뉴에서 뺐고, 업무창 메뉴는 「업무창」이라 부른다."""
+    import db
+    import window
+    make(False)
+    w = window.MemoWindow(db.create_window(), open_windows=[])     # 둘째 업무창: 삭제 메뉴가 있음
+    try:
+        w.show_menu(w.title_bar.btn_menu)
+        items = _texts(w._last_menu)
+        settings = next(a for a in w._last_menu.actions() if a.text() == '설정').menu()
+        assert 'AI 연결' in _texts(settings)
+        assert not any('Claude' in t for t in _texts(settings))
+        assert '업무창 삭제' in items and '메모장 삭제' not in items
+        titles = [c.title for c in w._palette_commands()]
+        assert '↕️ 업무창 접기/펼치기' in titles and '🔑 AI 연결' in titles
+        assert not any('Claude 연결' in t for t in titles)
+    finally:
+        w.close()
