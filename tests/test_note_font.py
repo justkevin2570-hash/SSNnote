@@ -183,18 +183,83 @@ def test_line_height_includes_font_leading():
     assert 'setLeadingIncluded(True)' in inspect.getsource(task_row._AutoHeightEdit._update_height)
 
 
-def test_reatic_size_scaled_to_pretendard(env):
-    """리틱체는 같은 pt에서 글자가 커서 한글 높이를 Pretendard에 맞춰 작게 그린다 (설치 안 됐으면 보정 없음)."""
+def test_font_size_measured_against_pretendard(env, monkeypatch):
+    """글꼴 배율은 이 PC 글꼴의 한글 상자를 재서 정한다: √(높이 비 × 폭 비), Narrow는 보통 글꼴 배율 그대로."""
     make, db, common = env
     assert common.note_scale('pretendard') == 1.0
-    assert abs(common.note_scale('reatic') - 16 / 18) < 1e-9          # (테스트에서는 설치된 것으로 침)
-    assert abs(common.note_font(12, 'reatic').pointSizeF() - 12 * 16 / 18) < 0.01
-    assert common.note_scale('malgun') == 1.0                         # 없는 글꼴 → Pretendard로, 보정 없음
+    assert abs(common.note_scale('reatic') - 1.0) < 1e-9                # 테스트의 '리틱체'는 Pretendard를 빌려 씀
+    assert common.note_scale('malgun') == 1.0                           # 없는 글꼴 → Pretendard로, 보정 없음
+    pr = common._pretendard_family()
+    boxes = {pr: (16.0, 14.7), 'BIG': (18.0, 18.375)}                   # 리틱체처럼: 높이 18/16, 폭 1.25배
+    monkeypatch.setattr(common, '_hangul_box', lambda fam, style='': boxes[fam])
+    monkeypatch.setitem(common._NOTE_SPECS, 'reatic', (('BIG', ''),))
+    monkeypatch.setattr(common, '_match_spec', lambda key: {'reatic': ('BIG', ''), 'reatic_narrow': ('BIG', 'Narrow')}.get(key, ('', '')))
+    common.refresh_installed_fonts()
+    want = ((16 / 18) * (14.7 / 18.375)) ** 0.5
+    assert abs(common.note_scale('reatic') - want) < 1e-9
+    assert common.note_scale('reatic_narrow') == common.note_scale('reatic')
+    assert abs(common.note_font(12, 'reatic').pointSizeF() - 12 * want) < 0.01
+    boxes['BIG'] = (4.0, 4.0)                                            # 터무니없는 값은 범위 안으로
+    common.refresh_installed_fonts()
+    assert common.note_scale('reatic') == common.NOTE_SCALE_RANGE[1]
+
+
+def _hangul_center_offset(row):
+    """첫 줄 한글 글자 상자 가운데 − 줄 옆 아이콘 칸 가운데 (px)."""
+    from PyQt5.QtGui import QFontMetricsF
+    from ui import task_row
+    ne = row.name_edit
+    r = QFontMetricsF(ne.font()).tightBoundingRect(task_row._HANGUL_SAMPLE)
+    top = (ne._box_h - ne._pitch) / 2
+    center = ne.mapTo(row, ne.rect().topLeft()).y() + top + ne._baseline_in_line(ne._pitch) + (r.top() + r.bottom()) / 2
+    return center - row._line1_h / 2
+
+
+@pytest.mark.parametrize('key', ['pretendard', 'reatic', 'reatic_narrow'])
+def test_rows_same_layout_for_every_font(env, key):
+    """어떤 글꼴이든: 첫 줄 한글이 별·D-day 칸 가운데, 줄 간격·한 줄 높이는 Pretendard와 같음."""
+    make, db, common = env
+    wid = db.get_first_window_id()
+    db.add_task(wid, '협의회 자료 제출', '2026-11-20')
+    db.add_task(wid, '학년 교육과정 운영 계획서 작성하고 결재 올리기 두 줄로 넘어가는지 확인 가나다라', '')
+    w = make()
+    w.resize(360, 420)
+    w.show()
+    base = [(r._line1_h, r.name_edit._pitch, r.height()) for r in w._task_rows()]
+    w._set_font(key)
+    _APP.processEvents()
+    rows = w._task_rows()
+    assert [(r._line1_h, r.name_edit._pitch) for r in rows] == [b[:2] for b in base]
+    assert rows[0].height() == base[0][2]                              # 한 줄 업무 높이 그대로
+    for r in rows:
+        assert abs(_hangul_center_offset(r)) <= 1.0
+    assert rows[1].name_edit._fixed_height >= 2 * rows[1].name_edit._pitch    # 여러 줄도 잘리지 않음
+
+
+def test_real_reatic_if_installed(env):
+    """이 PC에 진짜 리틱체가 있으면: 폭이 넓어 Pretendard보다 작게(0.8~0.87), 세로 가운데도 맞음."""
+    make, db, common = env
+    from PyQt5.QtGui import QFontDatabase
+    if 'REATIC' not in QFontDatabase().families():
+        pytest.skip('리틱체가 설치되어 있지 않음')
+    common._NOTE_SPECS['reatic'] = (('리틱체', ''), ('REATIC', ''))
+    common.refresh_installed_fonts()
+    assert 0.8 < common.note_scale('reatic') < 0.87
+    wid = db.get_first_window_id()
+    db.add_task(wid, '협의회 자료 제출', '2026-11-20')
+    w = make()
+    w._set_font('reatic')
+    assert abs(_hangul_center_offset(w._task_rows()[0])) <= 1.0
+
+
+def test_dday_badge_stays_pretendard(env):
+    make, db, common = env
     wid = db.get_first_window_id()
     db.add_task(wid, '공문 회신', '2026-11-20')
     w = make()
     w._set_font('reatic')
-    assert abs(w._task_rows()[0].name_edit.font().pointSizeF() - 12 * 16 / 18) < 0.01
+    row = w._task_rows()[0]
+    assert row._dday_lbl.font().family() == common._pretendard_family()
 
 
 def test_narrow_is_own_choice_and_bold_uses_narrow_bold(env, monkeypatch):
@@ -211,7 +276,7 @@ def test_narrow_is_own_choice_and_bold_uses_narrow_bold(env, monkeypatch):
     assert common._installed_spec('reatic') == (fam, '')                 # 일반 리틱체는 따로
     f = common.note_font(12, 'reatic_narrow')
     assert f.styleName() == style
-    assert abs(f.pointSizeF() - 12 * 16 / 18) < 0.01
+    assert abs(f.pointSizeF() - 12 * common.note_scale('reatic')) < 0.01      # Narrow = 보통 글꼴 배율
     f2 = common.set_note_bold(common.note_font(12, 'reatic_narrow'))
     assert f2.styleName().endswith('Bold')
     g = common.set_note_bold(common.note_font(12, 'pretendard'))
