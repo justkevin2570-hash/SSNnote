@@ -1987,6 +1987,7 @@ class MemoWindow(QMainWindow):
             try:
                 if self._ai_chat_usable():
                     ai_chat_window.host_shown(self)
+                    ai_chat_window.host_activated(self)    # 옆에 붙은 AI 창도 함께 앞으로
             except (AttributeError, RuntimeError):         # 아직 만드는 중 · 닫힌 창
                 pass
 
