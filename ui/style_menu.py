@@ -81,10 +81,11 @@ def color_swatches(menu, current, on_pick, same_as_note=False):
         items = ['#FFFFFF', SAME_AS_NOTE] + [c for c in PALETTE if c.upper() != '#FFFFFF']
     else:
         items = list(PALETTE)
+    cols = len(items) if len(items) <= 8 else 6    # 8개까지는 한 줄
     for i, color in enumerate(items):
         cb = Swatch(color, chosen=color.upper() == cur)
         cb.clicked.connect(lambda _, c=color: (on_pick(c), menu.close()))
-        grid.addWidget(cb, i // 6, i % 6)
+        grid.addWidget(cb, i // cols, i % cols)
     return w
 
 

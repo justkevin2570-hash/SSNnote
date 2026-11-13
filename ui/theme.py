@@ -76,29 +76,25 @@ class T:
 
 
 # 메모 창 배경 색상표 (메뉴의 색상 선택).
-# 메모 배경색: 밝기를 맞춘 파스텔 — 따뜻한 색 → 차가운 색 → 무채색 순서
-# (v3.11: 같은 색 계열 그대로 흰색 쪽으로 30% 옮겨 더 밝고 차분하게 — 늘 켜 두는 창이라 주변 흰 창과 밝기를 가깝게)
+# 메모 배경색 (v3.14): 밝은 파스텔 6색 + 흰색. 글자색은 모든 바탕에서 같은 한 벌(본문 #333).
 PALETTE_NAMES = {
-    '#FFF8C2': '노랑', '#FFEAC0': '귤', '#FFE4D8': '복숭아', '#FDE2EB': '분홍', '#EBE5FA': '라벤더',
-    '#DFECFC': '하늘', '#DCF4EC': '민트', '#E9F5D3': '연두', '#F3EBDE': '모래', '#EDEDEB': '연회색',
-    '#FFFFFF': '흰색',
+    '#FFF7D1': '노랑', '#E4F9E0': '연두', '#FFE4F1': '분홍', '#F2E6FF': '라벤더', '#E2F1FF': '하늘',
+    '#F3F2F1': '연회색', '#FFFFFF': '흰색',
 }
 PALETTE = list(PALETTE_NAMES)
-DEFAULT_NOTE_COLOR = '#FFF8C2'
+DEFAULT_NOTE_COLOR = '#FFF7D1'
 
 # 예전 색 → 지금 색. db.init_db가 저장된 색을 옮긴다 (몇 번 돌려도 같음).
-#  - v3.06~v3.10 팔레트: 같은 이름의 새 색
-#  - v3.05까지 팔레트: 가장 가까운 색 이름의 새 색
-_V306 = {
-    '#FFF5A5': '#FFF8C2', '#FFE0A3': '#FFEAC0', '#FFD8C8': '#FFE4D8', '#FBD5E3': '#FDE2EB', '#E3DAF7': '#EBE5FA',
-    '#D2E4FA': '#DFECFC', '#CDEFE4': '#DCF4EC', '#E0F0C0': '#E9F5D3', '#EEE3D0': '#F3EBDE', '#E6E6E3': '#EDEDEB',
-}
-_V305 = {
-    '#FEFFA7': '#FFF5A5', '#FDD663': '#FFE0A3', '#CCFF90': '#E0F0C0', '#A8F0E8': '#CDEFE4',
-    '#AECBFA': '#D2E4FA', '#D7AEFB': '#E3DAF7', '#FDCFE8': '#FBD5E3', '#E6C9A8': '#EEE3D0',
-    '#AAAAAA': '#E6E6E3', '#DDDDDD': '#E6E6E3',
-}
-OLD_COLOR_MAP = {**_V306, **{old: _V306[mid] for old, mid in _V305.items()}}
+# 예전 색 이름 → 새 색 이름: 귤→노랑, 민트→연두, 복숭아→분홍, 모래→연회색 (없어진 색은 가장 가까운 색으로)
+_NEW_BY_NAME = {'노랑': '#FFF7D1', '귤': '#FFF7D1', '연두': '#E4F9E0', '민트': '#E4F9E0', '분홍': '#FFE4F1',
+                '복숭아': '#FFE4F1', '라벤더': '#F2E6FF', '하늘': '#E2F1FF', '연회색': '#F3F2F1', '모래': '#F3F2F1'}
+_V311 = {'#FFF8C2': '노랑', '#FFEAC0': '귤', '#FFE4D8': '복숭아', '#FDE2EB': '분홍', '#EBE5FA': '라벤더',
+         '#DFECFC': '하늘', '#DCF4EC': '민트', '#E9F5D3': '연두', '#F3EBDE': '모래', '#EDEDEB': '연회색'}
+_V306 = {'#FFF5A5': '노랑', '#FFE0A3': '귤', '#FFD8C8': '복숭아', '#FBD5E3': '분홍', '#E3DAF7': '라벤더',
+         '#D2E4FA': '하늘', '#CDEFE4': '민트', '#E0F0C0': '연두', '#EEE3D0': '모래', '#E6E6E3': '연회색'}
+_V305 = {'#FEFFA7': '노랑', '#FDD663': '귤', '#CCFF90': '연두', '#A8F0E8': '민트', '#AECBFA': '하늘',
+         '#D7AEFB': '라벤더', '#FDCFE8': '분홍', '#E6C9A8': '모래', '#AAAAAA': '연회색', '#DDDDDD': '연회색'}
+OLD_COLOR_MAP = {old: _NEW_BY_NAME[name] for table in (_V305, _V306, _V311) for old, name in table.items()}
 
 
 # ── 다크 테마 ──────────────────────────────────────────────────
