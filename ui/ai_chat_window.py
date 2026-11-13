@@ -658,6 +658,20 @@ class AiChatWindow(QWidget):
         super().resizeEvent(e)
         self._place_grip()
 
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        # 옆에 붙은 AI 창을 누르면 업무창(합체 묶음 전체)도 함께 앞으로 — 두 창이 한 몸처럼
+        if (e.type() == QEvent.ActivationChange and self.isActiveWindow()
+                and self.side != 'inside' and self.host is not None):
+            try:
+                group = getattr(self.host, '_link_group', None) or {self.host}
+                for m in group:
+                    if m.isVisible():
+                        m.raise_()
+                self.raise_()
+            except RuntimeError:
+                pass
+
     def showEvent(self, e):
         super().showEvent(e)
         self._mark_host(True)
@@ -916,6 +930,16 @@ def host_shown(host):
         auto_open(host)
     elif w.host is host and not w.is_shown():
         w.attach(host, remember=False)
+
+
+def host_activated(host):
+    """업무창을 누르면(활성화) 옆에 붙은 AI 창도 함께 앞으로 (포커스는 업무창에 그대로)."""
+    w = instance(create=False)
+    if w is not None and w.host is host and w.side != 'inside' and w.is_shown():
+        try:
+            w.raise_()
+        except RuntimeError:
+            pass
 
 
 def host_closed(host):

@@ -164,3 +164,24 @@ def test_close_with_x_then_reopen_from_tray_keeps_chat(tmp_path, monkeypatch):
     finally:
         acw.host_closed(b)
         b.close()
+
+
+def test_outside_chat_and_host_come_forward_together(win, monkeypatch):
+    """옆에 붙은 AI 창 ↔ 업무창: 한쪽을 누르면 다른 쪽도 함께 앞으로."""
+    w, c, app = win
+    from PyQt5.QtCore import QEvent
+    c.set_side('right')
+    raised = []
+    monkeypatch.setattr(type(c), 'raise_', lambda self: raised.append('chat'))
+    monkeypatch.setattr(type(w), 'raise_', lambda self: raised.append('host'))
+    monkeypatch.setattr(type(w), 'isActiveWindow', lambda self: True)
+    w.changeEvent(QEvent(QEvent.ActivationChange))            # 업무창을 누름
+    assert 'chat' in raised
+    raised.clear()
+    monkeypatch.setattr(type(c), 'isActiveWindow', lambda self: True)
+    c.changeEvent(QEvent(QEvent.ActivationChange))            # AI 창을 누름
+    assert raised[:1] == ['host']
+    c.set_side('inside')                                       # 안에 넣었으면 할 일 없음
+    raised.clear()
+    w.changeEvent(QEvent(QEvent.ActivationChange))
+    assert raised == []
