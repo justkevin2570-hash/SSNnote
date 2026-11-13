@@ -22,8 +22,9 @@ VIEW, CHANGE, DELETE = 'view', 'change', 'delete'
 TEXT_MAX = 2000                      # 메모·업무 메모 글 한도
 
 from ui.theme import PALETTE_NAMES as COLOR_NAMES          # hex → 이름
-COLOR_ALIASES = {'노란색': '노랑', '진노랑': '귤', '주황': '귤', '살구': '복숭아', '보라': '라벤더', '파랑': '하늘',
-                 '초록': '연두', '베이지': '모래', '갈색': '모래', '회색': '연회색', '하얀색': '흰색'}
+COLOR_ALIASES = {'노란색': '노랑', '진노랑': '노랑', '주황': '노랑', '귤': '노랑', '살구': '분홍', '복숭아': '분홍',
+                 '보라': '라벤더', '파랑': '하늘', '초록': '연두', '민트': '연두', '베이지': '연회색', '갈색': '연회색',
+                 '모래': '연회색', '회색': '연회색', '하얀색': '흰색'}
 FONT_KEYS = {'pretendard': 'Pretendard', 'reatic': '리틱체', 'reatic_narrow': '리틱체 Narrow', 'malgun': '맑은 고딕'}
 SIZE_VALUES = {'기본': 1.0, '크게': 1.1, '더 크게': 1.2}
 GAP_VALUES = (0, 5, 10, 15)
