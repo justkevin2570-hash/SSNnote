@@ -140,3 +140,27 @@ def test_restart_respects_user_closed(tmp_path, monkeypatch):
         assert acw.instance(create=False) is None
     finally:
         w.close()
+
+
+def test_close_with_x_then_reopen_from_tray_keeps_chat(tmp_path, monkeypatch):
+    """제목줄 ✕로 업무창을 닫고(앱은 트레이에 남음) 다시 열면 AI 대화도 다시 열린다."""
+    db, acw = _fresh(monkeypatch, tmp_path)
+    import window
+    wid = db.get_first_window_id()
+    a = window.MemoWindow(wid, open_windows=[])
+    a._open_windows.append(a)
+    a.show()
+    a._auto_open_ai_chat()
+    c = acw.instance(create=False)
+    assert c is not None and c.is_shown()
+    a.close()                                          # ✕: AI 창은 떼어 내 숨김 (열림 설정은 그대로)
+    assert c.host is None and not c.is_shown()
+    b = window.MemoWindow(wid, open_windows=[])        # 트레이에서 다시 열기
+    b._open_windows.append(b)
+    b.show()
+    try:
+        b._auto_open_ai_chat()
+        assert c.host is b and c.is_shown()
+    finally:
+        acw.host_closed(b)
+        b.close()
