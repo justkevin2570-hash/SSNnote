@@ -319,6 +319,31 @@ def get_tasks_by_date(date_str: str):
         return [dict(r) for r in rows]
 
 
+def get_calendar_items(date_str: str):
+    """달력에 보일 그날 업무: 지금 업무(_source='tasks') 다음에 업무 목록에서 지운 업무(_source='history', 회색)."""
+    items = [dict(t, _source='tasks') for t in get_tasks_by_date(date_str)]
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT h.id, h.window_id, h.name, h.deadline, h.strikethrough, h.priority, h.recurrence,
+                      h.notes, h.related_no, COALESCE(w.color, '') AS color
+               FROM task_history h LEFT JOIN windows w ON h.window_id = w.id
+               WHERE h.deadline LIKE ? AND h.deadline != ''
+               ORDER BY h.deadline ASC, h.id ASC""",
+            (date_str + '%',)
+        ).fetchall()
+    return items + [dict(r, _source='history') for r in rows]
+
+
+def get_calendar_dates():
+    """업무(지금 + 지운 업무)가 하나라도 있는 날짜들 (YYYY-MM-DD)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT SUBSTR(deadline, 1, 10) AS d FROM tasks WHERE deadline != ''
+               UNION SELECT SUBSTR(deadline, 1, 10) FROM task_history WHERE deadline != ''"""
+        ).fetchall()
+    return [r['d'] for r in rows]
+
+
 def get_all_task_history():
     with _connect() as conn:
         rows = conn.execute(
