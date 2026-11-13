@@ -8,7 +8,7 @@ from datetime import date, datetime
 import pytest
 
 import task_ai
-from PyQt5.QtCore import QRect  # noqa: E402
+from PyQt5.QtCore import QRect, Qt  # noqa: E402
 
 TODAY = date(2026, 11, 12)          # 목요일
 TASKS = [
@@ -395,3 +395,37 @@ def test_user_bubble_padding_is_even(win):
     assert ys and xs
     assert abs(ys[0] - (H - 1 - ys[-1])) <= 2
     assert abs(xs[0] - (W - 1 - xs[-1])) <= 2
+
+
+def test_left_edge_drag_uses_system_resize_and_keeps_contact(win, monkeypatch):
+    """왼쪽에 붙은 AI 창의 왼쪽 가장자리를 끌면 Windows가 직접 크기를 바꾼다 (맞닿은 쪽이 떨어졌다 붙었다 하지 않게).
+    끝나면 폭을 기억하고 업무창 옆에 그대로 붙어 있다."""
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    c.set_side('left')
+    app.processEvents()
+    started = []
+    monkeypatch.setattr(acw.sys, 'platform', 'win32')
+    monkeypatch.setattr(type(c.windowHandle()), 'startSystemResize', lambda self, edge: started.append(edge) or True)
+    from PyQt5.QtCore import QPoint, QEvent
+    from PyQt5.QtGui import QMouseEvent
+    press = QMouseEvent(QEvent.MouseButtonPress, QPoint(1, 5), c.grip.mapToGlobal(QPoint(1, 5)), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+    c.grip.mousePressEvent(press)
+    assert started == [Qt.LeftEdge] and c._sys_resizing and c.grip._start is None
+    right = c.geometry().right()
+    c.setGeometry(c.x() - 80, c.y(), c.width() + 80, c.height())       # Windows가 왼쪽 가장자리만 옮김
+    app.processEvents()
+    assert c.dock_size == c.width()
+    c._end_system_resize()
+    assert not c._sys_resizing and c.geometry().right() == right == w.frameGeometry().left()
+    assert db.get_setting(acw.SIZE_KEY + '_left') == str(c.dock_size)
+
+
+def test_left_edge_drag_falls_back_off_windows(win):
+    w, acw, db, app = win
+    w._toggle_ai_chat()
+    c = acw.instance()
+    c.set_side('left')
+    assert not c.start_system_resize(Qt.LeftEdge)          # 이 테스트 환경(리눅스)에서는 앱이 직접 바꿈
+    assert not c._sys_resizing
