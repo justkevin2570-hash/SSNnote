@@ -11,7 +11,7 @@ MODULES = ['db', 'dashboard', 'doc_ai', 'doc_style', 'budget_image', 'budget_typ
            'ai_client', 'updater', 'capture', 'window', 'document_editor', 'budget', 'selfcheck',
            'ui.common', 'ui.theme', 'ui.widgets', 'ui.dialogs', 'ui.chrome', 'ui.task_row', 'ui.document_row',
            'ui.calendar_view', 'ui.capture_panel', 'ui.dashboard_dialog',
-           'ui.command_palette', 'ui.claude_connect_dialog']
+           'ui.command_palette']
 
 
 @pytest.fixture(autouse=True)

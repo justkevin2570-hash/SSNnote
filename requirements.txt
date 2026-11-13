@@ -17,4 +17,3 @@ winrt-Windows.Globalization==3.2.1
 winrt-Windows.Graphics.Imaging==3.2.1
 winrt-Windows.Media.Ocr==3.2.1
 winrt-Windows.Storage.Streams==3.2.1
-mcp>=2.3,<3   # Claude 연결 프로그램(SSNnote_MCP.exe) — Python 3.10 이상

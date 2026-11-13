@@ -381,7 +381,7 @@ if __name__ == '__main__':
 
     QTimer.singleShot(1500, _show_dashboard_on_start)
 
-    # ── 외부 변경 감지: Claude(MCP 서버)가 업무를 추가·수정하면 열린 창을 다시 그림 ──
+    # ── 외부 변경 감지: 다른 프로그램이 DB의 업무를 추가·수정하면 열린 창을 다시 그림 ──
     from db import get_setting as _get_setting
     _last_external = [_get_setting('external_change', '')]
 
@@ -549,14 +549,14 @@ if __name__ == '__main__':
     app.commitDataRequest.connect(lambda *_: _session_ending.__setitem__(0, True))
     app.aboutToQuit.connect(lambda: None if _session_ending[0] else updater.install_on_quit())
 
-    # 설치 위치가 바뀌었으면(사용자 폴더로 옮김 등) Claude 연결 경로도 새 위치로
-    def _refresh_claude_paths():
+    # 예전 「Claude 연결」이 Claude 앱에 남긴 ssnnote 커넥터 등록 지우기 (「커넥터 실행이 중지되었습니다」 알림 방지)
+    def _cleanup_claude_connector():
         try:
             import claude_connect
-            claude_connect.refresh_registrations()
+            claude_connect.cleanup_old_connector()
         except Exception as e:
-            print(f'[claude] 연결 경로 갱신 실패: {e}')
-    threading.Thread(target=_refresh_claude_paths, daemon=True).start()
+            print(f'[claude] 예전 커넥터 등록 지우기 실패: {e}')
+    threading.Thread(target=_cleanup_claude_connector, daemon=True).start()
 
     threading.Thread(
         target=updater.check_for_update_on_startup,
