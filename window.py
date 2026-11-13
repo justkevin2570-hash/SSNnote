@@ -290,7 +290,7 @@ class MemoWindow(QMainWindow):
         _bottom_panel = QWidget()
         _bottom_panel.setStyleSheet('background: transparent;')
         bottom_layout = QHBoxLayout(_bottom_panel)
-        bottom_layout.setContentsMargins(8, 7, 8, 8)
+        bottom_layout.setContentsMargins(8, 7, 8, 7)          # 위아래 같은 여백 → 버튼이 줄 한가운데
         bottom_layout.setSpacing(6)
 
         # 세 버튼 모두 같은 모양 (아이콘 + 글자, 은은한 바탕) — 진한 색은 쓰지 않는다
@@ -299,13 +299,14 @@ class MemoWindow(QMainWindow):
                 background: {tc("rgba(255,255,255,0.45)")};
                 border: 1px solid {tc("rgba(0,0,0,0.08)")};
                 border-radius: 8px;
-                padding: 6px 10px;
+                padding: 0 10px;
                 color: {T.TEXT_ON_NOTE};
             }}
             QPushButton:hover {{ background: {tc("rgba(255,255,255,0.75)")}; border-color: {tc("rgba(0,0,0,0.14)")}; }}
             QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.06)")}; }}
         """
-        _btn_font = QFont('Pretendard GOV', 10)
+        _btn_font = QFont('Pretendard GOV', 11)
+        BOTTOM_BTN_H = px(35)        # 아래 줄 버튼 높이 (네 버튼 모두 같게) — 예전 글자 버튼(32)보다 4 크게
         _btn_font.setFamilies(['Pretendard GOV', 'Pretendard', 'Malgun Gothic'])
         _btn_font.setWeight(QFont.DemiBold)
         _btn_icon = qcolor('#000000', 165)
@@ -315,7 +316,8 @@ class MemoWindow(QMainWindow):
             b.setFont(_btn_font)
             b.setStyleSheet(_btn_style)
             b.setIcon(qta.icon(icon, color=_btn_icon))
-            b.setIconSize(QSize(px(15), px(15)))
+            b.setIconSize(QSize(px(17), px(17)))
+            b.setFixedHeight(BOTTOM_BTN_H)
             b.setCursor(Qt.PointingHandCursor)
             b.setToolTip(tip)
             b.clicked.connect(slot)
@@ -331,11 +333,11 @@ class MemoWindow(QMainWindow):
         self.btn_ai_bottom = _bottom_button('', 'ph.chat-circle-dots-bold', self._toggle_ai_chat, 'AI 대화 열기')
         self.btn_ai_bottom.setObjectName('btn_ai_bottom')
         self.btn_ai_bottom.setIcon(ai_chat_icon(_btn_icon))           # 말풍선 안에 「AI」 (글자 없이)
-        self.btn_ai_bottom.setIconSize(QSize(px(20), px(20)))
+        self.btn_ai_bottom.setIconSize(QSize(px(22), px(22)))
         self.btn_ai_bottom.setStyleSheet(_btn_style + f"""
             QPushButton[active="true"] {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.18)")}; }}
         """)
-        self.btn_ai_bottom.setFixedWidth(px(48))          # 글자 없는 버튼은 좁게
+        self.btn_ai_bottom.setFixedWidth(px(52))          # 글자 없는 버튼은 좁게
 
         # 기존 capture 메서드 호환용 더미 위젯 (숨김)
         self.lbl_capture_result = QLabel('')

@@ -107,3 +107,18 @@ def test_menu_words_match_app(make):
         assert not any('Claude 연결' in t for t in titles)
     finally:
         w.close()
+
+
+def test_bottom_buttons_same_height_and_row(make):
+    """아래 줄 달력 · 공문 · 예산 · AI 버튼은 높이와 위쪽 끝이 같다."""
+    from PyQt5.QtWidgets import QApplication, QPushButton
+    w = make(False)
+    w.resize(340, 420)
+    w.show()
+    QApplication.processEvents()
+    bar = w.btn_ai_bottom.parentWidget()
+    btns = [b for b in bar.findChildren(QPushButton) if b.isVisible()]
+    assert len(btns) == 4
+    assert len({b.height() for b in btns}) == 1 and len({b.y() for b in btns}) == 1
+    top = btns[0].y()
+    assert bar.height() - (top + btns[0].height()) == top          # 위아래 여백 같게
