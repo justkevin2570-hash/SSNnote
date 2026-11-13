@@ -10,6 +10,7 @@
 """
 import html
 import re
+import sys
 
 import qtawesome as qta
 from PyQt5.QtCore import QEvent, QRect, QSize, Qt
@@ -106,8 +107,14 @@ class _EdgeGrip(QWidget):
         self.setCursor(Qt.SizeVerCursor if where in ('bottom', 'top') else Qt.SizeHorCursor)
 
     def mousePressEvent(self, e):
-        if e.button() == Qt.LeftButton:
-            self._start = (e.globalPos(), self._win.dock_size)
+        if e.button() != Qt.LeftButton:
+            return
+        # 왼쪽에 붙었을 때(왼쪽 가장자리를 끌 때)는 Windows가 직접 크기를 바꾸게 한다.
+        # 앱이 위치·폭을 함께 바꾸면 화면에 두 번 나눠 그려져, 업무창과 맞닿은 오른쪽 가장자리가
+        # 떨어졌다 붙었다 깜빡인다. 시스템 크기 조절은 반대쪽(맞닿은 쪽) 가장자리를 고정한 채 바꾼다.
+        if self._where == 'left' and self._win.start_system_resize(Qt.LeftEdge):
+            return
+        self._start = (e.globalPos(), self._win.dock_size)
 
     def mouseMoveEvent(self, e):
         if not self._start:
@@ -130,6 +137,7 @@ class AiChatWindow(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)     # 업무창 안에 넣어도 바탕색이 칠해지게
         self.setObjectName('AiChat')
         self.host = None
+        self._sys_resizing = False         # Windows 자체 크기 조절 중 (왼쪽 가장자리 끌기)
         self.side = saved_side()
         self.dock_size = self._saved_size(self.side)
         self._where = self.side
@@ -656,7 +664,47 @@ class AiChatWindow(QWidget):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        if self._sys_resizing:
+            self.dock_size = self.width()            # Windows가 바꾸는 중인 폭을 그대로 기억
         self._place_grip()
+
+    def start_system_resize(self, edge):
+        """Windows 자체 크기 조절 시작 (맞닿은 쪽 가장자리 고정). 안 되면 False → 앱이 직접 바꿈."""
+        if sys.platform != 'win32':
+            return False
+        handle = self.windowHandle()
+        if handle is None or self.side not in ('left', 'right'):
+            return False
+        geo = QApplication.primaryScreen().availableGeometry()
+        self.setMinimumWidth(MIN_SIZE[self.side])
+        self.setMaximumWidth(max(MIN_SIZE[self.side], geo.width() // 2))
+        self._sys_resizing = True
+        if not handle.startSystemResize(edge):
+            self._end_system_resize(save=False)
+            return False
+        return True
+
+    def _end_system_resize(self, save=True):
+        if not self._sys_resizing:
+            return
+        self._sys_resizing = False
+        self.setMinimumWidth(0)
+        self.setMaximumWidth(16777215)
+        self.set_dock_size(self.width())             # 범위 맞추고 업무창 옆에 다시 정렬
+        if save:
+            _save(SIZE_KEY + '_' + self.side, self.dock_size)
+
+    def nativeEvent(self, event_type, message):
+        # Windows 크기 조절이 끝나면(WM_EXITSIZEMOVE) 폭을 저장
+        if self._sys_resizing and event_type == b'windows_generic_MSG':
+            try:
+                import ctypes.wintypes
+                msg = ctypes.wintypes.MSG.from_address(int(message))
+                if msg.message == 0x0232:
+                    self._end_system_resize()
+            except Exception:
+                self._end_system_resize()
+        return super().nativeEvent(event_type, message)
 
     def changeEvent(self, e):
         super().changeEvent(e)
