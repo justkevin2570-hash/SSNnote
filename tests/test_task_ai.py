@@ -170,10 +170,14 @@ def win(tdb, tmp_path, monkeypatch):
     w.close()
 
 
-def test_inside_is_default_and_sits_under_task_list(win):
+def test_right_is_default_and_inside_sits_under_task_list(win):
     w, acw, db, app = win
     w._toggle_ai_chat()
     c = acw.instance()
+    assert acw.DEFAULT_SIDE == 'right'
+    assert c.side == 'right' and c.parent() is None and c.isVisible()        # 처음엔 업무창 오른쪽
+    assert c.geometry().x() == w.frameGeometry().right()
+    c.set_side('inside')
     assert c.side == 'inside' and c.parent() is w.ai_slot and c.is_shown()
     assert w.list_split.indexOf(w.ai_slot) == 1                        # 업무 목록 아래
     w.toggle_shade()
@@ -206,6 +210,7 @@ def test_toggle_attach_follow_and_remember(win):
     w, acw, db, app = win
     w._toggle_ai_chat()
     c = acw.instance()
+    c.set_side('inside')
     c.set_side('right')                                                # 사용자가 바꾸면 기억
     assert db.get_setting(acw.SIDE_KEY) == 'right' and c.parent() is None and w.ai_slot.isHidden()
     assert c.isVisible() and c.host is w and db.get_setting(acw.OPEN_KEY) == '1'
@@ -304,7 +309,7 @@ def test_ai_chat_remembers_host_window(win):
     acw._real_auto_open(w2)             # 기억한 창(w2) 옆에 붙음
     assert acw.instance(create=False).host is w2
     acw.reset_layout()
-    assert db.get_setting(acw.SIDE_KEY) == 'inside'
+    assert db.get_setting(acw.SIDE_KEY) == 'right'
     w2.close()
 
 

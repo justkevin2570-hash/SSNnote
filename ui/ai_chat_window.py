@@ -26,7 +26,7 @@ HOST_KEY = 'ai_chat_host'           # 마지막으로 붙어 있던 업무창 id
 COLOR_KEY, FONT_KEY, SCALE_KEY, GAP_KEY = 'ai_chat_color', 'ai_chat_font', 'ai_chat_scale', 'ai_chat_gap'
 SIDES = (('inside', '업무창 안에 넣기'), ('left', '왼쪽에 붙이기'), ('right', '오른쪽에 붙이기'),
          ('bottom', '아래쪽에 붙이기'))
-DEFAULT_SIDE = 'inside'
+DEFAULT_SIDE = 'right'             # 처음 켤 때: 업무창 오른쪽에 붙임
 DEFAULT_SIZE = {'left': 320, 'right': 320, 'bottom': 300, 'inside': 320}
 MIN_SIZE = {'left': 240, 'right': 240, 'bottom': 220, 'inside': 220}
 GAP = -1                          # 업무창과 1px 겹쳐 테두리 한 줄을 함께 씀

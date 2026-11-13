@@ -223,7 +223,7 @@ def test_settings_and_chat_actions(env, monkeypatch):
     assert alarm['m'] == 60 and calls == [False]
     assert env['chat'].side == 'right' and env['chat'].color == '#DFECFC' and env['chat'].scale == 1.1
     ai_actions.undo(j, app)
-    assert alarm['m'] == 180 and calls == [False, True] and env['chat'].side == 'inside' and env['chat'].color == ''
+    assert alarm['m'] == 180 and calls == [False, True] and env['chat'].side == 'right' and env['chat'].color == ''
 
 
 def test_prompt_has_catalog_and_state(env):
