@@ -31,7 +31,7 @@ REPEATS = {'none': '반복 없음', 'weekly': '매주', 'biweekly': '격주', 'm
 OPEN_TARGETS = {'calendar': '달력', 'dashboard': '오늘 한눈에 보기', 'history': '지난 기록(지난 업무)',
                 'documents': '지난 기록(작성 공문)', 'document': '공문 작성', 'budget': '예산 관리'}
 ALARM_MINUTES = (0, 30, 60, 180)
-CHAT_SIDES = {'inside': '업무창 안', 'right': '오른쪽', 'bottom': '아래쪽'}
+CHAT_SIDES = {'inside': '업무창 안', 'left': '왼쪽', 'right': '오른쪽', 'bottom': '아래쪽'}
 
 
 class Reject(Exception):
@@ -1047,13 +1047,14 @@ class SettingsAutostart:
         app.set_autostart(not on)
 
 
-@action('chat.side', CHANGE, 'chat.side {side: inside(업무창 안)|right|bottom} — AI 대화 붙는 자리')
+@action('chat.side', CHANGE, 'chat.side {side: inside(업무창 안)|left|right|bottom} — AI 대화 붙는 자리')
 class ChatSide:
     @staticmethod
     def check(p, ctx):
         s = str(p.get('side') or '').strip().lower()
+        s = {v: k for k, v in CHAT_SIDES.items()}.get(s, s)        # 「왼쪽」처럼 우리말로 와도
         if s not in CHAT_SIDES:
-            raise Reject('AI 대화 자리는 업무창 안·오른쪽·아래쪽 중 하나예요')
+            raise Reject('AI 대화 자리는 업무창 안·왼쪽·오른쪽·아래쪽 중 하나예요')
         if s == ctx['chat'].get('side'):
             raise Skip()
         return {'side': s}, f'AI 대화를 {CHAT_SIDES[s]}에'

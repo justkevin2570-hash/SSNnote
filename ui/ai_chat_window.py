@@ -24,10 +24,11 @@ from .theme import DEFAULT_NOTE_COLOR, T, note_color, tc, tct
 SIDE_KEY, SIZE_KEY, OPEN_KEY = 'ai_chat_side', 'ai_chat_size', 'ai_chat_open'
 HOST_KEY = 'ai_chat_host'           # 마지막으로 붙어 있던 업무창 id
 COLOR_KEY, FONT_KEY, SCALE_KEY, GAP_KEY = 'ai_chat_color', 'ai_chat_font', 'ai_chat_scale', 'ai_chat_gap'
-SIDES = (('inside', '업무창 안에 넣기'), ('right', '오른쪽에 붙이기'), ('bottom', '아래쪽에 붙이기'))
+SIDES = (('inside', '업무창 안에 넣기'), ('left', '왼쪽에 붙이기'), ('right', '오른쪽에 붙이기'),
+         ('bottom', '아래쪽에 붙이기'))
 DEFAULT_SIDE = 'inside'
-DEFAULT_SIZE = {'right': 320, 'bottom': 300, 'inside': 320}
-MIN_SIZE = {'right': 240, 'bottom': 220, 'inside': 220}
+DEFAULT_SIZE = {'left': 320, 'right': 320, 'bottom': 300, 'inside': 320}
+MIN_SIZE = {'left': 240, 'right': 240, 'bottom': 220, 'inside': 220}
 GAP = -1                          # 업무창과 1px 겹쳐 테두리 한 줄을 함께 씀
 BORDER = 'rgba(0,0,0,0.4)'        # 업무창 테두리와 같은 색
 LINE_HEIGHT = {0: 135, 5: 155, 10: 175, 15: 195}       # 줄 간격 단계 → AI 답 줄 높이(%)
@@ -38,22 +39,14 @@ CLEAR_CMDS = ('/clear',)                               # 입력칸 명령: 대�
 
 
 # ── 붙는 자리 계산 (화면 없이 시험할 수 있게 따로) ─────────────────
-def dock_rect(host: QRect, side: str, size: int, screen: QRect) -> tuple:
-    """업무창(host) 옆 AI 창 자리 → (QRect, 실제로 붙은 쪽). 자리가 없으면 반대쪽(left/top)에 붙인다.
-    1px 겹쳐 붙여 맞닿은 테두리가 한 줄로 보이게 한다."""
+def dock_rect(host: QRect, side: str, size: int, screen: QRect = None) -> tuple:
+    """업무창(host) 옆 AI 창 자리 → (QRect, 붙은 쪽). 고른 쪽에만 붙는다 — 화면 끝이면 일반 창처럼
+    일부가 화면 밖으로 나간다 (반대쪽으로 넘어가지 않음). 1px 겹쳐 맞닿은 테두리가 한 줄로 보이게 한다."""
     if side == 'bottom':
-        h = size
-        y = host.bottom() + 1 + GAP
-        where = 'bottom'
-        if y + h - 1 > screen.bottom() and host.top() - GAP - h >= screen.top():
-            y, where = host.top() - GAP - h, 'top'
-        return QRect(host.left(), y, host.width(), h), where
-    w = size
-    x = host.right() + 1 + GAP
-    where = 'right'
-    if x + w - 1 > screen.right() and host.left() - GAP - w >= screen.left():
-        x, where = host.left() - GAP - w, 'left'
-    return QRect(x, host.top(), w, host.height()), where
+        return QRect(host.left(), host.bottom() + 1 + GAP, host.width(), size), 'bottom'
+    if side == 'left':
+        return QRect(host.left() - GAP - size, host.top(), size, host.height()), 'left'
+    return QRect(host.right() + 1 + GAP, host.top(), size, host.height()), 'right'
 
 
 def answer_html(text: str, line_height: int = 135) -> str:
@@ -559,7 +552,7 @@ class AiChatWindow(QWidget):
 
     def set_dock_size(self, size):
         geo = QApplication.primaryScreen().availableGeometry()
-        limit = geo.width() // 2 if self.side == 'right' else geo.height() // 2
+        limit = geo.width() // 2 if self.side in ('left', 'right') else geo.height() // 2
         self.dock_size = max(MIN_SIZE[self.side], min(int(size), max(MIN_SIZE[self.side], limit)))
         self.follow()
 
@@ -914,9 +907,14 @@ def host_hidden(host):
 
 
 def host_shown(host):
-    """업무창이 다시 보이면, 열려 있던 AI 창도 다시 붙인다."""
+    """업무창이 다시 보이거나 활성화되면, 열려 있던 AI 창도 다시 붙인다.
+    앱을 켤 때 못 붙었으면(창이 늦게 뜸 · 접혀 있다 펼침) 여기서 처음으로 붙인다."""
+    if not saved_open():
+        return
     w = instance(create=False)
-    if w is not None and w.host is host and saved_open() and not w.is_shown():
+    if w is None or w.host is None:
+        auto_open(host)
+    elif w.host is host and not w.is_shown():
         w.attach(host, remember=False)
 
 
@@ -926,8 +924,16 @@ def host_closed(host):
         w.detach()
 
 
+def _usable(win):
+    try:
+        return (win.isVisible() and not getattr(win, '_deleted', False)
+                and bool(getattr(win, '_ai_chat_usable', lambda: False)()))
+    except RuntimeError:
+        return False
+
+
 def _saved_host_alive(host):
-    """기억한 업무창이 아직 있고 펼쳐진 업무창(메모장 아님)인지 → 그 id, 아니면 None."""
+    """기억한 업무창이 지금 떠 있고 AI를 붙일 수 있는 업무창(메모장 · 접힘 · 메모 모드 아님)이면 그 id."""
     try:
         wid = int(_setting(HOST_KEY, '') or 0)
     except ValueError:
@@ -935,11 +941,18 @@ def _saved_host_alive(host):
     if not wid:
         return None
     try:
-        from db import get_all_windows
-        alive = {w['id'] for w in get_all_windows() if not w.get('memo_mode') and not w.get('collapsed')}
-    except Exception:
-        return None
-    return wid if wid in alive else None
+        wins = list(getattr(host, '_open_windows', None) or [])
+    except RuntimeError:
+        wins = []
+    if not wins:
+        wins = [t for t in QApplication.topLevelWidgets() if type(t).__name__ == 'MemoWindow']
+    for win in wins:
+        try:
+            if win.window_id == wid and _usable(win):
+                return wid
+        except RuntimeError:
+            pass
+    return None
 
 
 def reset_layout():
@@ -957,8 +970,11 @@ def reset_layout():
 
 
 def auto_open(host):
-    """앱을 켰을 때 (처음엔 열림): 지난번에 붙어 있던 업무창에, 그 창이 없으면 먼저 뜬 업무창에."""
-    if not saved_open() or instance(create=False) is not None:
+    """앱을 켰을 때 (처음엔 열림): 지난번에 붙어 있던 업무창에, 그 창을 쓸 수 없으면 이 업무창에."""
+    if not saved_open() or not _usable(host):
+        return
+    w = instance(create=False)
+    if w is not None and w.host is not None:
         return
     want = _saved_host_alive(host)
     if want is not None and want != getattr(host, 'window_id', None):

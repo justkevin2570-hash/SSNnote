@@ -75,3 +75,92 @@ def test_user_closed_chat_stays_closed(win, monkeypatch):
     monkeypatch.setattr(type(w), 'isActiveWindow', lambda self: True)
     w.changeEvent(QEvent(QEvent.ActivationChange))
     assert not c.is_shown()
+
+
+def _fresh(monkeypatch, tmp_path):
+    """앱을 새로 켠 것처럼: AI 창 없음 · 열림 설정은 켜짐."""
+    import db
+    monkeypatch.setattr(db, 'DB_DIR', str(tmp_path))
+    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 's.db'))
+    db.init_db()
+    QApplication.instance() or QApplication([])
+    from ui import ai_chat_window as acw
+    monkeypatch.setattr(acw, '_win', None)
+    return db, acw
+
+
+def test_restart_opens_even_if_remembered_window_is_now_memo(tmp_path, monkeypatch):
+    db, acw = _fresh(monkeypatch, tmp_path)
+    import window
+    first = db.get_first_window_id()
+    other = db.create_window()
+    db.set_setting(acw.HOST_KEY, str(other))          # 기억한 창이 다시 켜니 메모장이 됨
+    wins = []
+    a = window.MemoWindow(first, open_windows=wins)
+    b = window.MemoWindow(other, open_windows=wins, force_memo_mode=True)
+    wins += [a, b]
+    a.show(), b.show()
+    try:
+        a._auto_open_ai_chat()
+        b._auto_open_ai_chat()
+        c = acw.instance(create=False)
+        assert c is not None and c.host is a and c.is_shown()
+    finally:
+        acw.host_closed(a)
+        a.close(), b.close()
+
+
+def test_restart_opens_when_window_shows_late(tmp_path, monkeypatch):
+    db, acw = _fresh(monkeypatch, tmp_path)
+    import window
+    w = window.MemoWindow(db.get_first_window_id(), open_windows=[])
+    w._open_windows.append(w)
+    try:
+        w._auto_open_ai_chat()                         # 아직 안 보임 → 못 붙음
+        assert acw.instance(create=False) is None
+        w.show()
+        QApplication.processEvents()
+        w.hide(), w.show()                             # 나중에 보이면 그때 붙음
+        c = acw.instance(create=False)
+        assert c is not None and c.host is w and c.is_shown()
+    finally:
+        acw.host_closed(w)
+        w.close()
+
+
+def test_restart_respects_user_closed(tmp_path, monkeypatch):
+    db, acw = _fresh(monkeypatch, tmp_path)
+    import window
+    db.set_setting(acw.OPEN_KEY, '0')
+    w = window.MemoWindow(db.get_first_window_id(), open_windows=[])
+    w._open_windows.append(w)
+    w.show()
+    try:
+        w._auto_open_ai_chat()
+        assert acw.instance(create=False) is None
+    finally:
+        w.close()
+
+
+def test_close_with_x_then_reopen_from_tray_keeps_chat(tmp_path, monkeypatch):
+    """제목줄 ✕로 업무창을 닫고(앱은 트레이에 남음) 다시 열면 AI 대화도 다시 열린다."""
+    db, acw = _fresh(monkeypatch, tmp_path)
+    import window
+    wid = db.get_first_window_id()
+    a = window.MemoWindow(wid, open_windows=[])
+    a._open_windows.append(a)
+    a.show()
+    a._auto_open_ai_chat()
+    c = acw.instance(create=False)
+    assert c is not None and c.is_shown()
+    a.close()                                          # ✕: AI 창은 떼어 내 숨김 (열림 설정은 그대로)
+    assert c.host is None and not c.is_shown()
+    b = window.MemoWindow(wid, open_windows=[])        # 트레이에서 다시 열기
+    b._open_windows.append(b)
+    b.show()
+    try:
+        b._auto_open_ai_chat()
+        assert c.host is b and c.is_shown()
+    finally:
+        acw.host_closed(b)
+        b.close()
