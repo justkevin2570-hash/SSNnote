@@ -156,6 +156,8 @@ def win(tdb, tmp_path, monkeypatch):
     import window
     from ui import ai_chat_window as acw
     monkeypatch.setattr(acw, '_win', None)
+    monkeypatch.setattr(acw, '_real_auto_open', acw.auto_open, raising=False)
+    monkeypatch.setattr(acw, 'auto_open', lambda h: None)      # 켜자마자 저절로 열리지 않게 (버튼으로 시험)
     w = window.MemoWindow(tdb.get_first_window_id())
     w.move(100, 100)
     w.resize(320, 400)
@@ -296,9 +298,10 @@ def test_ai_chat_remembers_host_window(win):
     assert db.get_setting(acw.HOST_KEY) == str(wid2)
     acw._win.close()
     acw._win = None
-    acw.auto_open(w)                    # 다음에 켤 때: 먼저 뜬 창(w)이 아니라
+    w._open_windows = w2._open_windows = [w, w2]
+    acw._real_auto_open(w)              # 다음에 켤 때: 먼저 뜬 창(w)이 아니라
     assert acw.instance(create=False) is None
-    acw.auto_open(w2)                   # 기억한 창(w2) 옆에 붙음
+    acw._real_auto_open(w2)             # 기억한 창(w2) 옆에 붙음
     assert acw.instance(create=False).host is w2
     acw.reset_layout()
     assert db.get_setting(acw.SIDE_KEY) == 'inside'

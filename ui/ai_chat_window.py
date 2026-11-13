@@ -907,9 +907,14 @@ def host_hidden(host):
 
 
 def host_shown(host):
-    """업무창이 다시 보이면, 열려 있던 AI 창도 다시 붙인다."""
+    """업무창이 다시 보이거나 활성화되면, 열려 있던 AI 창도 다시 붙인다.
+    앱을 켤 때 못 붙었으면(창이 늦게 뜸 · 접혀 있다 펼침) 여기서 처음으로 붙인다."""
+    if not saved_open():
+        return
     w = instance(create=False)
-    if w is not None and w.host is host and saved_open() and not w.is_shown():
+    if w is None or w.host is None:
+        auto_open(host)
+    elif w.host is host and not w.is_shown():
         w.attach(host, remember=False)
 
 
@@ -919,8 +924,16 @@ def host_closed(host):
         w.detach()
 
 
+def _usable(win):
+    try:
+        return (win.isVisible() and not getattr(win, '_deleted', False)
+                and bool(getattr(win, '_ai_chat_usable', lambda: False)()))
+    except RuntimeError:
+        return False
+
+
 def _saved_host_alive(host):
-    """기억한 업무창이 아직 있고 펼쳐진 업무창(메모장 아님)인지 → 그 id, 아니면 None."""
+    """기억한 업무창이 지금 떠 있고 AI를 붙일 수 있는 업무창(메모장 · 접힘 · 메모 모드 아님)이면 그 id."""
     try:
         wid = int(_setting(HOST_KEY, '') or 0)
     except ValueError:
@@ -928,11 +941,18 @@ def _saved_host_alive(host):
     if not wid:
         return None
     try:
-        from db import get_all_windows
-        alive = {w['id'] for w in get_all_windows() if not w.get('memo_mode') and not w.get('collapsed')}
-    except Exception:
-        return None
-    return wid if wid in alive else None
+        wins = list(getattr(host, '_open_windows', None) or [])
+    except RuntimeError:
+        wins = []
+    if not wins:
+        wins = [t for t in QApplication.topLevelWidgets() if type(t).__name__ == 'MemoWindow']
+    for win in wins:
+        try:
+            if win.window_id == wid and _usable(win):
+                return wid
+        except RuntimeError:
+            pass
+    return None
 
 
 def reset_layout():
@@ -950,8 +970,11 @@ def reset_layout():
 
 
 def auto_open(host):
-    """앱을 켰을 때 (처음엔 열림): 지난번에 붙어 있던 업무창에, 그 창이 없으면 먼저 뜬 업무창에."""
-    if not saved_open() or instance(create=False) is not None:
+    """앱을 켰을 때 (처음엔 열림): 지난번에 붙어 있던 업무창에, 그 창을 쓸 수 없으면 이 업무창에."""
+    if not saved_open() or not _usable(host):
+        return
+    w = instance(create=False)
+    if w is not None and w.host is not None:
         return
     want = _saved_host_alive(host)
     if want is not None and want != getattr(host, 'window_id', None):
