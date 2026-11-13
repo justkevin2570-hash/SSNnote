@@ -3,7 +3,7 @@ import os
 import sys
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QColor, QPainter, QIcon, QPixmap, QFontDatabase
+from PyQt5.QtGui import QFont, QColor, QPainter, QIcon, QPixmap, QFontDatabase, QFontMetricsF
 
 def _base_path():
     if getattr(sys, 'frozen', False):
@@ -98,9 +98,13 @@ _NOTE_SPECS = {
     'malgun': (('맑은 고딕', ''), ('Malgun Gothic', '')),
 }
 _CURRENT_NOTE_FONT = DEFAULT_NOTE_FONT
-# 같은 pt에서도 글꼴마다 실제 글자 크기가 달라, 한글 높이를 Pretendard에 맞추는 배율
-# (리틱체: 12pt에서 한글 높이 18px ↔ Pretendard 16px → 16/18. Narrow도 높이는 같고 폭만 좁음)
-NOTE_FONT_SCALE = {'reatic': 16 / 18, 'reatic_narrow': 16 / 18}
+# 같은 pt에서도 글꼴마다 실제 글자 크기가 달라, 한글 글자 크기를 Pretendard에 맞춘다.
+# 미리 정한 숫자 대신 이 PC에 설치된 글꼴의 한글 글자 상자(높이·폭)를 직접 재서 정한다 (note_scale).
+# 폭 좁은 판(Narrow)은 같은 집안 보통 글꼴의 배율을 그대로 써서 좁은 느낌을 살린다.
+NOTE_SCALE_BASE = {'reatic_narrow': 'reatic'}
+NOTE_SCALE_SAMPLE = '가나다라마바사아자차카타파하'
+NOTE_SCALE_RANGE = (0.7, 1.15)
+_MEASURED_SCALE = {}
 # 설치 여부를 파일로도 찾을 글꼴: (꼭 있어야 하는 파일, 있으면 함께 쓰는 굵은 파일)
 NOTE_FONT_FILES = {'reatic': ('REATIC-Regular', 'REATIC-Bold'),
                    'reatic_narrow': ('REATIC-Narrow', 'REATIC-NarrowBold')}
@@ -124,6 +128,7 @@ _LOADED_FILES = set()            # 앱이 직접 불러온 글꼴 파일 (앱을
 def refresh_installed_fonts():
     """글꼴 메뉴를 열 때: 앱을 켠 뒤 새로 설치한 글꼴도 찾게 기억을 비운다."""
     _INSTALLED.clear()
+    _MEASURED_SCALE.clear()
 
 
 def _match_spec(key):
@@ -202,12 +207,43 @@ def current_note_font() -> str:
     return _CURRENT_NOTE_FONT
 
 
+def _hangul_box(family, style=''):
+    """48pt 한글 견본의 (글자 높이, 한 글자 폭) — 정밀하게 재려고 큰 크기로."""
+    f = QFont(family)
+    if style:
+        f.setStyleName(style)
+    f.setPointSizeF(48)
+    m = QFontMetricsF(f)
+    r = m.tightBoundingRect(NOTE_SCALE_SAMPLE)
+    return r.height(), m.horizontalAdvance(NOTE_SCALE_SAMPLE) / len(NOTE_SCALE_SAMPLE)
+
+
+def _measure_scale(key):
+    """이 글꼴의 한글이 Pretendard와 같은 크기로 보이는 배율 = √(높이 비 × 폭 비)."""
+    fam, style = _installed_spec(key)
+    if not fam:
+        return 1.0
+    base = NOTE_SCALE_BASE.get(key)
+    if base and _installed_family(base):
+        return note_scale(base)                  # Narrow: 보통 글꼴과 같은 배율 (좁은 폭은 그대로)
+    ph, pw = _hangul_box(_pretendard_family())
+    h, w = _hangul_box(fam, style)
+    if h <= 0 or w <= 0:
+        return 1.0
+    hr = ph / h
+    ratio = hr if base else (hr * (pw / w)) ** 0.5   # Narrow만 있으면 높이만 맞춤
+    lo, hi = NOTE_SCALE_RANGE
+    return min(hi, max(lo, ratio))
+
+
 def note_scale(key=None) -> float:
     """고른 글꼴의 크기 보정 배율 (그 글꼴이 이 PC에 없어 Pretendard로 그리면 1)."""
     key = key or _CURRENT_NOTE_FONT
     if key == 'pretendard' or not _installed_family(key):
         return 1.0
-    return NOTE_FONT_SCALE.get(key, 1.0)
+    if key not in _MEASURED_SCALE:
+        _MEASURED_SCALE[key] = _measure_scale(key)
+    return _MEASURED_SCALE[key]
 
 
 def note_font(size=11, key=None):

@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QCheckBox, QFrame
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QPoint, QPointF, QRectF, QSize, pyqtSignal, QMimeData
-from PyQt5.QtGui import QFont, QFontMetrics, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QTextCursor
+from PyQt5.QtGui import QFont, QFontMetrics, QFontMetricsF, QColor, QPainter, QTextCharFormat, QPalette, QTextOption, QTextLayout, QIcon, QTextCursor
 from db import (update_task,
                 set_task_priority, set_task_recurrence, get_task_notes, set_task_notes,
                 get_task_related_no, set_task_related_no,
@@ -24,6 +24,9 @@ from .dates import calc_dday
 from .widgets import AddDateButton, CustomCalendarWidget, DdayLabel, RotatedMenuButton
 from .dialogs import CustomRecurrenceDialog
 from .theme import T, tc, tct, qcolor, current_accent, rgba
+
+_HANGUL_SAMPLE = '가나다라마바사아자차카타파하'
+
 
 class _AutoHeightEdit(QPlainTextEdit):
     selectRequested = pyqtSignal()
@@ -45,6 +48,10 @@ class _AutoHeightEdit(QPlainTextEdit):
         self._v_pad = 0
         self._last_y = 0.0
         self._editing = False
+        # 표시 모드에서 줄 간격·첫 줄 칸 높이를 글꼴과 관계없이 고정 (Pretendard 기준, set_line_metrics)
+        self._pitch = 0.0            # 0이면 글꼴 자체 줄 간격
+        self._box_h = 28             # 첫 줄 칸 높이 (줄 옆 아이콘들과 같은 칸)
+        self._lines = []             # 표시 모드에서 그릴 줄: (시작, 길이)
         self._resize_timer = QTimer(self)
         self._resize_timer.setSingleShot(True)
         self._resize_timer.setInterval(500)
@@ -85,6 +92,36 @@ class _AutoHeightEdit(QPlainTextEdit):
 
     def mouseDoubleClickEvent(self, e):
         self._begin_edit()
+
+    def set_line_metrics(self, pitch, box_h):
+        """줄 간격(pitch)과 첫 줄 칸 높이(box_h). 어떤 글꼴이든 한글 가운데가 각 줄 칸 가운데에 오게 그린다."""
+        self._pitch = float(pitch)
+        self._box_h = int(box_h)
+        self._apply_size()
+
+    def _baseline_in_line(self, pitch):
+        """줄 칸 위에서 글자 기준선까지 거리 — 한글 글자 상자의 가운데가 칸 가운데에 오도록."""
+        r = QFontMetricsF(self.font()).tightBoundingRect(_HANGUL_SAMPLE)
+        return pitch / 2 - (r.top() + r.bottom()) / 2
+
+    def _display_mode(self):
+        return not self._editing and self._pitch > 0
+
+    def paintEvent(self, e):
+        if not self._display_mode():
+            super().paintEvent(e)
+            return
+        # 표시 모드: 고정 줄 간격으로 직접 그린다 (글꼴마다 다른 줄 사이 여백을 쓰지 않음)
+        p = QPainter(self.viewport())
+        p.setRenderHint(QPainter.TextAntialiasing)
+        p.setFont(self.font())
+        p.setPen(self.viewport().palette().color(QPalette.Text))
+        text = self.toPlainText()
+        top = (self._box_h - self._pitch) / 2
+        base = self._baseline_in_line(self._pitch)
+        for i, (start, length) in enumerate(self._lines):
+            p.drawText(QPointF(0, top + i * self._pitch + base), text[start:start + length].rstrip('\n'))
+        p.end()
 
     def _on_contents_changed(self):
         self._apply_height()        # 줄바꿈 경계에서 즉시 높이 확보 (접힌 텍스트 방지)
@@ -152,6 +189,7 @@ class _AutoHeightEdit(QPlainTextEdit):
         layout.setTextOption(opt)
         layout.beginLayout()
         y = 0.0
+        lines = []
         while True:
             line = layout.createLine()
             if not line.isValid():
@@ -160,7 +198,16 @@ class _AutoHeightEdit(QPlainTextEdit):
             line.setLeadingIncluded(True)        # 줄 사이 여백이 있는 글꼴(리틱체 등)은 실제 줄 간격만큼
             line.setPosition(QPointF(0, y))
             y += line.height()
+            lines.append((line.textStart(), line.textLength()))
         layout.endLayout()
+        self._lines = lines
+        if self._display_mode():
+            # 줄 칸 = 고정 줄 간격, 첫 줄은 옆 아이콘 칸(box_h) 가운데, 아래 여백도 같게
+            pad = (self._box_h - self._pitch) / 2
+            self._fixed_height = max(self._box_h, int(round(2 * pad + len(lines) * self._pitch)))
+            self._last_y = len(lines) * self._pitch
+            self._v_pad = 0
+            return
         doc_margin = self.document().documentMargin()
         h = int(y + 2 * doc_margin) + 4
         fixed_h = max(h, 28)
@@ -576,9 +623,11 @@ class TaskRow(QWidget):
         self.btn_star.clicked.connect(self._toggle_priority)
         # 업무 줄의 아이콘·표시는 모두 '업무 이름 첫 줄'의 세로 가운데에 맞춘다
         # (이름이 두 줄로 넘어가도 첫 줄 옆에 나란히). 첫 줄 높이 = 이름 칸 한 줄 높이.
-        _nf = note_font(12)
-        _nf.setPointSizeF(12 * scale * note_scale())
-        self._line1_h = max(28, QFontMetrics(_nf).height() + 4)
+        # 줄 높이·줄 간격은 고른 글꼴과 관계없이 Pretendard 기준 (글꼴을 바꿔도 목록 모양이 같게)
+        _pf = pr_font(12)
+        _pf.setPointSizeF(12 * scale)
+        self._line1_h = max(28, QFontMetrics(_pf).height() + 4)
+        self._name_pitch = QFontMetricsF(_pf).lineSpacing()
         layout.addWidget(self._line_box(self.btn_star), 0, Qt.AlignTop)
 
         deadline = task['deadline']
@@ -622,6 +671,7 @@ class TaskRow(QWidget):
         if _is_starred and not overdue:     # 굵은 글씨는 중요 표시한 업무만 (급한 정도는 D-day 색으로)
             set_note_bold(name_font)
         self.name_edit.setFont(name_font)
+        self.name_edit.set_line_metrics(self._name_pitch, self._line1_h)
         self.name_edit.setStyleSheet(f"""
             QPlainTextEdit {{
                 background: transparent;
@@ -657,8 +707,8 @@ class TaskRow(QWidget):
                 date_text = suffix
             dday_lbl = DdayLabel(suffix, date_text, tone=tone)
             dday_lbl.clicked.connect(self._show_date_picker)
-            dday_font = note_font(10)
-            dday_font.setPointSizeF(10.5 * scale * note_scale())
+            dday_font = pr_font(10)                       # D-day·날짜 표시는 고른 글꼴과 관계없이 Pretendard
+            dday_font.setPointSizeF(10.5 * scale)
             dday_font.setWeight(QFont.DemiBold if tone in ('overdue', 'today', 'soon') else QFont.Normal)
             dday_lbl.setFont(dday_font)
             dday_lbl.setToolTip('마감일 바꾸기')
