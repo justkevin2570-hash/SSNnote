@@ -27,7 +27,7 @@ from ui.dialogs import CustomRecurrenceDialog
 from ui.chrome import EdgeHandle, MergeButton, TitleBar
 from ui.task_row import TaskRow
 from ui.document_row import DocumentRow
-from ui.calendar_view import MonthlyCalendarDialog, NativeCalendarDialog
+from ui.calendar_view import NativeCalendarDialog
 from ui import menu_style
 from ui import ai_chat_window
 from ui.theme import T, PALETTE, DEFAULT_NOTE_COLOR, tc, tct, note_color, qcolor, DARK, accent_for_note, set_current_accent, rgba
@@ -932,11 +932,6 @@ class MemoWindow(QMainWindow):
         except Exception as e:
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.critical(self, '오류', f'예산 관리 창 열기 실패:\n{e}')
-
-    def _show_monthly_calendar(self):
-        dlg = MonthlyCalendarDialog(self)
-        dlg.exec_()
-        self._refresh_tasks()
 
     def _show_monthly_calendar(self):
         dlg = getattr(self, '_calendar_dlg', None)
