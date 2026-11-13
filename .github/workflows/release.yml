@@ -61,11 +61,10 @@ jobs:
       - name: 테스트
         run: python -m pytest tests -q
 
-      - name: PyInstaller (SSNnote.exe + SSNnote_MCP.exe)
+      - name: PyInstaller (SSNnote.exe)
         run: |
           pyinstaller SSNnote.spec --noconfirm
           if (-not (Test-Path dist\SSNnote\SSNnote.exe)) { throw 'SSNnote.exe 없음' }
-          if (-not (Test-Path dist\SSNnote\SSNnote_MCP.exe)) { throw 'SSNnote_MCP.exe 없음' }
 
       - name: 빌드된 앱 자체 점검 (메모·공문 작성·예산 창 실제로 열기)
         timeout-minutes: 5
@@ -74,29 +73,6 @@ jobs:
           $p = Start-Process -FilePath dist\SSNnote\SSNnote.exe -ArgumentList '--self-check', "`"$out`"" -Wait -PassThru
           if (Test-Path $out) { Get-Content $out -Encoding utf8 } else { throw '자체 점검 결과 파일이 없습니다 (앱이 시작하지 못함)' }
           if ($p.ExitCode -ne 0) { throw "자체 점검 실패 (exit $($p.ExitCode)) — 위 FAIL 항목 확인" }
-
-      - name: Claude 연결 프로그램 동작 확인
-        run: |
-          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'mcpcheck'
-          New-Item -ItemType Directory -Force $env:APPDATA | Out-Null
-          $py = Join-Path $env:RUNNER_TEMP 'mcp_check.py'
-          @'
-          import asyncio
-          from mcp import ClientSession
-          from mcp.client.stdio import stdio_client, StdioServerParameters
-
-          async def main():
-              params = StdioServerParameters(command=r'dist\SSNnote\SSNnote_MCP.exe', args=[])
-              async with stdio_client(params) as (r, w):
-                  async with ClientSession(r, w) as s:
-                      await s.initialize()
-                      names = [t.name for t in (await s.list_tools()).tools]
-                      print('tools:', names)
-                      assert 'add_task' in names and 'today_overview' in names
-
-          asyncio.run(main())
-          '@ | Set-Content -Path $py -Encoding utf8
-          python $py
 
       - name: Inno Setup (SSNnote_Setup.exe)
         run: |
@@ -165,7 +141,7 @@ jobs:
           if ($rc -ne 0) { throw "새 판 설치 실패 ($rc)" }
           $newDir = "$env:LOCALAPPDATA\Programs\SSNnote"
           if (-not (Test-Path "$newDir\SSNnote.exe")) { throw "사용자 폴더에 설치되지 않음: $newDir" }
-          if (-not (Test-Path "$newDir\SSNnote_MCP.exe")) { throw '연결 프로그램이 설치되지 않음' }
+          if (Test-Path "$newDir\SSNnote_MCP.exe") { throw '지난 판의 연결 프로그램(SSNnote_MCP.exe)이 지워지지 않음' }
           if (-not (HasKey $hkcuKey)) { & reg.exe query 'HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall' /s /f SSNnote; throw '사용자 설치 기록(HKCU)이 없음' }
           if ($oldDir -ne $newDir) {
             if (Test-Path "$oldDir\SSNnote.exe") { throw "예전 위치의 프로그램이 지워지지 않음: $oldDir" }
