@@ -30,28 +30,45 @@ def test_init_db_moves_old_colors(tmp_path, monkeypatch):
     db.set_setting('ai_chat_color', '#AECBFA')
     db.init_db()
     colors = {w['id']: w['color'] for w in db.get_all_windows()}
-    assert colors[a] == '#E0F0C0' and colors[b] == '#E6E6E3' and colors[c] == ''
-    assert db.get_setting('ai_chat_color', '') == '#D2E4FA'
+    assert colors[a] == '#E9F5D3' and colors[b] == '#EDEDEB' and colors[c] == ''
+    assert db.get_setting('ai_chat_color', '') == '#DFECFC'
     db.init_db()                                           # 두 번 돌려도 그대로
     assert {w['id']: w['color'] for w in db.get_all_windows()} == colors
 
 
 def test_ai_color_names_and_old_aliases():
     import ai_actions
-    assert ai_actions._color('하늘') == '#D2E4FA'
-    assert ai_actions._color('보라') == '#E3DAF7'          # 예전 이름도 알아듣기
-    assert ai_actions._color('진노랑') == '#FFE0A3'
-    assert ai_actions._color('#FDCFE8') == '#FBD5E3'        # 예전 색 코드
-    assert ai_actions._color('복숭아') == '#FFD8C8'
+    assert ai_actions._color('하늘') == '#DFECFC'
+    assert ai_actions._color('보라') == '#EBE5FA'          # 예전 이름도 알아듣기
+    assert ai_actions._color('진노랑') == '#FFEAC0'
+    assert ai_actions._color('#FDCFE8') == '#FDE2EB'        # 예전 색 코드
+    assert ai_actions._color('복숭아') == '#FFE4D8'
 
 
 def test_swatches_mark_current_color():
     from PyQt5.QtWidgets import QApplication, QMenu
     QApplication.instance() or QApplication([])
     from ui import style_menu
-    w = style_menu.color_swatches(QMenu(), '#D2E4FA', lambda c: None)
+    w = style_menu.color_swatches(QMenu(), '#DFECFC', lambda c: None)
     sw = [s for s in w.findChildren(style_menu.Swatch)]
-    assert len(sw) == 11 and [s.color for s in sw if s.chosen] == ['#D2E4FA']
+    assert len(sw) == 11 and [s.color for s in sw if s.chosen] == ['#DFECFC']
     assert sw[0].toolTip() == '노랑'
     w2 = style_menu.color_swatches(QMenu(), '=', lambda c: None, same_as_note=True)
     assert [s.color for s in w2.findChildren(style_menu.Swatch) if s.chosen] == ['=']
+
+
+def test_v306_palette_moves_to_brighter_same_name(tmp_path, monkeypatch):
+    """v3.06~v3.10 색은 같은 이름의 더 밝은 새 색으로 (예: 노랑 #FFF5A5 → #FFF8C2)."""
+    import db
+    monkeypatch.setattr(db, 'DB_DIR', str(tmp_path))
+    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 's.db'))
+    db.init_db()
+    a = db.get_first_window_id()
+    with db._connect() as conn:
+        conn.execute("UPDATE windows SET color='#FFF5A5' WHERE id=?", (a,))
+    db.set_setting('ai_chat_color', '#d2e4fa')
+    db.init_db()
+    assert {w['id']: w['color'] for w in db.get_all_windows()}[a] == '#FFF8C2' == theme.DEFAULT_NOTE_COLOR
+    assert db.get_setting('ai_chat_color', '') == '#DFECFC'
+    assert not set(theme.OLD_COLOR_MAP) & set(theme.PALETTE)          # 새 색이 다시 옮겨지지 않음
+    assert theme.PALETTE_NAMES['#DFECFC'] == '하늘'
