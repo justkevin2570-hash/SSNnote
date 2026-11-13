@@ -77,24 +77,27 @@ class T:
 
 # 메모 창 배경 색상표 (메뉴의 색상 선택).
 # 메모 배경색 (v3.14): 밝은 파스텔 6색 + 흰색. 글자색은 모든 바탕에서 같은 한 벌(본문 #333).
+# 노랑은 v3.10 때 노랑(#FFF5A5)을 그대로 쓴다 (v3.15, 사용자가 고름).
 PALETTE_NAMES = {
-    '#FFF7D1': '노랑', '#E4F9E0': '연두', '#FFE4F1': '분홍', '#F2E6FF': '라벤더', '#E2F1FF': '하늘',
+    '#FFF5A5': '노랑', '#E4F9E0': '연두', '#FFE4F1': '분홍', '#F2E6FF': '라벤더', '#E2F1FF': '하늘',
     '#F3F2F1': '연회색', '#FFFFFF': '흰색',
 }
 PALETTE = list(PALETTE_NAMES)
-DEFAULT_NOTE_COLOR = '#FFF7D1'
+DEFAULT_NOTE_COLOR = '#FFF5A5'
 
 # 예전 색 → 지금 색. db.init_db가 저장된 색을 옮긴다 (몇 번 돌려도 같음).
 # 예전 색 이름 → 새 색 이름: 귤→노랑, 민트→연두, 복숭아→분홍, 모래→연회색 (없어진 색은 가장 가까운 색으로)
-_NEW_BY_NAME = {'노랑': '#FFF7D1', '귤': '#FFF7D1', '연두': '#E4F9E0', '민트': '#E4F9E0', '분홍': '#FFE4F1',
+_NEW_BY_NAME = {'노랑': '#FFF5A5', '귤': '#FFF5A5', '연두': '#E4F9E0', '민트': '#E4F9E0', '분홍': '#FFE4F1',
                 '복숭아': '#FFE4F1', '라벤더': '#F2E6FF', '하늘': '#E2F1FF', '연회색': '#F3F2F1', '모래': '#F3F2F1'}
+_V314 = {'#FFF7D1': '노랑'}                                    # v3.14 노랑 → 예전 노랑으로
 _V311 = {'#FFF8C2': '노랑', '#FFEAC0': '귤', '#FFE4D8': '복숭아', '#FDE2EB': '분홍', '#EBE5FA': '라벤더',
          '#DFECFC': '하늘', '#DCF4EC': '민트', '#E9F5D3': '연두', '#F3EBDE': '모래', '#EDEDEB': '연회색'}
 _V306 = {'#FFF5A5': '노랑', '#FFE0A3': '귤', '#FFD8C8': '복숭아', '#FBD5E3': '분홍', '#E3DAF7': '라벤더',
          '#D2E4FA': '하늘', '#CDEFE4': '민트', '#E0F0C0': '연두', '#EEE3D0': '모래', '#E6E6E3': '연회색'}
 _V305 = {'#FEFFA7': '노랑', '#FDD663': '귤', '#CCFF90': '연두', '#A8F0E8': '민트', '#AECBFA': '하늘',
          '#D7AEFB': '라벤더', '#FDCFE8': '분홍', '#E6C9A8': '모래', '#AAAAAA': '연회색', '#DDDDDD': '연회색'}
-OLD_COLOR_MAP = {old: _NEW_BY_NAME[name] for table in (_V305, _V306, _V311) for old, name in table.items()}
+OLD_COLOR_MAP = {old: _NEW_BY_NAME[name] for table in (_V305, _V306, _V311, _V314) for old, name in table.items()
+                 if old not in PALETTE_NAMES}                       # 지금 팔레트에 있는 색은 옮기지 않음
 
 
 # ── 다크 테마 ──────────────────────────────────────────────────

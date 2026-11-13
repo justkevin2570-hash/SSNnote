@@ -8,13 +8,13 @@ sys.modules.setdefault('winreg', um.MagicMock())
 
 from ui import theme
 
-NEW = {'노랑': '#FFF7D1', '연두': '#E4F9E0', '분홍': '#FFE4F1', '라벤더': '#F2E6FF', '하늘': '#E2F1FF',
+NEW = {'노랑': '#FFF5A5', '연두': '#E4F9E0', '분홍': '#FFE4F1', '라벤더': '#F2E6FF', '하늘': '#E2F1FF',
        '연회색': '#F3F2F1', '흰색': '#FFFFFF'}
 
 
 def test_palette_is_seven_colors_and_old_colors_map_into_it():
     assert theme.PALETTE_NAMES == {hx: name for name, hx in NEW.items()}
-    assert list(theme.PALETTE) == list(NEW.values()) and theme.DEFAULT_NOTE_COLOR == '#FFF7D1'
+    assert list(theme.PALETTE) == list(NEW.values()) and theme.DEFAULT_NOTE_COLOR == '#FFF5A5'
     assert all(new in theme.PALETTE for new in theme.OLD_COLOR_MAP.values())
     assert not set(theme.OLD_COLOR_MAP) & set(theme.PALETTE)          # 새 색이 다시 옮겨지지 않음
 
@@ -28,7 +28,7 @@ def test_old_colors_go_to_nearest_new_name():
     assert m['#EBE5FA'] == NEW['라벤더'] and m['#DFECFC'] == NEW['하늘']
     assert m['#EDEDEB'] == m['#F3EBDE'] == NEW['연회색']              # 연회색·모래 → 연회색
     # v3.06~v3.10, v3.05까지
-    assert m['#FFF5A5'] == m['#FEFFA7'] == m['#FDD663'] == NEW['노랑']
+    assert '#FFF5A5' not in m and m['#FFF7D1'] == m['#FEFFA7'] == m['#FDD663'] == NEW['노랑']   # 예전 노랑 그대로, v3.14 노랑은 되돌림
     assert m['#AECBFA'] == m['#D2E4FA'] == NEW['하늘']
     assert m['#AAAAAA'] == m['#E6C9A8'] == NEW['연회색']
 
