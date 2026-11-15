@@ -2856,9 +2856,13 @@ class _SpendDialog(QDialog):
 
         self.lbl_spend_preview = QLabel()
         self.lbl_spend_preview.setTextFormat(Qt.RichText)
-        self.lbl_spend_preview.setWordWrap(True)
+        # 줄을 직접 나눈 두 줄 글이라 자동 줄바꿈은 끔 (Windows 배율에서 줄바꿈 높이를 덜 재서 아랫줄이 잘리지 않게)
+        self.lbl_spend_preview.setWordWrap(False)
         self.lbl_spend_preview.setStyleSheet(f'background: {C.SURFACE}; border: 1px solid {C.BORDER}; '
                                              f'border-radius: 8px; padding: 9px 12px; color: {C.MUTED}; font-size: 10pt;')
+        self.lbl_spend_preview.ensurePolished()
+        _fm = self.lbl_spend_preview.fontMetrics()
+        self.lbl_spend_preview.setMinimumHeight(2 * _fm.lineSpacing() + px(24))   # 금액을 적어도 창 높이가 출렁이지 않게
         v.addSpacing(6)
         v.addWidget(self.lbl_spend_preview)
 

@@ -709,3 +709,21 @@ def test_buttons_stay_when_cursor_moves_onto_them(win):
     QCursor.setPos(t.viewport().mapToGlobal(QPoint(-50, -50)))
     t.eventFilter(spend, QEvent(QEvent.Leave))                        # 표 밖으로 나가면 숨김
     assert not spend.isVisible()
+
+
+def test_spend_preview_fits_two_lines_without_growing(win):
+    """쓴 돈 미리보기(집행액 → · 잔액 →)는 두 줄이 다 보이고, 금액을 적어도 창 높이가 바뀌지 않는다."""
+    w, db, budget, app = win
+    item = {'id': 1, 'category_id': 1, 'cost_type': '운영비', 'description': '강사 수당',
+            'budget': 12000000, 'spent': 9800000, 'completed': 0}
+    dlg = budget._SpendDialog(item, [], w)
+    dlg.show()
+    app.processEvents()
+    h0 = dlg.height()
+    dlg.edit_spend_now.setText('2500000')
+    app.processEvents()
+    lbl = dlg.lbl_spend_preview
+    assert '12,300,000원' in lbl.text() and '-300,000원' in lbl.text()
+    assert lbl.height() >= lbl.sizeHint().height() and lbl.width() >= lbl.sizeHint().width()   # 잘리지 않음
+    assert dlg.height() == h0
+    dlg.close()
