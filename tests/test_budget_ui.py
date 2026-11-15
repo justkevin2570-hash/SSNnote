@@ -686,3 +686,26 @@ def test_opening_window_shows_no_stray_small_windows(win):
     finally:
         app.removeEventFilter(spy)
     assert set(shown) <= {'BudgetWindow'}
+
+
+def test_buttons_stay_when_cursor_moves_onto_them(win):
+    """줄의 단추 위로 마우스를 옮기면 표 바탕에는 '떠남'이 온다 → 그래도 단추가 사라지지 않아야 한다."""
+    w, db, budget, app = win
+    from PyQt5.QtCore import QEvent, QPoint
+    from PyQt5.QtGui import QCursor
+    w._apply_import(CATS, 'append')
+    w.show()
+    app.processEvents()
+    t = w.findChildren(budget._BudgetTable)[0]
+    spend, edit, done = t.action_buttons[0]
+    QCursor.setPos(t.viewport().mapToGlobal(QPoint(20, t.rowViewportPosition(0) + 5)))
+    t.eventFilter(t.viewport(), QEvent(QEvent.Leave))                # 바탕에서 떠남 (칸 속으로)
+    assert spend.isVisible() and edit.isVisible()
+    t.set_hover_row(-1)
+    acts = spend.parentWidget()
+    QCursor.setPos(acts.mapToGlobal(acts.rect().center()))
+    t.eventFilter(spend, QEvent(QEvent.Enter))                        # 단추 칸으로 바로 들어와도
+    assert spend.isVisible() and done.isVisible()
+    QCursor.setPos(t.viewport().mapToGlobal(QPoint(-50, -50)))
+    t.eventFilter(spend, QEvent(QEvent.Leave))                        # 표 밖으로 나가면 숨김
+    assert not spend.isVisible()

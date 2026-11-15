@@ -798,18 +798,35 @@ class _BudgetTable(QTableWidget):
                     b.setVisible(row == r)
         self._hover_row = r
 
+    def watch_row(self, widget):
+        """칸 속 위젯(산출내역 · 막대 · 단추)에 마우스가 들어가도 그 줄을 '마우스 올린 줄'로.
+        칸 속 위젯 위에서는 표 바탕(viewport)에 마우스 움직임이 오지 않고 오히려 '떠남'이 오기 때문."""
+        widget.installEventFilter(self)
+        for child in widget.findChildren(QWidget):
+            child.installEventFilter(self)
+
+    def _sync_hover_to_cursor(self):
+        from PyQt5.QtGui import QCursor
+        pos = self.viewport().mapFromGlobal(QCursor.pos())
+        if not self.viewport().rect().contains(pos):
+            self.set_hover_row(-1)
+        else:
+            self.set_hover_row(self._item_row(self.rowAt(pos.y())))
+
     def eventFilter(self, obj, e):
+        t = e.type()
         if obj is self.viewport():
-            t = e.type()
             if t == QEvent.MouseMove:
                 self.set_hover_row(self._item_row(self.rowAt(e.pos().y())))
             elif t == QEvent.Leave:
-                self.set_hover_row(-1)
+                self._sync_hover_to_cursor()          # 칸 속 단추로 들어간 것이면 그대로 둠
             elif t == QEvent.ContextMenu:
                 r = self._item_row(self.rowAt(e.pos().y()))
                 if r >= 0:
                     self.rowMenu.emit(self.row_items[r], e.globalPos())
                     return True
+        elif t in (QEvent.Enter, QEvent.MouseMove, QEvent.Leave) and isinstance(obj, QWidget):
+            self._sync_hover_to_cursor()
         return super().eventFilter(obj, e)
 
 
@@ -1956,6 +1973,8 @@ class BudgetWindow(QMainWindow):
         t.setItem(r, _COL_ACT, cell('', R))
         t.setCellWidget(r, _COL_ACT, acts)
         t.action_buttons[r] = (b_edit, b_done) if done else (b_spend, b_edit, b_done)
+        for wdg in (dcell, wrap, acts):                  # 칸 속 위젯 위에 있어도 단추가 보이게
+            t.watch_row(wdg)
         t.row_items[r] = item['id']
         t.setRowHeight(r, sz['row_h'])
         self._row_refs[item['id']] = {'rem': rem_it, 'bar': bar, 'pct': lbl, 'desc': dcell}
