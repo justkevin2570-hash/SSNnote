@@ -199,10 +199,11 @@ def test_spend_dialog_preview_and_result(win):
     item = {'id': 1, 'category_id': 1, 'cost_type': '교육운영비', 'description': '간식비',
             'budget': 400000, 'spent': 115500, 'completed': 0}
     dlg = budget._SpendDialog(item, [], w)
-    assert '더해지고' in dlg.lbl_spend_preview.text()
+    assert '더해지고' not in dlg.lbl_spend_preview.text() and '284,500원' in dlg.lbl_spend_preview.text()  # 지금 잔액만
     dlg.edit_spend_now.setText('50000')
     assert dlg.edit_spend_now.text() == '50,000'
-    assert '165,500원' in dlg.lbl_spend_preview.text() and '234,500원' in dlg.lbl_spend_preview.text()
+    text = dlg.lbl_spend_preview.text()
+    assert '284,500' in text and '234,500원' in text and '집행' not in text      # 잔액만 (집행액 없음)
     dlg.edit_spend_now.setText('400000')                  # 잔액 마이너스 → 빨강
     assert budget.C.NEG in dlg.lbl_spend_preview.text()
     dlg.edit_spend_now.setText('50000')
@@ -711,8 +712,8 @@ def test_buttons_stay_when_cursor_moves_onto_them(win):
     assert not spend.isVisible()
 
 
-def test_spend_preview_fits_two_lines_without_growing(win):
-    """쓴 돈 미리보기(집행액 → · 잔액 →)는 두 줄이 다 보이고, 금액을 적어도 창 높이가 바뀌지 않는다."""
+def test_spend_preview_balance_only_without_growing(win):
+    """쓴 돈 미리보기는 잔액만 한 줄로, 금액을 적어도 창 높이가 바뀌지 않는다."""
     w, db, budget, app = win
     item = {'id': 1, 'category_id': 1, 'cost_type': '운영비', 'description': '강사 수당',
             'budget': 12000000, 'spent': 9800000, 'completed': 0}
@@ -723,7 +724,7 @@ def test_spend_preview_fits_two_lines_without_growing(win):
     dlg.edit_spend_now.setText('2500000')
     app.processEvents()
     lbl = dlg.lbl_spend_preview
-    assert '12,300,000원' in lbl.text() and '-300,000원' in lbl.text()
+    assert '-300,000원' in lbl.text() and '집행' not in lbl.text()
     assert lbl.height() >= lbl.sizeHint().height() and lbl.width() >= lbl.sizeHint().width()   # 잘리지 않음
     assert dlg.height() == h0
     dlg.close()
