@@ -42,46 +42,33 @@ def test_import_modes(win):
     assert [c['name'] for c in db.get_budget_categories()] == ['A'] and len(db.get_budget_items()) == 1
 
 
-def test_columns_name_first_with_spent_and_total_row(win):
-    """표 순서: 산출내역(+비목 꼬리표) · 예산현액 · 집행액 · 잔액 · 집행률. 세부항목 맨 아래 합계 줄."""
+def test_columns_name_first_no_spent_and_total_row(win):
+    """표 순서: 산출내역(+비목 꼬리표) · 예산현액 · 잔액 · 집행률 (집행액 칸 없음). 세부항목 맨 아래 합계 줄."""
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     table = [t for t in w.findChildren(budget._BudgetTable)][0]
     headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
-    assert headers[:5] == ['산출내역', '예산현액', '집행액', '잔액', '집행률']
+    assert headers[:4] == ['산출내역', '예산현액', '잔액', '집행률'] and '집행액' not in headers
     item = next(i for i in db.get_budget_items() if i['description'] == '강사 수당')
     db.set_budget_item_spent(item['id'], 700)
     w.refresh()
     table = [t for t in w.findChildren(budget._BudgetTable)][0]
     assert w.stat['spent'].text() == '700원' and w.stat['remaining'].text() == '800원'
-    assert table.item(0, 2).text() == '700' and table.item(0, 3).text() == '300'
+    assert table.item(0, 2).text() == '300' and '700' in table.item(0, 2).toolTip()   # 집행액은 잔액에 마우스를 올리면
     cell = table.cellWidget(0, 0)
     assert cell.btn_toggle.text() == '강사 수당' and cell.lbl_cost.text() == item['cost_type']
     total = w._sec_refs[item['category_id']]['total']
-    assert [total.item(0, c).text() for c in range(4)][0] == '합계'
-    assert total.item(0, 3).text() == _fmt_sum(db, item['category_id'])
-    for c in range(4):                                             # 합계 줄 칸이 위 표 칸과 같은 폭
+    assert total.item(0, 0).text() == '합계'
+    assert total.item(0, 2).text() == _fmt_sum(db, item['category_id'])
+    for c in range(3):                                             # 합계 줄 칸이 위 표 칸과 같은 폭
         assert total.columnWidth(c) == table.columnWidth(c)
 
 
 def _fmt_sum(db, cat_id):
     its = [i for i in db.get_budget_items() if i['category_id'] == cat_id]
     return f"{sum(i['budget'] for i in its) - sum(i['spent'] for i in its):,}"
-
-
-def test_narrow_window_hides_spent_column(win):
-    w, db, budget, app = win
-    w._apply_import(CATS, 'append')
-    w.resize(1400, 800)
-    w.show()
-    app.processEvents()
-    table = [t for t in w.findChildren(budget._BudgetTable)][0]
-    assert not table.isColumnHidden(budget._COL_SPENT)
-    table.resize(380, table.height())                               # 아주 좁아지면 집행액 칸을 숨김
-    budget._fit_columns(table)
-    assert table.isColumnHidden(budget._COL_SPENT)
 
 
 def test_completed_items_folded_by_default_and_can_open(win):
@@ -100,7 +87,7 @@ def test_completed_items_folded_by_default_and_can_open(win):
     assert toggle.text().startswith('▸') and first['description'] in toggle.text()
     toggle.click()
     assert done[0].isVisible() and toggle.text().startswith('▾')
-    assert done[0].cellWidget(0, 4).findChild(budget.QLabel).text() == '완료'   # 집행률 대신 「완료」
+    assert done[0].cellWidget(0, 3).findChild(budget.QLabel).text() == '완료'   # 집행률 대신 「완료」
 
 
 def test_row_buttons_only_on_hovered_row_and_double_click_edits(win, monkeypatch):
