@@ -42,49 +42,106 @@ def test_import_modes(win):
     assert [c['name'] for c in db.get_budget_categories()] == ['A'] and len(db.get_budget_items()) == 1
 
 
-def test_spent_column_hidden_and_totals_follow(win):
+def test_columns_name_first_with_spent_and_total_row(win):
+    """표 순서: 산출내역(+비목 꼬리표) · 예산현액 · 집행액 · 잔액 · 집행률. 세부항목 맨 아래 합계 줄."""
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     table = [t for t in w.findChildren(budget._BudgetTable)][0]
     headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
-    assert '집행액' not in headers and headers[3] == '잔액'      # 집행액 열은 없음
+    assert headers[:5] == ['산출내역', '예산현액', '집행액', '잔액', '집행률']
     item = next(i for i in db.get_budget_items() if i['description'] == '강사 수당')
     db.set_budget_item_spent(item['id'], 700)
     w.refresh()
     table = [t for t in w.findChildren(budget._BudgetTable)][0]
     assert w.stat['spent'].text() == '700원' and w.stat['remaining'].text() == '800원'
-    assert table.item(0, 3).text() == '300'
+    assert table.item(0, 2).text() == '700' and table.item(0, 3).text() == '300'
+    cell = table.cellWidget(0, 0)
+    assert cell.btn_toggle.text() == '강사 수당' and cell.lbl_cost.text() == item['cost_type']
+    total = w._sec_refs[item['category_id']]['total']
+    assert [total.item(0, c).text() for c in range(4)][0] == '합계'
+    assert total.item(0, 3).text() == _fmt_sum(db, item['category_id'])
+    for c in range(4):                                             # 합계 줄 칸이 위 표 칸과 같은 폭
+        assert total.columnWidth(c) == table.columnWidth(c)
 
 
-def test_completed_items_shown_by_default_and_can_fold(win):
+def _fmt_sum(db, cat_id):
+    its = [i for i in db.get_budget_items() if i['category_id'] == cat_id]
+    return f"{sum(i['budget'] for i in its) - sum(i['spent'] for i in its):,}"
+
+
+def test_narrow_window_hides_spent_column(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
-    db.toggle_budget_item_completed(db.get_budget_items()[0]['id'])
+    w.resize(1400, 800)
+    w.show()
+    app.processEvents()
+    table = [t for t in w.findChildren(budget._BudgetTable)][0]
+    assert not table.isColumnHidden(budget._COL_SPENT)
+    table.resize(380, table.height())                               # 아주 좁아지면 집행액 칸을 숨김
+    budget._fit_columns(table)
+    assert table.isColumnHidden(budget._COL_SPENT)
+
+
+def test_completed_items_folded_by_default_and_can_open(win):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    first = db.get_budget_items()[0]
+    db.toggle_budget_item_completed(first['id'])
     w.refresh()
     w.show()
     app.processEvents()
-    done = [t for t in w.findChildren(budget._BudgetTable) if t.horizontalHeader().isHidden()]
-    assert len(done) == 1 and done[0].isVisible()            # 완료 항목은 펼친 것이 기본
+    done = [t for t in w.findChildren(budget._BudgetTable)
+            if t.horizontalHeader().isHidden() and t.row_items]
+    assert len(done) == 1 and not done[0].isVisible()             # 완료 항목은 접은 것이 기본
     from PyQt5.QtWidgets import QPushButton
-    toggle = next(b for b in w.findChildren(QPushButton) if '완료 1건' in b.text())
-    assert toggle.text().startswith('▾')
+    toggle = next(b for b in w.findChildren(QPushButton) if '완료한 항목 1개' in b.text())
+    assert toggle.text().startswith('▸') and first['description'] in toggle.text()
     toggle.click()
-    assert not done[0].isVisible() and toggle.text().startswith('▸')
+    assert done[0].isVisible() and toggle.text().startswith('▾')
+    assert done[0].cellWidget(0, 4).findChild(budget.QLabel).text() == '완료'   # 집행률 대신 「완료」
 
 
-def test_row_buttons_edit_left_done_right_always_visible(win):
+def test_row_buttons_only_on_hovered_row_and_double_click_edits(win, monkeypatch):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     t = w.findChildren(budget._BudgetTable)[0]
     edit, done = t.action_buttons[0]
-    assert (edit.text(), done.text()) == ('수정', '완료')
+    assert not edit.isVisible() and not done.isVisible()            # 평소엔 숨김
+    t.set_hover_row(0)                                              # 마우스를 올린 줄에만
     assert edit.isVisible() and done.isVisible()
     assert edit.mapTo(t, edit.rect().topLeft()).x() < done.mapTo(t, done.rect().topLeft()).x()
-    assert edit.height() >= 28 and edit.width() >= 64
+    t.set_hover_row(-1)
+    assert not edit.isVisible()
+    opened = []
+    monkeypatch.setattr(w, '_open_edit_item', lambda iid: opened.append(iid))
+    t.rowActivated.disconnect()
+    t.rowActivated.connect(w._open_edit_item)
+    from PyQt5.QtCore import QEvent, QPoint, Qt
+    from PyQt5.QtGui import QMouseEvent
+    y = t.rowViewportPosition(0) + 5
+    ev = QMouseEvent(QEvent.MouseButtonDblClick, QPoint(20, y), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+    t.eventFilter(t.viewport(), ev)                                  # 줄을 더블클릭하면 수정
+    assert opened == [t.row_items[0]]
+
+
+def test_row_right_click_menu(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    w.show()
+    app.processEvents()
+    t = w.findChildren(budget._BudgetTable)[0]
+    iid = t.row_items[0]
+    shown = {}
+    monkeypatch.setattr(budget.QMenu, 'exec_', lambda self, *a: shown.setdefault('acts', [a.text() for a in self.actions()]))
+    w._row_menu(iid, budget.QPoint(0, 0))
+    assert [x for x in shown['acts'] if x] == ['수정…  (더블클릭)', '완료로 표시', '지우기']
+    monkeypatch.setattr(budget.QMessageBox, 'question', lambda *a, **k: budget.QMessageBox.Yes)
+    w._delete_item(iid)
+    assert iid not in [i['id'] for i in db.get_budget_items()]
 
 
 def test_pct_label_fits_text(win):
@@ -181,18 +238,13 @@ def test_cost_chips_totals_and_filter(win):
     w._apply_import(cats, 'append')
     w.show()
     app.processEvents()
-    assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 카드
-    assert not w._overview_chips['교육운영비'].isVisible()        # 기본은 접힘
-    w._overview_open = True
-    w._rebuild_sections()
-    app.processEvents()
-    assert w._overview_chips['교육운영비'].isVisible()            # 펼치면 보임
-    w._overview_open = False
-    w._rebuild_sections()
+    assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 한 줄
+    assert w._overview_chips['교육운영비'].isVisible()
+    assert w._overview_chips['교육운영비'].text() == '교육운영비  60%'   # 900 / 1500
     cid = w.categories[0]['id']
     chips = w._sec_refs[cid]['chips']
     assert list(chips) == ['교육운영비', '운영수당']
-    assert '잔액 600원' in chips['교육운영비'].text()              # 1500 - 900
+    assert chips['교육운영비'].text() == '교육운영비  60%' and '잔액 600원' in chips['교육운영비'].toolTip()
     table = w._sec_refs[cid]['tables'][0]
     h_all = table.height()
     chips['운영수당'].click()                                    # 운영수당 줄만
@@ -203,7 +255,7 @@ def test_cost_chips_totals_and_filter(win):
     iid = next(i['id'] for i in db.get_budget_items() if i['description'] == '간식')
     db.set_budget_item_spent(iid, 900)                          # 집행액이 바뀌면 칩도 다시 계산
     w.refresh()
-    assert '잔액 100원' in w._sec_refs[cid]['chips']['교육운영비'].text()
+    assert '잔액 100원' in w._sec_refs[cid]['chips']['교육운영비'].toolTip()
 
 
 def test_item_dialog_has_cost_completer(win):
@@ -526,7 +578,7 @@ def test_ai_button_shows_status_and_follows_changes(win, monkeypatch, tmp_path):
                         if (tmp_path / 'ai_mode.txt').exists() else 'none')
     monkeypatch.setattr(ai_connect, 'load_external_model_name', lambda: 'sonnet')
     ai_connect.turn_off()
-    assert w.btn_ai.text() == 'AI 꺼짐 · 연결하기'
+    assert w.btn_ai.text() == 'AI 연결하기'                    # 꺼져 있으면 누를 수 있는 단추로
     assert not w.ask_send.isEnabled()
 
     ai_client.save_ai_mode('claude_code')                     # 다른 창(공문 작성)에서 연결했다고 치고
@@ -536,7 +588,7 @@ def test_ai_button_shows_status_and_follows_changes(win, monkeypatch, tmp_path):
 
     monkeypatch.setattr(ai_connect, 'show_menu', lambda *a, **k: 'none')   # 메뉴에서 [AI 끄기]
     w._ai_menu()
-    assert ai_client.load_ai_mode() == 'none' and w.btn_ai.text() == 'AI 꺼짐 · 연결하기'
+    assert ai_client.load_ai_mode() == 'none' and w.btn_ai.text() == 'AI 연결하기'
 
     seen = {}
     monkeypatch.setattr(ai_connect, 'show_menu', lambda *a, **k: 'openai')
@@ -549,23 +601,23 @@ def test_ai_button_shows_status_and_follows_changes(win, monkeypatch, tmp_path):
 def test_budget_view_state_remembered_and_reset(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'replace')
+    db.add_budget_item(_cat_id(db, 'A'), '교육운영비', '자료', 300, 0)   # 비목이 둘 이상이어야 비목 칩이 생김
     gid = db.add_budget_group('묶음')
     db.set_budget_category_group(_cat_id(db, 'A'), gid)
     w.refresh()
     w._state_ready = True
     w._set_tab(('G', gid))
-    w._overview_open = True
     w._cost_filter = {_cat_id(db, 'A'): '운영수당'}
-    w._hide_done = {_cat_id(db, 'B')}
+    w._show_done = {_cat_id(db, 'B')}
     w._save_state()
     saved = json.load(open(budget._STATE_FILE, encoding='utf-8'))
-    assert saved['view']['tab'] == ['G', gid] and saved['view']['overview_open'] is True
+    assert saved['view']['tab'] == ['G', gid] and saved['view']['show_done'] == [_cat_id(db, 'B')]
     w2 = budget.BudgetWindow()                                     # 다음에 켰을 때
-    assert w2.active_tab == ('G', gid) and w2._overview_open is True
-    assert w2._cost_filter == {_cat_id(db, 'A'): '운영수당'} and w2._hide_done == {_cat_id(db, 'B')}
+    assert w2.active_tab == ('G', gid)
+    assert w2._cost_filter == {_cat_id(db, 'A'): '운영수당'} and w2._show_done == {_cat_id(db, 'B')}
     w2._state_ready = True
     w2.reset_layout()                                              # 기본값으로
-    assert w2.active_tab == 'ALL' and not w2._overview_open and not any(w2._cost_filter.values())
+    assert w2.active_tab == 'ALL' and not w2._show_done and not any(w2._cost_filter.values())
     assert json.load(open(budget._STATE_FILE, encoding='utf-8'))['view']['tab'] == 'ALL'
     w2.close()
 
