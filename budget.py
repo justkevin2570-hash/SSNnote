@@ -288,14 +288,23 @@ def _pct(spent, budget):
 
 
 def _attach_amount_format(edit):
+    """금액 칸에 쉼표를 자동으로 붙인다. 커서는 고치던 자리 그대로 (쉼표가 생기거나 없어져도 끝으로 튀지 않게)."""
     def on_change(text):
         digits = ''.join(ch for ch in text if ch.isdigit())
         formatted = f'{int(digits):,}' if digits else ''
         if formatted != text:
+            left = sum(ch.isdigit() for ch in text[:edit.cursorPosition()])   # 커서 왼쪽 숫자 개수
+            if digits and int(digits) and digits[0] == '0':                    # 앞의 0이 사라진 만큼 보정
+                left = max(0, left - (len(digits) - len(digits.lstrip('0'))))
+            pos, seen = 0, 0
+            while pos < len(formatted) and seen < left:
+                if formatted[pos].isdigit():
+                    seen += 1
+                pos += 1
             edit.blockSignals(True)
             edit.setText(formatted)
             edit.blockSignals(False)
-            edit.setCursorPosition(len(formatted))
+            edit.setCursorPosition(pos)
     edit.textChanged.connect(on_change)
 
 
@@ -2823,8 +2832,7 @@ class _SpendDialog(QDialog):
         v.setSpacing(6)
         title = QLabel('쓴 돈 추가')
         title.setObjectName('SectionTitle')
-        rem = item['budget'] - item['spent']
-        sub = QLabel(f"{item['description']} · {item['cost_type'] or '일반'}   |   지금 잔액 {_fmt(rem)}원")
+        sub = QLabel(f"{item['description']} · {item['cost_type'] or '일반'}")
         sub.setObjectName('SectionMeta')
         sub.setWordWrap(True)
         v.addWidget(title)
@@ -2832,8 +2840,7 @@ class _SpendDialog(QDialog):
         v.addSpacing(6)
 
         v.addWidget(_ItemDialog._label('이번에 쓴 금액'))
-        self.edit_spend_now = QLineEdit()
-        self.edit_spend_now.setAlignment(Qt.AlignRight)
+        self.edit_spend_now = QLineEdit()                 # 왼쪽 정렬 (다른 칸과 같은 방향, 커서가 왼쪽에서 시작)
         self.edit_spend_now.setPlaceholderText('0')
         self.edit_spend_now.setStyleSheet(
             f'QLineEdit {{ font-size: 16pt; font-weight: 700; padding: 8px 12px; border: 1px solid {C.ACCENT_LINE}; }}'
@@ -2856,9 +2863,12 @@ class _SpendDialog(QDialog):
 
         self.lbl_spend_preview = QLabel()
         self.lbl_spend_preview.setTextFormat(Qt.RichText)
-        self.lbl_spend_preview.setWordWrap(True)
+        self.lbl_spend_preview.setWordWrap(False)            # 한 줄 (잔액만)
         self.lbl_spend_preview.setStyleSheet(f'background: {C.SURFACE}; border: 1px solid {C.BORDER}; '
                                              f'border-radius: 8px; padding: 9px 12px; color: {C.MUTED}; font-size: 10pt;')
+        self.lbl_spend_preview.ensurePolished()
+        _fm = self.lbl_spend_preview.fontMetrics()
+        self.lbl_spend_preview.setMinimumHeight(_fm.lineSpacing() + px(24))
         v.addSpacing(6)
         v.addWidget(self.lbl_spend_preview)
 
@@ -2901,17 +2911,17 @@ class _SpendDialog(QDialog):
         self.edit_spend_now.setFocus()
 
     def _update_spend_preview(self):
+        """잔액만: 금액을 적기 전에는 지금 잔액, 적으면 '지금 → 바뀔 잔액'."""
         budget, base = self._item['budget'], self._item['spent']
-        new = base + _parse_amount(self.edit_spend_now.text())
-        if new == base:
-            self.lbl_spend_preview.setText('적으면 집행액에 더해지고, 잔액은 그만큼 줄어요.')
+        add = _parse_amount(self.edit_spend_now.text())
+        rem_before = budget - base
+        if add <= 0:
+            self.lbl_spend_preview.setText(
+                f'잔액 <b style="color:{_bal_color(rem_before, pct=_pct(base, budget))}">{_fmt(rem_before)}원</b>')
             return
-        rem_before, rem_after = budget - base, budget - new
-        pct = _pct(new, budget)
-        self.lbl_spend_preview.setText(
-            f'집행액 {_fmt(base)} → <b style="color:{C.ACCENT}">{_fmt(new)}원</b><br>'
-            f'잔액 {_fmt(rem_before)} → <b style="color:{_bal_color(rem_after, pct=pct)}">{_fmt(rem_after)}원</b>'
-            f' · 집행률 <span style="color:{_text_color(pct)}">{pct:.1f}%</span>')
+        rem_after = budget - base - add
+        color = _bal_color(rem_after, pct=_pct(base + add, budget))
+        self.lbl_spend_preview.setText(f'잔액 {_fmt(rem_before)} → <b style="color:{color}">{_fmt(rem_after)}원</b>')
 
     def _save(self):
         from datetime import datetime

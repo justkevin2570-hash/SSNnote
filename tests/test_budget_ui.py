@@ -199,10 +199,11 @@ def test_spend_dialog_preview_and_result(win):
     item = {'id': 1, 'category_id': 1, 'cost_type': '교육운영비', 'description': '간식비',
             'budget': 400000, 'spent': 115500, 'completed': 0}
     dlg = budget._SpendDialog(item, [], w)
-    assert '더해지고' in dlg.lbl_spend_preview.text()
+    assert '더해지고' not in dlg.lbl_spend_preview.text() and '284,500원' in dlg.lbl_spend_preview.text()  # 지금 잔액만
     dlg.edit_spend_now.setText('50000')
     assert dlg.edit_spend_now.text() == '50,000'
-    assert '165,500원' in dlg.lbl_spend_preview.text() and '234,500원' in dlg.lbl_spend_preview.text()
+    text = dlg.lbl_spend_preview.text()
+    assert '284,500' in text and '234,500원' in text and '집행' not in text      # 잔액만 (집행액 없음)
     dlg.edit_spend_now.setText('400000')                  # 잔액 마이너스 → 빨강
     assert budget.C.NEG in dlg.lbl_spend_preview.text()
     dlg.edit_spend_now.setText('50000')
@@ -709,3 +710,40 @@ def test_buttons_stay_when_cursor_moves_onto_them(win):
     QCursor.setPos(t.viewport().mapToGlobal(QPoint(-50, -50)))
     t.eventFilter(spend, QEvent(QEvent.Leave))                        # 표 밖으로 나가면 숨김
     assert not spend.isVisible()
+
+
+def test_spend_preview_balance_only_without_growing(win):
+    """쓴 돈 미리보기는 잔액만 한 줄로, 금액을 적어도 창 높이가 바뀌지 않는다."""
+    w, db, budget, app = win
+    item = {'id': 1, 'category_id': 1, 'cost_type': '운영비', 'description': '강사 수당',
+            'budget': 12000000, 'spent': 9800000, 'completed': 0}
+    dlg = budget._SpendDialog(item, [], w)
+    dlg.show()
+    app.processEvents()
+    h0 = dlg.height()
+    dlg.edit_spend_now.setText('2500000')
+    app.processEvents()
+    lbl = dlg.lbl_spend_preview
+    assert '-300,000원' in lbl.text() and '집행' not in lbl.text()
+    assert lbl.height() >= lbl.sizeHint().height() and lbl.width() >= lbl.sizeHint().width()   # 잘리지 않음
+    assert dlg.height() == h0
+    dlg.close()
+
+
+def test_amount_cursor_stays_where_you_edit(win):
+    """금액 칸 가운데를 고쳐도 커서가 끝으로 튀지 않는다 (쉼표가 생기거나 없어져도)."""
+    w, db, budget, app = win
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    item = {'id': 1, 'category_id': 1, 'cost_type': 'x', 'description': 'y', 'budget': 1000, 'spent': 0, 'completed': 0}
+    dlg = budget._SpendDialog(item, [], w)
+    e = dlg.edit_spend_now
+    assert not (e.alignment() & Qt.AlignRight)                      # 왼쪽 정렬
+    QTest.keyClicks(e, '300000')
+    assert e.text() == '300,000' and e.cursorPosition() == len('300,000')
+    e.setCursorPosition(1)                                          # 3|00,000 에서
+    QTest.keyClick(e, Qt.Key_5)                                     # 5 넣기 → 3,500,000
+    assert e.text() == '3,500,000' and e.text()[:e.cursorPosition()] == '3,5'
+    QTest.keyClick(e, Qt.Key_Backspace)                             # 다시 지우면 300,000
+    assert e.text() == '300,000' and e.text()[:e.cursorPosition()] == '3'
+    dlg.close()
