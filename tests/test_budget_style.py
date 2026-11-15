@@ -1,12 +1,12 @@
-"""예산 창 집행률 색 기준 (수준: 정상 · 100% 이상 · 완료). 주황·노랑 단계는 없다."""
+"""예산 창 집행률 색 기준 (의미 하나에 색 하나): 진행 파랑 · 90% 이상 주황 · 초과 빨강 · 완료 회색."""
 import pytest
 
 pytest.importorskip('PyQt5')
 
 
 @pytest.mark.parametrize('pct, done, expected', [
-    (0, False, 'ok'), (79.9, False, 'ok'), (80, False, 'ok'), (99.9, False, 'ok'),
-    (100, False, 'ok'), (100.5, False, 'over'), (130, False, 'over'),
+    (0, False, 'ok'), (79.9, False, 'ok'), (89.9, False, 'ok'), (90, False, 'warn'), (99.9, False, 'warn'),
+    (100, False, 'warn'), (100.5, False, 'over'), (130, False, 'over'),
     (120, True, 'done'),
 ])
 def test_level(pct, done, expected):
@@ -14,21 +14,20 @@ def test_level(pct, done, expected):
     assert _level(pct, done) == expected
 
 
-def test_bar_blue_gets_darker_toward_100_then_red():
+def test_one_color_per_meaning():
     from budget import _bar_color, _text_color, C
-    light, mid, full = _bar_color(0), _bar_color(50), _bar_color(100)
-    assert light == '#BFDBFE' and full == '#1E40AF'
-    assert _bar_color(0) != mid != full                       # 중간은 그 사이 색
-    assert _bar_color(120) == '#E11D48' and _text_color(120) == C.NEG
-    assert _bar_color(80) not in ('#D97706', '#FEF3E2')       # 주황·노랑 없음
-    assert _bar_color(50, done=True) != _bar_color(50)         # 완료는 회색
+    assert _bar_color(0) == _bar_color(50) == _bar_color(89) == C.OK_BAR          # 진행 중은 같은 파랑
+    assert _bar_color(95) == C.WARN_BAR and _text_color(95) == C.WARN_TEXT
+    assert _bar_color(120) == C.OVER_BAR and _text_color(120) == C.OVER_TEXT
+    assert _bar_color(50, done=True) == C.DONE_BAR != _bar_color(50)               # 완료는 회색
 
 
-def test_text_blue_readable_on_white_and_balance_fixed_colors():
-    from budget import _text_color, _bal_color, _BAL_POS
-    assert _contrast(_text_color(0)) >= 3.0                    # 가장 연한 퍼센트 글자도 읽히게
-    assert _contrast(_text_color(100)) >= 7.0
-    assert _bal_color(1000) == _BAL_POS and _bal_color(-1) != _BAL_POS   # 잔액: 양수 고정, 음수 빨강
+def test_state_text_readable_on_white_and_balance_colors():
+    from budget import _text_color, _bal_color, _BAL_POS, C
+    for pct in (0, 95, 120):
+        assert _contrast(_text_color(pct)) >= 4.5
+    assert _bal_color(1000) == _BAL_POS and _bal_color(-1) == C.OVER_TEXT
+    assert _bal_color(100, pct=95) == C.WARN_TEXT and _bal_color(100, done=True) == C.FAINT
 
 
 def _contrast(a, b='#FFFFFF'):

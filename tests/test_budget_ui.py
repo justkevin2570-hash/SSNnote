@@ -42,49 +42,102 @@ def test_import_modes(win):
     assert [c['name'] for c in db.get_budget_categories()] == ['A'] and len(db.get_budget_items()) == 1
 
 
-def test_spent_column_hidden_and_totals_follow(win):
+def test_columns_name_first_no_spent_and_total_row(win):
+    """표 순서: 산출내역(+비목 꼬리표) · 예산현액 · 잔액 · 집행률 (집행액 칸 없음). 세부항목 맨 아래 합계 줄."""
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     table = [t for t in w.findChildren(budget._BudgetTable)][0]
     headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
-    assert '집행액' not in headers and headers[3] == '잔액'      # 집행액 열은 없음
+    assert headers[:4] == ['산출내역', '예산현액', '잔액', '집행률'] and '집행액' not in headers
     item = next(i for i in db.get_budget_items() if i['description'] == '강사 수당')
     db.set_budget_item_spent(item['id'], 700)
     w.refresh()
     table = [t for t in w.findChildren(budget._BudgetTable)][0]
     assert w.stat['spent'].text() == '700원' and w.stat['remaining'].text() == '800원'
-    assert table.item(0, 3).text() == '300'
+    assert table.item(0, 2).text() == '300' and '700' in table.item(0, 2).toolTip()   # 집행액은 잔액에 마우스를 올리면
+    cell = table.cellWidget(0, 0)
+    assert cell.btn_toggle.text() == '강사 수당' and cell.lbl_cost.text() == item['cost_type']
+    total = w._sec_refs[item['category_id']]['total']
+    assert total.item(0, 0).text() == '합계'
+    assert total.item(0, 2).text() == _fmt_sum(db, item['category_id'])
+    for c in range(3):                                             # 합계 줄 칸이 위 표 칸과 같은 폭
+        assert total.columnWidth(c) == table.columnWidth(c)
 
 
-def test_completed_items_shown_by_default_and_can_fold(win):
+def _fmt_sum(db, cat_id):
+    its = [i for i in db.get_budget_items() if i['category_id'] == cat_id]
+    return f"{sum(i['budget'] for i in its) - sum(i['spent'] for i in its):,}"
+
+
+def test_completed_items_folded_by_default_and_can_open(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
-    db.toggle_budget_item_completed(db.get_budget_items()[0]['id'])
+    first = db.get_budget_items()[0]
+    db.toggle_budget_item_completed(first['id'])
     w.refresh()
     w.show()
     app.processEvents()
-    done = [t for t in w.findChildren(budget._BudgetTable) if t.horizontalHeader().isHidden()]
-    assert len(done) == 1 and done[0].isVisible()            # 완료 항목은 펼친 것이 기본
+    done = [t for t in w.findChildren(budget._BudgetTable)
+            if t.horizontalHeader().isHidden() and t.row_items]
+    assert len(done) == 1 and not done[0].isVisible()             # 완료 항목은 접은 것이 기본
     from PyQt5.QtWidgets import QPushButton
-    toggle = next(b for b in w.findChildren(QPushButton) if '완료 1건' in b.text())
-    assert toggle.text().startswith('▾')
+    toggle = next(b for b in w.findChildren(QPushButton) if '완료한 항목 1개' in b.text())
+    assert toggle.text().startswith('▸') and first['description'] in toggle.text()
     toggle.click()
-    assert not done[0].isVisible() and toggle.text().startswith('▸')
+    assert done[0].isVisible() and toggle.text().startswith('▾')
+    assert done[0].cellWidget(0, 3).findChild(budget.QLabel).text() == '완료'   # 집행률 대신 「완료」
 
 
-def test_row_buttons_edit_left_done_right_always_visible(win):
+def test_row_buttons_spend_edit_done_only_on_hovered_row(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     t = w.findChildren(budget._BudgetTable)[0]
-    edit, done = t.action_buttons[0]
-    assert (edit.text(), done.text()) == ('수정', '완료')
-    assert edit.isVisible() and done.isVisible()
-    assert edit.mapTo(t, edit.rect().topLeft()).x() < done.mapTo(t, done.rect().topLeft()).x()
-    assert edit.height() >= 28 and edit.width() >= 64
+    spend, edit, done = t.action_buttons[0]
+    assert spend.text() == '쓴 돈 추가' and spend.icon().isNull()     # 아이콘 없이 글자만
+    assert not any(b.isVisible() for b in (spend, edit, done))      # 평소엔 숨김
+    t.set_hover_row(0)                                              # 마우스를 올린 줄에만
+    assert spend.isVisible() and edit.isVisible() and done.isVisible()
+    xs = [b.mapTo(t, b.rect().topLeft()).x() for b in (spend, edit, done)]
+    assert xs == sorted(xs)                                         # 왼쪽부터 쓴 돈 · 수정 · 완료
+    assert spend.mapTo(t, spend.rect().topRight()).x() <= t.viewport().width()   # 잘리지 않음
+    t.set_hover_row(-1)
+    assert not spend.isVisible()
+
+
+def test_spend_button_adds_expense(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    iid = next(i['id'] for i in db.get_budget_items() if i['description'] == '강사 수당')
+
+    def fake_exec(self):
+        self.edit_spend_now.setText('300')
+        self.edit_purpose.setText('11월 강사료')
+        self._save()
+        return budget.QDialog.Accepted
+    monkeypatch.setattr(budget._SpendDialog, 'exec_', fake_exec)
+    w._open_spend(iid)
+    it = next(i for i in db.get_budget_items() if i['id'] == iid)
+    assert it['spent'] == 500 and [(e['purpose'], e['amount']) for e in db.get_budget_expenses()] == [('11월 강사료', 300)]
+
+
+def test_row_right_click_menu(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    w.show()
+    app.processEvents()
+    t = w.findChildren(budget._BudgetTable)[0]
+    iid = t.row_items[0]
+    shown = {}
+    monkeypatch.setattr(budget.QMenu, 'exec_', lambda self, *a: shown.setdefault('acts', [a.text() for a in self.actions()]))
+    w._row_menu(iid, budget.QPoint(0, 0))
+    assert [x for x in shown['acts'] if x] == ['쓴 돈 추가…', '수정…', '완료로 표시', '지우기']
+    monkeypatch.setattr(budget.QMessageBox, 'question', lambda *a, **k: budget.QMessageBox.Yes)
+    w._delete_item(iid)
+    assert iid not in [i['id'] for i in db.get_budget_items()]
 
 
 def test_pct_label_fits_text(win):
@@ -141,11 +194,11 @@ def test_paste_routes_image_and_text(win, monkeypatch):
     assert calls[1][0] in ('text', 'warn')
 
 
-def test_item_dialog_spend_now_adds_to_spent(win):
+def test_spend_dialog_preview_and_result(win):
     w, db, budget, app = win
     item = {'id': 1, 'category_id': 1, 'cost_type': '교육운영비', 'description': '간식비',
             'budget': 400000, 'spent': 115500, 'completed': 0}
-    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], item, 1, w)
+    dlg = budget._SpendDialog(item, [], w)
     assert '더해지고' in dlg.lbl_spend_preview.text()
     dlg.edit_spend_now.setText('50000')
     assert dlg.edit_spend_now.text() == '50,000'
@@ -153,17 +206,33 @@ def test_item_dialog_spend_now_adds_to_spent(win):
     dlg.edit_spend_now.setText('400000')                  # 잔액 마이너스 → 빨강
     assert budget.C.NEG in dlg.lbl_spend_preview.text()
     dlg.edit_spend_now.setText('50000')
+    dlg.edit_purpose.setText('간식')
     dlg._save()
-    assert dlg.result_data['spent'] == 165500 and dlg.result_data['budget'] == 400000
+    assert dlg.result_data['amount'] == 50000 and dlg.result_data['purpose'] == '간식'
 
 
-def test_item_dialog_spend_now_blank_keeps_spent(win):
+def test_spend_dialog_needs_amount_and_shows_recent(win, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox, QLabel
+    w, db, budget, app = win
+    warned = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **k: warned.append(a[2]))
+    item = {'id': 1, 'category_id': 1, 'cost_type': 'x', 'description': 'y', 'budget': 1000, 'spent': 300, 'completed': 0}
+    recent = [{'spent_on': '2026-11-0%d' % i, 'purpose': f'p{i}', 'amount': 10 * i} for i in range(5, 0, -1)]
+    dlg = budget._SpendDialog(item, recent, w)
+    dlg._save()
+    assert dlg.result_data is None and warned == ['쓴 금액을 적어 주세요.']
+    texts = [l.text() for l in dlg.findChildren(QLabel)]
+    assert '최근 쓴 돈' in texts and 'p5' in texts and 'p3' in texts and 'p2' not in texts   # 최근 3건만
+
+
+def test_edit_dialog_has_no_spend_fields_and_keeps_spent(win):
     w, db, budget, app = win
     item = {'id': 1, 'category_id': 1, 'cost_type': 'x', 'description': 'y',
             'budget': 1000, 'spent': 300, 'completed': 0}
     dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], item, 1, w)
+    assert dlg.edit_spend_now is None and dlg.edit_purpose is None       # 쓴 돈은 [쓴 돈 추가] 창에서
     dlg._save()
-    assert dlg.result_data['spent'] == 300
+    assert dlg.result_data['spent'] == 300 and dlg.result_data['expense'] is None
 
 
 def test_add_dialog_has_no_spend_now(win):
@@ -181,18 +250,13 @@ def test_cost_chips_totals_and_filter(win):
     w._apply_import(cats, 'append')
     w.show()
     app.processEvents()
-    assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 카드
-    assert not w._overview_chips['교육운영비'].isVisible()        # 기본은 접힘
-    w._overview_open = True
-    w._rebuild_sections()
-    app.processEvents()
-    assert w._overview_chips['교육운영비'].isVisible()            # 펼치면 보임
-    w._overview_open = False
-    w._rebuild_sections()
+    assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 한 줄
+    assert w._overview_chips['교육운영비'].isVisible()
+    assert w._overview_chips['교육운영비'].text() == '교육운영비  60%'   # 900 / 1500
     cid = w.categories[0]['id']
     chips = w._sec_refs[cid]['chips']
     assert list(chips) == ['교육운영비', '운영수당']
-    assert '잔액 600원' in chips['교육운영비'].text()              # 1500 - 900
+    assert chips['교육운영비'].text() == '교육운영비  60%' and '잔액 600원' in chips['교육운영비'].toolTip()
     table = w._sec_refs[cid]['tables'][0]
     h_all = table.height()
     chips['운영수당'].click()                                    # 운영수당 줄만
@@ -203,7 +267,7 @@ def test_cost_chips_totals_and_filter(win):
     iid = next(i['id'] for i in db.get_budget_items() if i['description'] == '간식')
     db.set_budget_item_spent(iid, 900)                          # 집행액이 바뀌면 칩도 다시 계산
     w.refresh()
-    assert '잔액 100원' in w._sec_refs[cid]['chips']['교육운영비'].text()
+    assert '잔액 100원' in w._sec_refs[cid]['chips']['교육운영비'].toolTip()
 
 
 def test_item_dialog_has_cost_completer(win):
@@ -298,7 +362,7 @@ def _press_enter(app, dlg, field):
     app.processEvents()
 
 
-@pytest.mark.parametrize('name', ['edit_spend_now', 'edit_desc', 'edit_budget', 'edit_spent', 'edit_cost'])
+@pytest.mark.parametrize('name', ['edit_desc', 'edit_budget', 'edit_spent', 'edit_cost'])
 def test_enter_saves_item_dialog(win, name):
     w, db, budget, app = win
     dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM), 1, w)
@@ -526,7 +590,7 @@ def test_ai_button_shows_status_and_follows_changes(win, monkeypatch, tmp_path):
                         if (tmp_path / 'ai_mode.txt').exists() else 'none')
     monkeypatch.setattr(ai_connect, 'load_external_model_name', lambda: 'sonnet')
     ai_connect.turn_off()
-    assert w.btn_ai.text() == 'AI 꺼짐 · 연결하기'
+    assert w.btn_ai.text() == 'AI 연결하기'                    # 꺼져 있으면 누를 수 있는 단추로
     assert not w.ask_send.isEnabled()
 
     ai_client.save_ai_mode('claude_code')                     # 다른 창(공문 작성)에서 연결했다고 치고
@@ -536,7 +600,7 @@ def test_ai_button_shows_status_and_follows_changes(win, monkeypatch, tmp_path):
 
     monkeypatch.setattr(ai_connect, 'show_menu', lambda *a, **k: 'none')   # 메뉴에서 [AI 끄기]
     w._ai_menu()
-    assert ai_client.load_ai_mode() == 'none' and w.btn_ai.text() == 'AI 꺼짐 · 연결하기'
+    assert ai_client.load_ai_mode() == 'none' and w.btn_ai.text() == 'AI 연결하기'
 
     seen = {}
     monkeypatch.setattr(ai_connect, 'show_menu', lambda *a, **k: 'openai')
@@ -549,23 +613,23 @@ def test_ai_button_shows_status_and_follows_changes(win, monkeypatch, tmp_path):
 def test_budget_view_state_remembered_and_reset(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'replace')
+    db.add_budget_item(_cat_id(db, 'A'), '교육운영비', '자료', 300, 0)   # 비목이 둘 이상이어야 비목 칩이 생김
     gid = db.add_budget_group('묶음')
     db.set_budget_category_group(_cat_id(db, 'A'), gid)
     w.refresh()
     w._state_ready = True
     w._set_tab(('G', gid))
-    w._overview_open = True
     w._cost_filter = {_cat_id(db, 'A'): '운영수당'}
-    w._hide_done = {_cat_id(db, 'B')}
+    w._show_done = {_cat_id(db, 'B')}
     w._save_state()
     saved = json.load(open(budget._STATE_FILE, encoding='utf-8'))
-    assert saved['view']['tab'] == ['G', gid] and saved['view']['overview_open'] is True
+    assert saved['view']['tab'] == ['G', gid] and saved['view']['show_done'] == [_cat_id(db, 'B')]
     w2 = budget.BudgetWindow()                                     # 다음에 켰을 때
-    assert w2.active_tab == ('G', gid) and w2._overview_open is True
-    assert w2._cost_filter == {_cat_id(db, 'A'): '운영수당'} and w2._hide_done == {_cat_id(db, 'B')}
+    assert w2.active_tab == ('G', gid)
+    assert w2._cost_filter == {_cat_id(db, 'A'): '운영수당'} and w2._show_done == {_cat_id(db, 'B')}
     w2._state_ready = True
     w2.reset_layout()                                              # 기본값으로
-    assert w2.active_tab == 'ALL' and not w2._overview_open and not any(w2._cost_filter.values())
+    assert w2.active_tab == 'ALL' and not w2._show_done and not any(w2._cost_filter.values())
     assert json.load(open(budget._STATE_FILE, encoding='utf-8'))['view']['tab'] == 'ALL'
     w2.close()
 
