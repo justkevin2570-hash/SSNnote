@@ -288,14 +288,23 @@ def _pct(spent, budget):
 
 
 def _attach_amount_format(edit):
+    """금액 칸에 쉼표를 자동으로 붙인다. 커서는 고치던 자리 그대로 (쉼표가 생기거나 없어져도 끝으로 튀지 않게)."""
     def on_change(text):
         digits = ''.join(ch for ch in text if ch.isdigit())
         formatted = f'{int(digits):,}' if digits else ''
         if formatted != text:
+            left = sum(ch.isdigit() for ch in text[:edit.cursorPosition()])   # 커서 왼쪽 숫자 개수
+            if digits and int(digits) and digits[0] == '0':                    # 앞의 0이 사라진 만큼 보정
+                left = max(0, left - (len(digits) - len(digits.lstrip('0'))))
+            pos, seen = 0, 0
+            while pos < len(formatted) and seen < left:
+                if formatted[pos].isdigit():
+                    seen += 1
+                pos += 1
             edit.blockSignals(True)
             edit.setText(formatted)
             edit.blockSignals(False)
-            edit.setCursorPosition(len(formatted))
+            edit.setCursorPosition(pos)
     edit.textChanged.connect(on_change)
 
 
@@ -2831,8 +2840,7 @@ class _SpendDialog(QDialog):
         v.addSpacing(6)
 
         v.addWidget(_ItemDialog._label('이번에 쓴 금액'))
-        self.edit_spend_now = QLineEdit()
-        self.edit_spend_now.setAlignment(Qt.AlignRight)
+        self.edit_spend_now = QLineEdit()                 # 왼쪽 정렬 (다른 칸과 같은 방향, 커서가 왼쪽에서 시작)
         self.edit_spend_now.setPlaceholderText('0')
         self.edit_spend_now.setStyleSheet(
             f'QLineEdit {{ font-size: 16pt; font-weight: 700; padding: 8px 12px; border: 1px solid {C.ACCENT_LINE}; }}'

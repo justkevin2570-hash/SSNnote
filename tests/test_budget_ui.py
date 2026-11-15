@@ -728,3 +728,22 @@ def test_spend_preview_balance_only_without_growing(win):
     assert lbl.height() >= lbl.sizeHint().height() and lbl.width() >= lbl.sizeHint().width()   # 잘리지 않음
     assert dlg.height() == h0
     dlg.close()
+
+
+def test_amount_cursor_stays_where_you_edit(win):
+    """금액 칸 가운데를 고쳐도 커서가 끝으로 튀지 않는다 (쉼표가 생기거나 없어져도)."""
+    w, db, budget, app = win
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    item = {'id': 1, 'category_id': 1, 'cost_type': 'x', 'description': 'y', 'budget': 1000, 'spent': 0, 'completed': 0}
+    dlg = budget._SpendDialog(item, [], w)
+    e = dlg.edit_spend_now
+    assert not (e.alignment() & Qt.AlignRight)                      # 왼쪽 정렬
+    QTest.keyClicks(e, '300000')
+    assert e.text() == '300,000' and e.cursorPosition() == len('300,000')
+    e.setCursorPosition(1)                                          # 3|00,000 에서
+    QTest.keyClick(e, Qt.Key_5)                                     # 5 넣기 → 3,500,000
+    assert e.text() == '3,500,000' and e.text()[:e.cursorPosition()] == '3,5'
+    QTest.keyClick(e, Qt.Key_Backspace)                             # 다시 지우면 300,000
+    assert e.text() == '300,000' and e.text()[:e.cursorPosition()] == '3'
+    dlg.close()
