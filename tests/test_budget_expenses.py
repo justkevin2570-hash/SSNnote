@@ -252,7 +252,7 @@ def test_delete_expense_lowers_spent_and_keeps_row_open(win, monkeypatch):
     assert w._expense_ui[iid]['open'] is True and not cell._table.isRowHidden(cell._row + 1)
 
 
-def test_edit_dialog_records_purpose_with_the_spend(win, monkeypatch):
+def test_spend_dialog_records_purpose_with_the_spend(win, monkeypatch):
     w, db, budget, app = win
     iid = _open_one_item(w, db, spent=100000)
 
@@ -262,23 +262,23 @@ def test_edit_dialog_records_purpose_with_the_spend(win, monkeypatch):
         self.edit_spend_date.setText('2026-11-10')
         self._save()
         return budget.QDialog.Accepted if self.result_data else budget.QDialog.Rejected
-    monkeypatch.setattr(budget._ItemDialog, 'exec_', fake_exec)
-    w._open_edit_item(iid)
+    monkeypatch.setattr(budget._SpendDialog, 'exec_', fake_exec)
+    w._open_spend(iid)
     assert _spent(db, iid) == 250000
     ex = db.get_budget_expenses()
     assert [(e['purpose'], e['amount'], e['spent_on']) for e in ex] == [('체육대회 협의회비', 150000, '2026-11-10')]
 
 
-def test_edit_dialog_rejects_bad_date_and_keeps_data(win, monkeypatch):
+def test_spend_dialog_rejects_bad_date_and_keeps_data(win, monkeypatch):
     w, db, budget, app = win
     from PyQt5.QtWidgets import QMessageBox
     warned = []
     monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **k: warned.append(a[2]))
     iid = _open_one_item(w, db, spent=100000)
-    monkeypatch.setattr(budget._ItemDialog, 'exec_', lambda self: (
+    monkeypatch.setattr(budget._SpendDialog, 'exec_', lambda self: (
         self.edit_spend_now.setText('5000'), self.edit_spend_date.setText('11월 10일'), self._save(),
         budget.QDialog.Rejected)[-1])
-    w._open_edit_item(iid)
+    w._open_spend(iid)
     assert warned and '날짜' in warned[0]
     assert _spent(db, iid) == 100000 and db.get_budget_expenses() == []
 

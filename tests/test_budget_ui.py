@@ -90,29 +90,38 @@ def test_completed_items_folded_by_default_and_can_open(win):
     assert done[0].cellWidget(0, 3).findChild(budget.QLabel).text() == '완료'   # 집행률 대신 「완료」
 
 
-def test_row_buttons_only_on_hovered_row_and_double_click_edits(win, monkeypatch):
+def test_row_buttons_spend_edit_done_only_on_hovered_row(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     t = w.findChildren(budget._BudgetTable)[0]
-    edit, done = t.action_buttons[0]
-    assert not edit.isVisible() and not done.isVisible()            # 평소엔 숨김
+    spend, edit, done = t.action_buttons[0]
+    assert spend.text() == '쓴 돈 추가' and spend.icon().isNull()     # 아이콘 없이 글자만
+    assert not any(b.isVisible() for b in (spend, edit, done))      # 평소엔 숨김
     t.set_hover_row(0)                                              # 마우스를 올린 줄에만
-    assert edit.isVisible() and done.isVisible()
-    assert edit.mapTo(t, edit.rect().topLeft()).x() < done.mapTo(t, done.rect().topLeft()).x()
+    assert spend.isVisible() and edit.isVisible() and done.isVisible()
+    xs = [b.mapTo(t, b.rect().topLeft()).x() for b in (spend, edit, done)]
+    assert xs == sorted(xs)                                         # 왼쪽부터 쓴 돈 · 수정 · 완료
+    assert spend.mapTo(t, spend.rect().topRight()).x() <= t.viewport().width()   # 잘리지 않음
     t.set_hover_row(-1)
-    assert not edit.isVisible()
-    opened = []
-    monkeypatch.setattr(w, '_open_edit_item', lambda iid: opened.append(iid))
-    t.rowActivated.disconnect()
-    t.rowActivated.connect(w._open_edit_item)
-    from PyQt5.QtCore import QEvent, QPoint, Qt
-    from PyQt5.QtGui import QMouseEvent
-    y = t.rowViewportPosition(0) + 5
-    ev = QMouseEvent(QEvent.MouseButtonDblClick, QPoint(20, y), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
-    t.eventFilter(t.viewport(), ev)                                  # 줄을 더블클릭하면 수정
-    assert opened == [t.row_items[0]]
+    assert not spend.isVisible()
+
+
+def test_spend_button_adds_expense(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    iid = next(i['id'] for i in db.get_budget_items() if i['description'] == '강사 수당')
+
+    def fake_exec(self):
+        self.edit_spend_now.setText('300')
+        self.edit_purpose.setText('11월 강사료')
+        self._save()
+        return budget.QDialog.Accepted
+    monkeypatch.setattr(budget._SpendDialog, 'exec_', fake_exec)
+    w._open_spend(iid)
+    it = next(i for i in db.get_budget_items() if i['id'] == iid)
+    assert it['spent'] == 500 and [(e['purpose'], e['amount']) for e in db.get_budget_expenses()] == [('11월 강사료', 300)]
 
 
 def test_row_right_click_menu(win, monkeypatch):
@@ -125,7 +134,7 @@ def test_row_right_click_menu(win, monkeypatch):
     shown = {}
     monkeypatch.setattr(budget.QMenu, 'exec_', lambda self, *a: shown.setdefault('acts', [a.text() for a in self.actions()]))
     w._row_menu(iid, budget.QPoint(0, 0))
-    assert [x for x in shown['acts'] if x] == ['수정…  (더블클릭)', '완료로 표시', '지우기']
+    assert [x for x in shown['acts'] if x] == ['쓴 돈 추가…', '수정…', '완료로 표시', '지우기']
     monkeypatch.setattr(budget.QMessageBox, 'question', lambda *a, **k: budget.QMessageBox.Yes)
     w._delete_item(iid)
     assert iid not in [i['id'] for i in db.get_budget_items()]
@@ -185,11 +194,11 @@ def test_paste_routes_image_and_text(win, monkeypatch):
     assert calls[1][0] in ('text', 'warn')
 
 
-def test_item_dialog_spend_now_adds_to_spent(win):
+def test_spend_dialog_preview_and_result(win):
     w, db, budget, app = win
     item = {'id': 1, 'category_id': 1, 'cost_type': '교육운영비', 'description': '간식비',
             'budget': 400000, 'spent': 115500, 'completed': 0}
-    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], item, 1, w)
+    dlg = budget._SpendDialog(item, [], w)
     assert '더해지고' in dlg.lbl_spend_preview.text()
     dlg.edit_spend_now.setText('50000')
     assert dlg.edit_spend_now.text() == '50,000'
@@ -197,17 +206,33 @@ def test_item_dialog_spend_now_adds_to_spent(win):
     dlg.edit_spend_now.setText('400000')                  # 잔액 마이너스 → 빨강
     assert budget.C.NEG in dlg.lbl_spend_preview.text()
     dlg.edit_spend_now.setText('50000')
+    dlg.edit_purpose.setText('간식')
     dlg._save()
-    assert dlg.result_data['spent'] == 165500 and dlg.result_data['budget'] == 400000
+    assert dlg.result_data['amount'] == 50000 and dlg.result_data['purpose'] == '간식'
 
 
-def test_item_dialog_spend_now_blank_keeps_spent(win):
+def test_spend_dialog_needs_amount_and_shows_recent(win, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox, QLabel
+    w, db, budget, app = win
+    warned = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda *a, **k: warned.append(a[2]))
+    item = {'id': 1, 'category_id': 1, 'cost_type': 'x', 'description': 'y', 'budget': 1000, 'spent': 300, 'completed': 0}
+    recent = [{'spent_on': '2026-11-0%d' % i, 'purpose': f'p{i}', 'amount': 10 * i} for i in range(5, 0, -1)]
+    dlg = budget._SpendDialog(item, recent, w)
+    dlg._save()
+    assert dlg.result_data is None and warned == ['쓴 금액을 적어 주세요.']
+    texts = [l.text() for l in dlg.findChildren(QLabel)]
+    assert '최근 쓴 돈' in texts and 'p5' in texts and 'p3' in texts and 'p2' not in texts   # 최근 3건만
+
+
+def test_edit_dialog_has_no_spend_fields_and_keeps_spent(win):
     w, db, budget, app = win
     item = {'id': 1, 'category_id': 1, 'cost_type': 'x', 'description': 'y',
             'budget': 1000, 'spent': 300, 'completed': 0}
     dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], item, 1, w)
+    assert dlg.edit_spend_now is None and dlg.edit_purpose is None       # 쓴 돈은 [쓴 돈 추가] 창에서
     dlg._save()
-    assert dlg.result_data['spent'] == 300
+    assert dlg.result_data['spent'] == 300 and dlg.result_data['expense'] is None
 
 
 def test_add_dialog_has_no_spend_now(win):
@@ -337,7 +362,7 @@ def _press_enter(app, dlg, field):
     app.processEvents()
 
 
-@pytest.mark.parametrize('name', ['edit_spend_now', 'edit_desc', 'edit_budget', 'edit_spent', 'edit_cost'])
+@pytest.mark.parametrize('name', ['edit_desc', 'edit_budget', 'edit_spent', 'edit_cost'])
 def test_enter_saves_item_dialog(win, name):
     w, db, budget, app = win
     dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM), 1, w)
