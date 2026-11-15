@@ -798,18 +798,35 @@ class _BudgetTable(QTableWidget):
                     b.setVisible(row == r)
         self._hover_row = r
 
+    def watch_row(self, widget):
+        """칸 속 위젯(산출내역 · 막대 · 단추)에 마우스가 들어가도 그 줄을 '마우스 올린 줄'로.
+        칸 속 위젯 위에서는 표 바탕(viewport)에 마우스 움직임이 오지 않고 오히려 '떠남'이 오기 때문."""
+        widget.installEventFilter(self)
+        for child in widget.findChildren(QWidget):
+            child.installEventFilter(self)
+
+    def _sync_hover_to_cursor(self):
+        from PyQt5.QtGui import QCursor
+        pos = self.viewport().mapFromGlobal(QCursor.pos())
+        if not self.viewport().rect().contains(pos):
+            self.set_hover_row(-1)
+        else:
+            self.set_hover_row(self._item_row(self.rowAt(pos.y())))
+
     def eventFilter(self, obj, e):
+        t = e.type()
         if obj is self.viewport():
-            t = e.type()
             if t == QEvent.MouseMove:
                 self.set_hover_row(self._item_row(self.rowAt(e.pos().y())))
             elif t == QEvent.Leave:
-                self.set_hover_row(-1)
+                self._sync_hover_to_cursor()          # 칸 속 단추로 들어간 것이면 그대로 둠
             elif t == QEvent.ContextMenu:
                 r = self._item_row(self.rowAt(e.pos().y()))
                 if r >= 0:
                     self.rowMenu.emit(self.row_items[r], e.globalPos())
                     return True
+        elif t in (QEvent.Enter, QEvent.MouseMove, QEvent.Leave) and isinstance(obj, QWidget):
+            self._sync_hover_to_cursor()
         return super().eventFilter(obj, e)
 
 
@@ -1362,6 +1379,7 @@ class BudgetWindow(QMainWindow):
         while self.nav_layout.count():
             w = self.nav_layout.takeAt(0).widget()
             if w:
+                w.hide()                  # 숨긴 뒤 떼어야 지우기 전 잠깐 따로 창으로 뜨지 않음
                 w.setParent(None)
                 w.deleteLater()
         self._nav_refs = {}
@@ -1534,6 +1552,7 @@ class BudgetWindow(QMainWindow):
         while self.sections_layout.count():
             w = self.sections_layout.takeAt(0).widget()
             if w:
+                w.hide()                  # 숨긴 뒤 떼어야 지우기 전 잠깐 따로 창으로 뜨지 않음
                 w.setParent(None)
                 w.deleteLater()
         self._overview_chips = {}
@@ -1653,9 +1672,9 @@ class BudgetWindow(QMainWindow):
                 if on:
                     t.sync_geometry()
             toggle.clicked.connect(lambda _, c=cat['id'], f=set_open: (f(c not in self._show_done), self._schedule_save()))
-            set_open(open_)
             v.addWidget(toggle, 0, Qt.AlignLeft)
             v.addWidget(dtable)
+            set_open(open_)                               # 칸에 넣은 뒤에 펼쳐야 따로 창으로 뜨지 않음
         total = None
         if cat_items:
             total = self._make_total_table(main)
@@ -1954,6 +1973,8 @@ class BudgetWindow(QMainWindow):
         t.setItem(r, _COL_ACT, cell('', R))
         t.setCellWidget(r, _COL_ACT, acts)
         t.action_buttons[r] = (b_edit, b_done) if done else (b_spend, b_edit, b_done)
+        for wdg in (dcell, wrap, acts):                  # 칸 속 위젯 위에 있어도 단추가 보이게
+            t.watch_row(wdg)
         t.row_items[r] = item['id']
         t.setRowHeight(r, sz['row_h'])
         self._row_refs[item['id']] = {'rem': rem_it, 'bar': bar, 'pct': lbl, 'desc': dcell}
@@ -2656,8 +2677,9 @@ class _DescCell(QWidget):
         self.lbl_cost.setObjectName('CostTag')
         self.lbl_cost.setStyleSheet(f'background: {C.TAG_BG}; color: {C.MUTED}; border-radius: 4px; '
                                     f'padding: 1px 6px; font-size: 10pt;')   # 칸의 투명 바탕보다 먼저
-        self.lbl_cost.setVisible(bool(item.get('cost_type')))
-        name_row.addWidget(self.lbl_cost)
+        name_row.addWidget(self.lbl_cost)                          # 칸에 넣은 뒤에 숨겨야 따로 창으로 뜨지 않음
+        if not item.get('cost_type'):
+            self.lbl_cost.hide()
         name_row.addStretch(1)
         head.addLayout(name_row)
         head.addWidget(self.lbl_sum)
@@ -3150,6 +3172,7 @@ class _CategoryManagerDialog(QDialog):
         while self.list_layout.count():
             w = self.list_layout.takeAt(0).widget()
             if w:
+                w.hide()                  # 숨긴 뒤 떼어야 지우기 전 잠깐 따로 창으로 뜨지 않음
                 w.setParent(None)
                 w.deleteLater()
 
@@ -3198,6 +3221,7 @@ class _CategoryManagerDialog(QDialog):
         while self.group_layout.count():
             w = self.group_layout.takeAt(0).widget()
             if w:
+                w.hide()                  # 숨긴 뒤 떼어야 지우기 전 잠깐 따로 창으로 뜨지 않음
                 w.setParent(None)
                 w.deleteLater()
         if not groups:
@@ -3353,6 +3377,7 @@ class _CostTypeDialog(QDialog):
         while self.list_layout.count():
             w = self.list_layout.takeAt(0).widget()
             if w:
+                w.hide()                  # 숨긴 뒤 떼어야 지우기 전 잠깐 따로 창으로 뜨지 않음
                 w.setParent(None)
                 w.deleteLater()
         saved = self._bt.load_saved()
