@@ -134,7 +134,7 @@ def test_row_right_click_menu(win, monkeypatch):
     shown = {}
     monkeypatch.setattr(budget.QMenu, 'exec_', lambda self, *a: shown.setdefault('acts', [a.text() for a in self.actions()]))
     w._row_menu(iid, budget.QPoint(0, 0))
-    assert [x for x in shown['acts'] if x] == ['쓴 돈 추가…', '수정…', '완료로 표시', '산출내역 복사', '지우기']
+    assert [x for x in shown['acts'] if x] == ['쓴 돈 추가…', '수정…', '완료로 표시', '지우기']
     monkeypatch.setattr(budget.QMessageBox, 'question', lambda *a, **k: budget.QMessageBox.Yes)
     w._delete_item(iid)
     assert iid not in [i['id'] for i in db.get_budget_items()]

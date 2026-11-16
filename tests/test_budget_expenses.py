@@ -427,5 +427,6 @@ def test_name_is_selectable_click_toggles_and_copy(win):
     app.clipboard().clear()
     w._copy_desc(iid, selected_only=True)
     assert app.clipboard().text() == name.selectedText() != ''
-    w._copy_desc(iid)
+    cell.btn_copy.click()                                                  # 비목 꼬리표 옆 복사 단추
     assert app.clipboard().text() == '2학기 방과후 강사 수당'
+    assert cell.btn_copy.toolTip() == '산출내역 복사'

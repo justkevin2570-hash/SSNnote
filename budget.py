@@ -2074,7 +2074,8 @@ class BudgetWindow(QMainWindow):
         return t
 
     def _row_menu(self, item_id, pos):
-        """항목 줄 오른쪽 클릭: 쓴 돈 추가 · 수정 · 완료(완료 취소) · 산출내역 복사 · 지우기."""
+        """항목 줄 오른쪽 클릭: 쓴 돈 추가 · 수정 · 완료(완료 취소) · (고른 글자 복사) · 지우기.
+        산출내역 전체 복사는 비목 꼬리표 옆 복사 단추로."""
         item = self._items_by_id.get(item_id)
         if not item:
             return
@@ -2092,7 +2093,6 @@ class BudgetWindow(QMainWindow):
         if cell is not None and cell.lbl_name.hasSelectedText():
             m.addAction(qta.icon('fa5s.copy', color=C.MUTED), '고른 글자 복사',
                         lambda: self._copy_desc(item_id, selected_only=True))
-        m.addAction(qta.icon('fa5s.copy', color=C.MUTED), '산출내역 복사', lambda: self._copy_desc(item_id))
         m.addSeparator()
         m.addAction(qta.icon('fa5s.trash-alt', color=C.NEG), '지우기', lambda: self._delete_item(item_id))
         m.exec_(pos)
@@ -2897,12 +2897,14 @@ class _RowIconButton(QPushButton):
     def side(cls):
         return _sz(cls.SIDE)
 
-    def __init__(self, icon, hover_color, hover_bg, tip):
+    def __init__(self, icon, hover_color, hover_bg, tip, icon_px=None, side=None):
         super().__init__()
         self._icons = (qta.icon(icon, color=C.MUTED), qta.icon(icon, color=hover_color))
         self.setIcon(self._icons[0])
-        self.setIconSize(QSize(_sz(self.ICON), _sz(self.ICON)))
-        self.setFixedSize(self.side(), self.side())
+        ip = _sz(icon_px or self.ICON)
+        self.setIconSize(QSize(ip, ip))
+        sd = _sz(side) if side else self.side()
+        self.setFixedSize(sd, sd)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(tip)
         self.setFlat(True)
@@ -3002,6 +3004,11 @@ class _DescCell(QWidget):
         name_row.addWidget(self.lbl_cost)                          # 칸에 넣은 뒤에 숨겨야 따로 창으로 뜨지 않음
         if not item.get('cost_type'):
             self.lbl_cost.hide()
+        # 비목 꼬리표 오른쪽: 산출내역 복사 단추 (누르면 이름 전체를 클립보드로)
+        self.btn_copy = _RowIconButton('ph.copy', C.ACCENT, C.ACCENT_SOFT, '산출내역 복사', icon_px=15, side=24)
+        self.btn_copy.clicked.connect(self._copy_name)
+        name_row.addSpacing(2)
+        name_row.addWidget(self.btn_copy)
         name_row.addStretch(1)
         head.addLayout(name_row)
         head.addWidget(self.lbl_sum)
@@ -3018,6 +3025,13 @@ class _DescCell(QWidget):
 
     def _open(self):
         return bool(self._state.get('open'))
+
+    def _copy_name(self):
+        """산출내역 이름 전체를 클립보드로 복사하고, 단추 옆에 「복사됨」을 잠깐 보여 준다."""
+        QApplication.clipboard().setText(self._item['description'])
+        from PyQt5.QtWidgets import QToolTip
+        b = self.btn_copy
+        QToolTip.showText(b.mapToGlobal(QPoint(b.width(), 0)), '복사됨', b, b.rect(), 1200)
 
     def set_expenses(self, expenses):
         """사용 내역이 바뀌면 요약과 펼친 내용을 새로 그린다."""
