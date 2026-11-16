@@ -100,3 +100,18 @@ def test_text_size_menu_and_scaling(win):
     w.set_text_size('base')
     assert budget._pt(10) == 10 and budget._sizes()['row_h'] == base_row
     assert w.font().pointSizeF() == base_font
+
+
+def test_nav_total_and_group_have_no_bar(win):
+    w, db, budget = win
+    gid = db.add_budget_group('묶음')
+    cid = db.get_budget_categories()[0]['id']
+    db.set_budget_category_group(cid, gid)
+    w.refresh()
+    w.show()
+    refs = w._nav_refs
+    assert refs['ALL'].bar.isHidden() and refs['ALL'].lbl_pct.isHidden()
+    assert refs[('G', gid)].bar.isHidden() and refs[('G', gid)].lbl_pct.isHidden()
+    other = next(k for k in refs if isinstance(k, int))
+    assert not refs[other].bar.isHidden() and not refs[other].lbl_pct.isHidden()
+    assert '잔액' in refs['ALL'].lbl_meta.text() and '잔액' in refs[('G', gid)].lbl_meta.text()

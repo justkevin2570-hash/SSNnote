@@ -84,9 +84,9 @@ def test_completed_items_folded_by_default_and_can_open(win):
     assert len(done) == 1 and not done[0].isVisible()             # 완료 항목은 접은 것이 기본
     from PyQt5.QtWidgets import QPushButton
     toggle = next(b for b in w.findChildren(QPushButton) if '완료한 항목 1개' in b.text())
-    assert toggle.text().startswith('▸') and first['description'] in toggle.text()
+    assert toggle.property('open') is False and first['description'] in toggle.text() and not toggle.icon().isNull()
     toggle.click()
-    assert done[0].isVisible() and toggle.text().startswith('▾')
+    assert done[0].isVisible() and toggle.property('open') is True
     assert done[0].cellWidget(0, 3).findChild(budget.QLabel).text() == '완료'   # 집행률 대신 「완료」
 
 
