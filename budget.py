@@ -2887,6 +2887,44 @@ class _ImportPreviewDialog(QDialog):
 
 
 # ── 예산 항목 추가/수정 다이얼로그 ────────────────────────────────
+class _RowIconButton(QPushButton):
+    """사용 내역 줄의 작은 선 아이콘 단추 (연필 · 휴지통). 벡터 아이콘이라 화면 배율이 커도 선명.
+    평소엔 옅은 회색, 마우스를 올리면 옅은 바탕의 둥근 네모와 진한 색 아이콘."""
+    ICON = 15
+    SIDE = 26
+
+    @classmethod
+    def side(cls):
+        return _sz(cls.SIDE)
+
+    def __init__(self, icon, hover_color, hover_bg, tip):
+        super().__init__()
+        self._icons = (qta.icon(icon, color=C.MUTED), qta.icon(icon, color=hover_color))
+        self.setIcon(self._icons[0])
+        self.setIconSize(QSize(_sz(self.ICON), _sz(self.ICON)))
+        self.setFixedSize(self.side(), self.side())
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(tip)
+        self.setFlat(True)
+        base = f'border: none; padding: 0; border-radius: {min(C.R_ICON, 6)}px;'
+        self._qss = (f'QPushButton {{ {base} background: transparent; }}',
+                     f'QPushButton {{ {base} background: {hover_bg}; }}')
+        self.setStyleSheet(self._qss[0])
+
+    def set_hot(self, on):
+        """마우스를 올린 모양 (진한 아이콘 + 옅은 바탕)."""
+        self.setIcon(self._icons[1 if on else 0])
+        self.setStyleSheet(self._qss[1 if on else 0])
+
+    def enterEvent(self, e):
+        self.set_hot(True)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.set_hot(False)
+        super().leaveEvent(e)
+
+
 def _make_selectable(label):
     """글자를 마우스로 드래그해서 고르고 Ctrl+C로 복사할 수 있게. 우클릭은 표의 줄 메뉴로 넘긴다."""
     label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -3035,7 +3073,7 @@ class _DescCell(QWidget):
             self._dv.addWidget(warn)
 
     def _entry_row(self, date, purpose, amount, eid=None, ex=None):
-        """사용 내역 한 줄: 날짜 · 쓴 곳 · 금액 · ✎ ✕. 글자는 드래그해서 복사, 줄을 더블클릭하면 고치기."""
+        """사용 내역 한 줄: 날짜 · 쓴 곳 · 금액 · [연필] [휴지통]. 글자는 드래그해서 복사, 줄을 더블클릭하면 고치기."""
         row = QHBoxLayout()
         row.setSpacing(8)
         d = QLabel(date)
@@ -3051,38 +3089,30 @@ class _DescCell(QWidget):
         row.addWidget(d)
         row.addWidget(p, 1)
         row.addWidget(a)
+        btns = QHBoxLayout()                          # 아이콘 단추 둘은 조금 붙여서
+        btns.setSpacing(px(4))
+        row.addLayout(btns)
         editable = ex is not None and self._on_edit is not None
         if editable:
             for lb in (d, p, a):
                 lb.installEventFilter(self)
                 lb.setProperty('expense', ex)
-            e = QPushButton('✎')
-            e.setFlat(True)
-            e.setFixedSize(_sz(20), _sz(20))
-            e.setCursor(Qt.PointingHandCursor)
-            e.setToolTip('쓴 곳 · 날짜 적기 (기록으로 남겨요)' if eid is None else '이 사용 내역 고치기')
-            e.setStyleSheet(f'QPushButton {{ border: none; background: transparent; color: {C.FAINT}; }} '
-                            f'QPushButton:hover {{ color: {C.ACCENT}; }}')
+            e = _RowIconButton('ph.pencil-simple', C.ACCENT, C.ACCENT_SOFT,
+                               '쓴 곳 · 날짜 적기 (기록으로 남겨요)' if eid is None else '이 사용 내역 고치기')
             e.clicked.connect(lambda _, ex=ex: self._on_edit(ex))
-            row.addWidget(e)
+            btns.addWidget(e)
         else:
             spacer = QWidget()
-            spacer.setFixedSize(_sz(20), _sz(20))
-            row.addWidget(spacer)
-        if eid is None:
+            spacer.setFixedSize(_RowIconButton.side(), _RowIconButton.side())
+            btns.addWidget(spacer)
+        if eid is None:                              # 명목 없음: 지우기 자리는 비워 아이콘 줄을 맞춤
             spacer = QWidget()
-            spacer.setFixedSize(_sz(20), _sz(20))
-            row.addWidget(spacer)
+            spacer.setFixedSize(_RowIconButton.side(), _RowIconButton.side())
+            btns.addWidget(spacer)
             return row
-        x = QPushButton('✕')
-        x.setFlat(True)
-        x.setFixedSize(_sz(20), _sz(20))
-        x.setCursor(Qt.PointingHandCursor)
-        x.setToolTip('이 사용 내역을 지웁니다 (집행액도 그만큼 줄어요)')
-        x.setStyleSheet(f'QPushButton {{ border: none; background: transparent; color: {C.FAINT}; }} '
-                        f'QPushButton:hover {{ color: {C.NEG}; }}')
+        x = _RowIconButton('ph.trash', C.NEG, C.OVER_SOFT, '이 사용 내역 지우기 (집행액도 그만큼 줄어요)')
         x.clicked.connect(lambda _, eid=eid: self._on_delete(eid))
-        row.addWidget(x)
+        btns.addWidget(x)
         return row
 
     def eventFilter(self, obj, e):
