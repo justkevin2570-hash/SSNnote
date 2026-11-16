@@ -3412,17 +3412,11 @@ class _ItemDialog(QDialog):
         v.addWidget(self.combo_cat)
 
         v.addWidget(self._label('원가통계비목'))
-        self.edit_cost = QLineEdit()
-        self.edit_cost.setPlaceholderText('목록에서 고르거나 직접 입력 (예: 교육운영비)')
-        from budget_types import known as known_cost_types
-        self._cost_completer = QCompleter(known_cost_types(), self)
-        self._cost_completer.setCaseSensitivity(Qt.CaseInsensitive)
-        self._cost_completer.setFilterMode(Qt.MatchContains)
-        self._cost_completer.popup().setStyleSheet(STYLE)
-        self.edit_cost.setCompleter(self._cost_completer)
-        show_all = self.edit_cost.addAction(qta.icon('fa5s.chevron-down', color=C.FAINT), QLineEdit.TrailingPosition)
-        show_all.setToolTip('원가통계비목 목록 보기')
-        show_all.triggered.connect(self._show_cost_list)
+        # 목록에서 고르기만 (직접 입력 없음): (비목 없음) · 자주 쓰는 비목 ─ 나머지 · 지금 쓰는 비목 ─ 목록 관리…
+        self.edit_cost = QComboBox()
+        self.edit_cost.setMaxVisibleItems(18)
+        self._fill_cost_combo((item or {}).get('cost_type', ''))
+        self.edit_cost.activated.connect(self._on_cost_picked)
         v.addWidget(self.edit_cost)
 
         v.addWidget(self._label('산출내역 (내용)'))
@@ -3477,7 +3471,6 @@ class _ItemDialog(QDialog):
         v.addLayout(btns)
 
         if item:
-            self.edit_cost.setText(item['cost_type'])
             self.edit_desc.setText(item['description'])
             self.edit_budget.setText(f'{item["budget"]:,}')
             self.edit_spent.setText(f'{item["spent"]:,}')
@@ -3493,9 +3486,49 @@ class _ItemDialog(QDialog):
             self.deleted = True
             self.accept()
 
-    def _show_cost_list(self):
-        self._cost_completer.setCompletionPrefix('')
-        self._cost_completer.complete()
+    _MANAGE = '__manage__'
+
+    def _fill_cost_combo(self, current=''):
+        """원가통계비목 고르는 칸 채우기. current가 목록에 없어도(예전에 가져온 비목) 고를 수 있게 넣는다."""
+        import budget_types as bt
+        cb = self.edit_cost
+        cb.blockSignals(True)
+        cb.clear()
+        cb.addItem('(비목 없음)', '')
+        saved = bt.load_saved()
+        keys = {n.replace(' ', '') for n in saved}
+        pri = [n for n in saved if n in bt.PRIORITY]
+        rest = [n for n in saved if n not in bt.PRIORITY]
+        extra = [n for n in bt.in_use() if n.replace(' ', '') not in keys]
+        cur = ' '.join(str(current or '').split())
+        if cur and cur != '일반' and cur.replace(' ', '') not in keys and cur not in extra:
+            extra.append(cur)
+        for n in pri:
+            cb.addItem(n, n)
+        if pri and (rest or extra):
+            cb.insertSeparator(cb.count())
+        for n in rest + extra:
+            cb.addItem(n, n)
+        cb.insertSeparator(cb.count())
+        cb.addItem('목록 관리…', self._MANAGE)
+        idx = cb.findData(cur) if cur and cur != '일반' else 0
+        if idx < 0:
+            idx = next((i for i in range(cb.count())
+                        if str(cb.itemData(i) or '').replace(' ', '') == cur.replace(' ', '')), 0)
+        cb.setCurrentIndex(idx)
+        self._cost_last = cb.currentIndex()
+        cb.blockSignals(False)
+
+    def _on_cost_picked(self, idx):
+        if self.edit_cost.itemData(idx) != self._MANAGE:
+            self._cost_last = idx
+            return
+        keep = self.edit_cost.itemData(self._cost_last) or ''
+        _CostTypeDialog(self).exec_()                # 목록에 더하거나 뺀 뒤 다시 채움
+        self._fill_cost_combo(keep)
+
+    def cost_value(self):
+        return self.edit_cost.currentData() or ''
 
     @staticmethod
     def _label(text):
@@ -3508,7 +3541,7 @@ class _ItemDialog(QDialog):
         if not desc:
             QMessageBox.warning(self, '저장 실패', '산출내역(내용)을 입력해주세요.')
             return
-        cost = self.edit_cost.text().strip() or '일반'
+        cost = self.cost_value() or '일반'
         expense = None
         self.result_data = {
             'category_id': self.combo_cat.currentData(),

@@ -281,11 +281,10 @@ def test_cost_chips_totals_and_filter(win):
     assert '잔액 100원' in w._sec_refs[cid]['chips']['교육운영비'].toolTip()
 
 
-def test_item_dialog_has_cost_completer(win):
+def test_item_dialog_lists_cost_types(win):
     w, db, budget, app = win
     dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], None, 1, w)
-    model = dlg._cost_completer.model()
-    names = [model.index(i, 0).data() for i in range(model.rowCount())]
+    names = [dlg.edit_cost.itemText(i) for i in range(dlg.edit_cost.count())]
     assert '교육운영비' in names and '목적사업업무추진비' in names
 
 
@@ -412,22 +411,31 @@ def test_enter_never_deletes_or_cancels(win, monkeypatch):
     dlg.close()
 
 
-def test_completer_enter_picks_cost_type_without_saving(win):
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtTest import QTest
+def test_cost_type_is_pick_only_from_list(win, monkeypatch):
+    """원가통계비목은 목록에서 고르기만: (비목 없음) · 자주 쓰는 비목 · 나머지 · 지금 쓰는 비목 · 목록 관리…"""
+    from PyQt5.QtWidgets import QComboBox
+    import budget_types as bt
     w, db, budget, app = win
-    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM, cost_type=''), 1, w)
-    dlg.show()
-    app.processEvents()
-    dlg.edit_cost.setFocus()
-    dlg._cost_completer.complete()
-    app.processEvents()
-    pop = dlg._cost_completer.popup()
-    pop.setCurrentIndex(pop.model().index(0, 0))
-    QTest.keyClick(pop, Qt.Key_Return)
-    app.processEvents()
-    assert dlg.edit_cost.text() and dlg.result() == 0 and dlg.result_data is None   # 목록에서 고르기만, 저장은 안 됨
-    dlg.close()
+    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM, cost_type='시설장비유지비'), 1, w)
+    cb = dlg.edit_cost
+    assert isinstance(cb, QComboBox) and not cb.isEditable()
+    texts = [cb.itemText(i) for i in range(cb.count())]
+    assert texts[0] == '(비목 없음)' and texts[1:1 + len(bt.PRIORITY)] == list(bt.PRIORITY)
+    assert texts[-1] == '목록 관리…' and '기간제근로자법정부담금' in texts
+    assert cb.currentText() == '시설장비유지비'                     # 예전 비목도 그대로 골라져 있음
+    cb.setCurrentIndex(cb.findData('여비'))
+    dlg._save()
+    assert dlg.result_data['cost_type'] == '여비'
+    dlg2 = budget._ItemDialog([{'id': 1, 'name': 'A'}], None, 1, w)
+    assert dlg2.edit_cost.currentIndex() == 0
+    opened = []
+    monkeypatch.setattr(budget._CostTypeDialog, 'exec_', lambda self: opened.append(1) or 0)
+    dlg2.edit_cost.setCurrentIndex(dlg2.edit_cost.findData('운영수당'))
+    dlg2._on_cost_picked(dlg2.edit_cost.currentIndex())
+    manage = dlg2.edit_cost.findData(budget._ItemDialog._MANAGE)
+    dlg2._on_cost_picked(manage)
+    assert opened and dlg2.cost_value() == '운영수당'                 # 목록 관리 뒤에도 고른 비목 그대로
+    dlg.close(); dlg2.close()
 
 
 def test_save_left_cancel_right(win):
