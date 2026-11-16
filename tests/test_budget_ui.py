@@ -739,3 +739,31 @@ def test_amount_cursor_stays_where_you_edit(win):
     QTest.keyClick(e, Qt.Key_Backspace)                             # 다시 지우면 300,000
     assert e.text() == '300,000' and e.text()[:e.cursorPosition()] == '3'
     dlg.close()
+
+
+def test_row_icon_buttons_spend_edit_delete_then_copy(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    first = db.get_budget_items()[0]
+    db.toggle_budget_item_completed(first['id'])
+    w.refresh()
+    w.show()
+    app.processEvents()
+    open_items = [i for i in db.get_budget_items() if not i['completed']]
+    cell = w._row_refs[open_items[0]['id']]['desc']
+    keys = list(cell.row_buttons)
+    assert keys == ['spend', 'edit', 'delete']
+    xs = [cell.row_buttons[k].mapTo(cell, budget.QPoint(0, 0)).x() for k in keys] + \
+         [cell.btn_copy.mapTo(cell, budget.QPoint(0, 0)).x()]
+    assert xs == sorted(xs)                                               # 쓴 돈 · 수정 · 삭제 · 복사(맨 오른쪽)
+    calls = []
+    monkeypatch.setattr(w, '_open_spend', lambda iid: calls.append(('spend', iid)))
+    monkeypatch.setattr(w, '_open_edit_item', lambda iid: calls.append(('edit', iid)))
+    monkeypatch.setattr(w, '_delete_item', lambda iid: calls.append(('delete', iid)))
+    w.refresh()
+    cell = w._row_refs[open_items[0]['id']]['desc']
+    for k in keys:
+        cell.row_buttons[k].click()
+    assert calls == [(k, open_items[0]['id']) for k in keys]
+    done_cell = w._row_refs[first['id']]['desc']
+    assert list(done_cell.row_buttons) == ['edit', 'delete']             # 완료한 항목은 쓴 돈 추가 없음

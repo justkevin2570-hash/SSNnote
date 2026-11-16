@@ -2165,7 +2165,10 @@ class BudgetWindow(QMainWindow):
         t.setItem(r, 0, cell('', Qt.AlignLeft | Qt.AlignVCenter))
         dcell = _DescCell(t, r, item, self._expense_ui.setdefault(item['id'], {}),
                           self._expenses_by_item.get(item['id'], []), self._delete_expense, done,
-                          on_edit=lambda ex, iid=item['id']: self._edit_expense(iid, ex))
+                          on_edit=lambda ex, iid=item['id']: self._edit_expense(iid, ex),
+                          actions={'spend': lambda iid=item['id']: self._open_spend(iid),
+                                   'edit': lambda iid=item['id']: self._open_edit_item(iid),
+                                   'delete': lambda iid=item['id']: self._delete_item(iid)})
         t.setCellWidget(r, 0, dcell)
         t.setSpan(r + 1, 0, 1, 3)                                  # 숨은 줄: 산출내역 ~ 잔액 칸을 하나로
         t.setCellWidget(r + 1, 0, dcell.detail)
@@ -2971,7 +2974,7 @@ class _DescCell(QWidget):
     펼침·더 보기 상태는 state(창을 여는 동안만 유지)에 둔다."""
     SHOW = 5                                       # 펼쳤을 때 먼저 보여 줄 건수
 
-    def __init__(self, table, row, item, state, expenses, on_delete, done=False, on_edit=None):
+    def __init__(self, table, row, item, state, expenses, on_delete, done=False, on_edit=None, actions=None):
         super().__init__()
         self._table, self._row, self._item = table, row, item
         self._state, self._on_delete, self._done = state, on_delete, done
@@ -3015,11 +3018,23 @@ class _DescCell(QWidget):
         name_row.addWidget(self.lbl_cost)                          # 칸에 넣은 뒤에 숨겨야 따로 창으로 뜨지 않음
         if not item.get('cost_type'):
             self.lbl_cost.hide()
-        # 비목 꼬리표 오른쪽: 산출내역 복사 단추 (누르면 이름 전체를 클립보드로)
+        # 비목 꼬리표 오른쪽: [+ 쓴 돈 추가] [수정] [삭제] [복사] (완료한 항목은 쓴 돈 추가 없음)
+        actions = actions or {}
+        self.row_buttons = {}
+        name_row.addSpacing(2)
+        specs = (('spend', 'ph.plus', C.ACCENT, C.ACCENT_SOFT, '쓴 돈 추가'),
+                 ('edit', 'ph.pencil-simple', C.ACCENT, C.ACCENT_SOFT, '수정'),
+                 ('delete', 'ph.trash', C.NEG, C.OVER_SOFT, '삭제'))
+        for key, icon, color, bg, tip in specs:
+            if key not in actions or (key == 'spend' and done):
+                continue
+            b = _RowIconButton(icon, color, bg, tip, icon_px=15, side=24)
+            b.clicked.connect(lambda _, f=actions[key]: f())
+            name_row.addWidget(b)
+            self.row_buttons[key] = b
         self.btn_copy = _RowIconButton('ph.copy', C.ACCENT, C.ACCENT_SOFT, '산출내역 복사', icon_px=15, side=24)
         self.btn_copy.clicked.connect(self._copy_name)
-        name_row.addSpacing(2)
-        name_row.addWidget(self.btn_copy)
+        name_row.addWidget(self.btn_copy)                      # 복사는 맨 오른쪽
         name_row.addStretch(1)
         head.addLayout(name_row)
         head.addWidget(self.lbl_sum)
