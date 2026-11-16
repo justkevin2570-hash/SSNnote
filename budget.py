@@ -2895,15 +2895,24 @@ class _RowIconButton(QPushButton):
 
     @classmethod
     def side(cls):
-        return _sz(cls.SIDE)
+        return px(_sz(cls.SIDE))
 
     def __init__(self, icon, hover_color, hover_bg, tip, icon_px=None, side=None):
         super().__init__()
+        # 굵은 선(-bold): 가는 선은 작은 크기에서 1px 회색 선으로 흐릿하게 보였다
+        bold = icon + '-bold'
+        try:
+            qta.icon(bold)
+            icon = bold
+        except Exception:
+            pass
         self._icons = (qta.icon(icon, color=C.MUTED), qta.icon(icon, color=hover_color))
         self.setIcon(self._icons[0])
-        ip = _sz(icon_px or self.ICON)
+        # 크기는 화면 배율(px)까지 곱한다: 125%·150%에서도 글자와 같은 비율로 커져서
+        # 작은 그림을 늘려 그리지 않고 그 크기로 바로 그린다
+        ip = px(_sz(icon_px or self.ICON))
         self.setIconSize(QSize(ip, ip))
-        sd = _sz(side) if side else self.side()
+        sd = px(_sz(side)) if side else self.side()
         self.setFixedSize(sd, sd)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(tip)
