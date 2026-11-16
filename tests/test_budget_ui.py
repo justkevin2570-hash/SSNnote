@@ -71,7 +71,7 @@ def _fmt_sum(db, cat_id):
     return f"{sum(i['budget'] for i in its) - sum(i['spent'] for i in its):,}"
 
 
-def test_completed_items_folded_by_default_and_can_open(win):
+def test_completed_items_always_shown_below_without_toggle(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     first = db.get_budget_items()[0]
@@ -81,12 +81,9 @@ def test_completed_items_folded_by_default_and_can_open(win):
     app.processEvents()
     done = [t for t in w.findChildren(budget._BudgetTable)
             if t.horizontalHeader().isHidden() and t.row_items]
-    assert len(done) == 1 and not done[0].isVisible()             # 완료 항목은 접은 것이 기본
+    assert len(done) == 1 and done[0].isVisible()                 # 완료 항목은 늘 보임 (접기 단추 없음)
     from PyQt5.QtWidgets import QPushButton
-    toggle = next(b for b in w.findChildren(QPushButton) if '완료한 항목 1개' in b.text())
-    assert toggle.property('open') is False and first['description'] in toggle.text() and not toggle.icon().isNull()
-    toggle.click()
-    assert done[0].isVisible() and toggle.property('open') is True
+    assert not [b for b in w.findChildren(QPushButton) if '완료한 항목' in b.text()]
     assert done[0].cellWidget(0, 3).findChild(budget.QLabel).text() == '완료'   # 집행률 대신 「완료」
 
 
@@ -281,11 +278,10 @@ def test_cost_chips_totals_and_filter(win):
     assert '잔액 100원' in w._sec_refs[cid]['chips']['교육운영비'].toolTip()
 
 
-def test_item_dialog_has_cost_completer(win):
+def test_item_dialog_lists_cost_types(win):
     w, db, budget, app = win
     dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], None, 1, w)
-    model = dlg._cost_completer.model()
-    names = [model.index(i, 0).data() for i in range(model.rowCount())]
+    names = [dlg.edit_cost.itemText(i) for i in range(dlg.edit_cost.count())]
     assert '교육운영비' in names and '목적사업업무추진비' in names
 
 
@@ -412,22 +408,31 @@ def test_enter_never_deletes_or_cancels(win, monkeypatch):
     dlg.close()
 
 
-def test_completer_enter_picks_cost_type_without_saving(win):
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtTest import QTest
+def test_cost_type_is_pick_only_from_list(win, monkeypatch):
+    """원가통계비목은 목록에서 고르기만: (비목 없음) · 자주 쓰는 비목 · 나머지 · 지금 쓰는 비목 · 목록 관리…"""
+    from PyQt5.QtWidgets import QComboBox
+    import budget_types as bt
     w, db, budget, app = win
-    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM, cost_type=''), 1, w)
-    dlg.show()
-    app.processEvents()
-    dlg.edit_cost.setFocus()
-    dlg._cost_completer.complete()
-    app.processEvents()
-    pop = dlg._cost_completer.popup()
-    pop.setCurrentIndex(pop.model().index(0, 0))
-    QTest.keyClick(pop, Qt.Key_Return)
-    app.processEvents()
-    assert dlg.edit_cost.text() and dlg.result() == 0 and dlg.result_data is None   # 목록에서 고르기만, 저장은 안 됨
-    dlg.close()
+    dlg = budget._ItemDialog([{'id': 1, 'name': 'A'}], dict(_ITEM, cost_type='시설장비유지비'), 1, w)
+    cb = dlg.edit_cost
+    assert isinstance(cb, QComboBox) and not cb.isEditable()
+    texts = [cb.itemText(i) for i in range(cb.count())]
+    assert texts[0] == '(비목 없음)' and texts[1:1 + len(bt.PRIORITY)] == list(bt.PRIORITY)
+    assert texts[-1] == '목록 관리…' and '기간제근로자법정부담금' in texts
+    assert cb.currentText() == '시설장비유지비'                     # 예전 비목도 그대로 골라져 있음
+    cb.setCurrentIndex(cb.findData('여비'))
+    dlg._save()
+    assert dlg.result_data['cost_type'] == '여비'
+    dlg2 = budget._ItemDialog([{'id': 1, 'name': 'A'}], None, 1, w)
+    assert dlg2.edit_cost.currentIndex() == 0
+    opened = []
+    monkeypatch.setattr(budget._CostTypeDialog, 'exec_', lambda self: opened.append(1) or 0)
+    dlg2.edit_cost.setCurrentIndex(dlg2.edit_cost.findData('운영수당'))
+    dlg2._on_cost_picked(dlg2.edit_cost.currentIndex())
+    manage = dlg2.edit_cost.findData(budget._ItemDialog._MANAGE)
+    dlg2._on_cost_picked(manage)
+    assert opened and dlg2.cost_value() == '운영수당'                 # 목록 관리 뒤에도 고른 비목 그대로
+    dlg.close(); dlg2.close()
 
 
 def test_save_left_cancel_right(win):
@@ -734,3 +739,27 @@ def test_amount_cursor_stays_where_you_edit(win):
     QTest.keyClick(e, Qt.Key_Backspace)                             # 다시 지우면 300,000
     assert e.text() == '300,000' and e.text()[:e.cursorPosition()] == '3'
     dlg.close()
+
+
+def test_row_icon_buttons_spend_and_done_only(win, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS, 'append')
+    first = db.get_budget_items()[0]
+    db.toggle_budget_item_completed(first['id'])
+    w.refresh()
+    w.show()
+    app.processEvents()
+    open_items = [i for i in db.get_budget_items() if not i['completed']]
+    cell = w._row_refs[open_items[0]['id']]['desc']
+    assert list(cell.row_buttons) == ['spend', 'done'] and not hasattr(cell, 'btn_copy')
+    assert [cell.row_buttons[k].toolTip() for k in ('spend', 'done')] == ['쓴 돈 추가', '완료']
+    calls = []
+    monkeypatch.setattr(w, '_open_spend', lambda iid: calls.append(('spend', iid)))
+    monkeypatch.setattr(w, '_toggle_complete', lambda iid: calls.append(('done', iid)))
+    w.refresh()
+    cell = w._row_refs[open_items[0]['id']]['desc']
+    cell.row_buttons['spend'].click()
+    cell.row_buttons['done'].click()
+    assert calls == [('spend', open_items[0]['id']), ('done', open_items[0]['id'])]
+    done_cell = w._row_refs[first['id']]['desc']
+    assert list(done_cell.row_buttons) == ['done'] and done_cell.row_buttons['done'].toolTip() == '완료 취소'

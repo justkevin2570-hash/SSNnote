@@ -12,9 +12,25 @@ import json
 
 SETTING_KEY = 'budget_cost_types'
 
-# 처음 쓸 때의 목록 (설정에 저장된 뒤에는 사용자가 고친 목록을 쓴다)
-DEFAULTS = ('여비', '운영수당', '일반수용비', '교육운영비', '기간제근로자법정부담금',
-            '일반업무추진비', '기간제교원법정부담금', '목적사업업무추진비')
+# 자주 쓰는 비목 (목록 맨 위, 고르는 칸에서도 먼저)
+PRIORITY = ('일반수용비', '운영수당', '여비', '교직원복지비',
+            '교육운영비', '학습준비물', '학생복지비',
+            '일반업무추진비', '목적사업업무추진비',
+            '비품구입비', '도서구입비')
+
+# 처음 쓸 때의 목록 = 자주 쓰는 비목 + 에듀파인 학교회계 원가통계비목 (A인건비 · B운영비 · C자산취득비 · D예비비및기타)
+# (설정에 저장된 뒤에는 사용자가 고친 목록을 쓴다)
+DEFAULTS = PRIORITY + (
+    '무기계약직원인건비', '기간제교원인건비', '기간제직원인건비', '학교운영지원수당',
+    '전기요금', '상하수도료', '연료비', '기타공공요금', '급식용식재료비', '우유대금', '맞춤형복지비',
+    '교직원법정부담금', '기간제교원법정부담금', '기간제직원법정부담금', '무기계약직원법정부담금',
+    '직책급업무수행경비',
+    '시설비', '임차보증금', '시설적립금', '기타자산취득비',
+    '예비비', '반환금', '전출금', '일반회계전출금',
+    '기간제근로자법정부담금',          # 예전 목록에 있던 이름 (지금 표의 기간제직원법정부담금과 비슷)
+)
+LIST_VERSION = '2'                     # 목록을 새 기본 순서로 한 번 정리했는지
+VERSION_KEY = 'budget_cost_types_version'
 
 
 def _clean(name) -> str:
@@ -33,14 +49,21 @@ def _dedupe(names) -> list:
 
 
 def load_saved() -> list:
-    """저장해 둔 목록 (없으면 기본 목록)."""
+    """저장해 둔 목록 (없으면 기본 목록).
+    예전 목록은 한 번만 새 기본 순서로 정리한다: 기본 목록 전부(자주 쓰는 비목이 맨 위) + 직접 더한 비목은 맨 아래."""
     try:
-        from db import get_setting
+        from db import get_setting, set_setting
         raw = get_setting(SETTING_KEY, '')
         if raw:
             data = json.loads(raw)
             if isinstance(data, list):
-                return _dedupe(data)
+                names = _dedupe(data)
+                if get_setting(VERSION_KEY, '') != LIST_VERSION:
+                    known_keys = {n.replace(' ', '') for n in DEFAULTS}
+                    names = _dedupe(list(DEFAULTS) + [n for n in names if n.replace(' ', '') not in known_keys])
+                    save(names)
+                    set_setting(VERSION_KEY, LIST_VERSION)
+                return names
     except Exception:
         pass
     return list(DEFAULTS)
@@ -49,6 +72,7 @@ def load_saved() -> list:
 def save(names):
     from db import set_setting
     set_setting(SETTING_KEY, json.dumps(_dedupe(names), ensure_ascii=False))
+    set_setting(VERSION_KEY, LIST_VERSION)
 
 
 def in_use() -> list:

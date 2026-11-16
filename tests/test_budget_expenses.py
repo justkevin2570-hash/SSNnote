@@ -427,6 +427,10 @@ def test_name_is_selectable_click_toggles_and_copy(win):
     app.clipboard().clear()
     w._copy_desc(iid, selected_only=True)
     assert app.clipboard().text() == name.selectedText() != ''
-    cell.btn_copy.click()                                                  # 비목 꼬리표 옆 복사 단추
+    from PyQt5.QtGui import QMouseEvent
+    ev = QMouseEvent(QEvent.MouseButtonDblClick, QPointF(3, y), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+    app.sendEvent(name, ev)                                                # 더블클릭 → 이름 전체 선택
+    assert name.selectedText() == '2학기 방과후 강사 수당'
+    app.clipboard().clear()
+    QTest.keyClick(name, Qt.Key_C, Qt.ControlModifier)                     # Ctrl+C → 복사
     assert app.clipboard().text() == '2학기 방과후 강사 수당'
-    assert cell.btn_copy.toolTip() == '산출내역 복사'

@@ -3,7 +3,7 @@
 
 화면: 위 요약 한 줄(예산현액·집행액·잔액·집행률) / 왼쪽 세부항목 목록 / 오른쪽 세부항목별 표.
   · 집행액 칸은 눌러서 바로 고치고, 완료·수정·삭제는 행에 마우스를 올리면 나온다.
-  · 완료한 항목은 흐리게 아래로 접힌다. 집행률 색: 높을수록 진한 파랑 → 100% 넘으면 빨강.
+  · 완료한 항목은 흐리게 아래에 늘 보인다. 집행률 색: 높을수록 진한 파랑 → 100% 넘으면 빨강.
 가져오기: 엑셀 파일(끌어다 놓기) · 엑셀에서 복사한 표 · 예산 화면 캡처([가져오기] → 붙여넣기, Ctrl+V)
   → 세부항목별로 보여 주고(_ImportPreviewDialog) 고친 뒤 가져온다. 캡처 읽기는 budget_image.py.
 데이터는 ssnnote.db의 budget_categories, budget_items 테이블에 저장.
@@ -1913,10 +1913,7 @@ class BudgetWindow(QMainWindow):
             lbl.setContentsMargins(16, 2, 16, 6)
             v.addWidget(lbl)
         if done:
-            # 완료한 항목은 접어서 아래로: ▸ 완료한 항목 2개 (교재 구입, 진로 체험 버스)
-            open_ = cat['id'] in self._show_done
-            toggle = _FoldLink()
-            names = ', '.join(it['description'] for it in done[:3]) + (' …' if len(done) > 3 else '')
+            # 완료한 항목은 진행 중인 항목 아래에 늘 보이게 (접기 단추 없음)
             dtable = self._make_table(done, finished=True)
             if main is not None:
                 dtable.follow = main
@@ -1924,17 +1921,7 @@ class BudgetWindow(QMainWindow):
             else:
                 main = dtable
             tables.append(dtable)
-
-            def set_open(on, cid=cat['id'], t=dtable, b=toggle, n=len(done), names=names):
-                (self._show_done.add if on else self._show_done.discard)(cid)
-                t.setVisible(on)
-                b.set_open(on, f'완료한 항목 {n}개' + ('' if on else f'  ({names})'))
-                if on:
-                    t.sync_geometry()
-            toggle.clicked.connect(lambda _, c=cat['id'], f=set_open: (f(c not in self._show_done), self._schedule_save()))
-            v.addWidget(toggle, 0, Qt.AlignLeft)
             v.addWidget(dtable)
-            set_open(open_)                               # 칸에 넣은 뒤에 펼쳐야 따로 창으로 뜨지 않음
         total = None
         if cat_items:
             total = self._make_total_table(main)
@@ -2178,7 +2165,9 @@ class BudgetWindow(QMainWindow):
         t.setItem(r, 0, cell('', Qt.AlignLeft | Qt.AlignVCenter))
         dcell = _DescCell(t, r, item, self._expense_ui.setdefault(item['id'], {}),
                           self._expenses_by_item.get(item['id'], []), self._delete_expense, done,
-                          on_edit=lambda ex, iid=item['id']: self._edit_expense(iid, ex))
+                          on_edit=lambda ex, iid=item['id']: self._edit_expense(iid, ex),
+                          actions={'spend': lambda iid=item['id']: self._open_spend(iid),
+                                   'done': lambda iid=item['id']: self._toggle_complete(iid)})
         t.setCellWidget(r, 0, dcell)
         t.setSpan(r + 1, 0, 1, 3)                                  # 숨은 줄: 산출내역 ~ 잔액 칸을 하나로
         t.setCellWidget(r + 1, 0, dcell.detail)
@@ -2902,41 +2891,6 @@ class _ImportPreviewDialog(QDialog):
 
 
 # ── 예산 항목 추가/수정 다이얼로그 ────────────────────────────────
-class _FoldLink(QPushButton):
-    """「› 완료한 항목 n개」 같은 접기/펼치기 글자 단추. 꺾쇠는 글자 기호(▸▾) 대신 벡터 아이콘이라 선명.
-    마우스를 올리면 아이콘과 글자가 함께 진해진다."""
-
-    def __init__(self):
-        super().__init__()
-        self.setObjectName('Link')
-        self.setCursor(Qt.PointingHandCursor)
-        self.setStyleSheet(f'QPushButton#Link {{ padding: 6px 16px; color: {C.FAINT}; font-size: {_pt(10)}pt; '
-                           f'text-align: left; }} QPushButton#Link:hover {{ color: {C.TEXT}; }}')
-        ip = px(_sz(12))
-        self.setIconSize(QSize(ip, ip))
-        self._open, self._hot = False, False
-
-    def set_open(self, on, text):
-        self._open = bool(on)
-        self.setProperty('open', self._open)
-        self.setText('  ' + text)
-        self._paint_icon()
-
-    def _paint_icon(self):
-        name = 'ph.caret-down-bold' if self._open else 'ph.caret-right-bold'
-        self.setIcon(qta.icon(name, color=C.TEXT if self._hot else C.FAINT))
-
-    def enterEvent(self, e):
-        self._hot = True
-        self._paint_icon()
-        super().enterEvent(e)
-
-    def leaveEvent(self, e):
-        self._hot = False
-        self._paint_icon()
-        super().leaveEvent(e)
-
-
 class _RowIconButton(QPushButton):
     """사용 내역 줄의 작은 선 아이콘 단추 (연필 · 휴지통). 벡터 아이콘이라 화면 배율이 커도 선명.
     평소엔 옅은 회색, 마우스를 올리면 옅은 바탕의 둥근 네모와 진한 색 아이콘."""
@@ -3006,7 +2960,20 @@ class _SelectableName(QLabel):
         self._press = e.pos() if e.button() == Qt.LeftButton else None
         super().mousePressEvent(e)
 
+    def mouseDoubleClickEvent(self, e):
+        # 더블클릭: 이름 전체를 고른다 (Ctrl+C로 바로 복사)
+        if e.button() == Qt.LeftButton:
+            self._press = None
+            self._dbl = True
+            self.setSelection(0, len(self.text()))
+            self.setFocus(Qt.MouseFocusReason)
+            return
+        super().mouseDoubleClickEvent(e)
+
     def mouseReleaseEvent(self, e):
+        if getattr(self, '_dbl', False):          # 더블클릭 직후 손을 뗄 때는 펼치기 · 선택 해제 없음
+            self._dbl = False
+            return
         super().mouseReleaseEvent(e)
         start, self._press = self._press, None
         if (start is not None and e.button() == Qt.LeftButton and not self.hasSelectedText()
@@ -3019,7 +2986,7 @@ class _DescCell(QWidget):
     펼침·더 보기 상태는 state(창을 여는 동안만 유지)에 둔다."""
     SHOW = 5                                       # 펼쳤을 때 먼저 보여 줄 건수
 
-    def __init__(self, table, row, item, state, expenses, on_delete, done=False, on_edit=None):
+    def __init__(self, table, row, item, state, expenses, on_delete, done=False, on_edit=None, actions=None):
         super().__init__()
         self._table, self._row, self._item = table, row, item
         self._state, self._on_delete, self._done = state, on_delete, done
@@ -3043,7 +3010,7 @@ class _DescCell(QWidget):
         self.btn_toggle.clicked.connect(self._toggle)
         self.lbl_name = _SelectableName(item['description'])
         self.lbl_name.clicked.connect(self._toggle)
-        self.lbl_name.setToolTip(f"{item['description']}\n우클릭: 쓴 돈 추가 · 수정 · 완료 · 삭제")
+        self.lbl_name.setToolTip(f"{item['description']}\n드래그 · 더블클릭으로 고른 뒤 Ctrl+C로 복사\n우클릭: 쓴 돈 추가 · 수정 · 완료 · 삭제")
         self.lbl_name.setStyleSheet(
             f'QLabel {{ background: transparent; color: {C.FAINT if done else C.TEXT}; font-weight: 600; }} '
             f'QLabel:hover {{ color: {C.ACCENT}; }}')
@@ -3063,11 +3030,23 @@ class _DescCell(QWidget):
         name_row.addWidget(self.lbl_cost)                          # 칸에 넣은 뒤에 숨겨야 따로 창으로 뜨지 않음
         if not item.get('cost_type'):
             self.lbl_cost.hide()
-        # 비목 꼬리표 오른쪽: 산출내역 복사 단추 (누르면 이름 전체를 클립보드로)
-        self.btn_copy = _RowIconButton('ph.copy', C.ACCENT, C.ACCENT_SOFT, '산출내역 복사', icon_px=15, side=24)
-        self.btn_copy.clicked.connect(self._copy_name)
+        # 비목 꼬리표 오른쪽: [+ 쓴 돈 추가] [✓ 완료] (완료한 항목은 [↺ 완료 취소]만)
+        # 수정 · 삭제는 우클릭 메뉴, 복사는 이름을 드래그(또는 더블클릭)한 뒤 Ctrl+C
+        actions = actions or {}
+        self.row_buttons = {}
         name_row.addSpacing(2)
-        name_row.addWidget(self.btn_copy)
+        if done:
+            specs = (('done', 'ph.arrow-counter-clockwise', C.ACCENT, C.ACCENT_SOFT, '완료 취소'),)
+        else:
+            specs = (('spend', 'ph.plus', C.ACCENT, C.ACCENT_SOFT, '쓴 돈 추가'),
+                     ('done', 'ph.check', '#047857', '#E7F6EE', '완료'))
+        for key, icon, color, bg, tip in specs:
+            if key not in actions:
+                continue
+            b = _RowIconButton(icon, color, bg, tip, icon_px=15, side=24)
+            b.clicked.connect(lambda _, f=actions[key]: f())
+            name_row.addWidget(b)
+            self.row_buttons[key] = b
         name_row.addStretch(1)
         head.addLayout(name_row)
         head.addWidget(self.lbl_sum)
@@ -3084,13 +3063,6 @@ class _DescCell(QWidget):
 
     def _open(self):
         return bool(self._state.get('open'))
-
-    def _copy_name(self):
-        """산출내역 이름 전체를 클립보드로 복사하고, 단추 옆에 「복사됨」을 잠깐 보여 준다."""
-        QApplication.clipboard().setText(self._item['description'])
-        from PyQt5.QtWidgets import QToolTip
-        b = self.btn_copy
-        QToolTip.showText(b.mapToGlobal(QPoint(b.width(), 0)), '복사됨', b, b.rect(), 1200)
 
     def set_expenses(self, expenses):
         """사용 내역이 바뀌면 요약과 펼친 내용을 새로 그린다."""
@@ -3412,17 +3384,11 @@ class _ItemDialog(QDialog):
         v.addWidget(self.combo_cat)
 
         v.addWidget(self._label('원가통계비목'))
-        self.edit_cost = QLineEdit()
-        self.edit_cost.setPlaceholderText('목록에서 고르거나 직접 입력 (예: 교육운영비)')
-        from budget_types import known as known_cost_types
-        self._cost_completer = QCompleter(known_cost_types(), self)
-        self._cost_completer.setCaseSensitivity(Qt.CaseInsensitive)
-        self._cost_completer.setFilterMode(Qt.MatchContains)
-        self._cost_completer.popup().setStyleSheet(STYLE)
-        self.edit_cost.setCompleter(self._cost_completer)
-        show_all = self.edit_cost.addAction(qta.icon('fa5s.chevron-down', color=C.FAINT), QLineEdit.TrailingPosition)
-        show_all.setToolTip('원가통계비목 목록 보기')
-        show_all.triggered.connect(self._show_cost_list)
+        # 목록에서 고르기만 (직접 입력 없음): (비목 없음) · 자주 쓰는 비목 ─ 나머지 · 지금 쓰는 비목 ─ 목록 관리…
+        self.edit_cost = QComboBox()
+        self.edit_cost.setMaxVisibleItems(18)
+        self._fill_cost_combo((item or {}).get('cost_type', ''))
+        self.edit_cost.activated.connect(self._on_cost_picked)
         v.addWidget(self.edit_cost)
 
         v.addWidget(self._label('산출내역 (내용)'))
@@ -3477,7 +3443,6 @@ class _ItemDialog(QDialog):
         v.addLayout(btns)
 
         if item:
-            self.edit_cost.setText(item['cost_type'])
             self.edit_desc.setText(item['description'])
             self.edit_budget.setText(f'{item["budget"]:,}')
             self.edit_spent.setText(f'{item["spent"]:,}')
@@ -3493,9 +3458,49 @@ class _ItemDialog(QDialog):
             self.deleted = True
             self.accept()
 
-    def _show_cost_list(self):
-        self._cost_completer.setCompletionPrefix('')
-        self._cost_completer.complete()
+    _MANAGE = '__manage__'
+
+    def _fill_cost_combo(self, current=''):
+        """원가통계비목 고르는 칸 채우기. current가 목록에 없어도(예전에 가져온 비목) 고를 수 있게 넣는다."""
+        import budget_types as bt
+        cb = self.edit_cost
+        cb.blockSignals(True)
+        cb.clear()
+        cb.addItem('(비목 없음)', '')
+        saved = bt.load_saved()
+        keys = {n.replace(' ', '') for n in saved}
+        pri = [n for n in saved if n in bt.PRIORITY]
+        rest = [n for n in saved if n not in bt.PRIORITY]
+        extra = [n for n in bt.in_use() if n.replace(' ', '') not in keys]
+        cur = ' '.join(str(current or '').split())
+        if cur and cur != '일반' and cur.replace(' ', '') not in keys and cur not in extra:
+            extra.append(cur)
+        for n in pri:
+            cb.addItem(n, n)
+        if pri and (rest or extra):
+            cb.insertSeparator(cb.count())
+        for n in rest + extra:
+            cb.addItem(n, n)
+        cb.insertSeparator(cb.count())
+        cb.addItem('목록 관리…', self._MANAGE)
+        idx = cb.findData(cur) if cur and cur != '일반' else 0
+        if idx < 0:
+            idx = next((i for i in range(cb.count())
+                        if str(cb.itemData(i) or '').replace(' ', '') == cur.replace(' ', '')), 0)
+        cb.setCurrentIndex(idx)
+        self._cost_last = cb.currentIndex()
+        cb.blockSignals(False)
+
+    def _on_cost_picked(self, idx):
+        if self.edit_cost.itemData(idx) != self._MANAGE:
+            self._cost_last = idx
+            return
+        keep = self.edit_cost.itemData(self._cost_last) or ''
+        _CostTypeDialog(self).exec_()                # 목록에 더하거나 뺀 뒤 다시 채움
+        self._fill_cost_combo(keep)
+
+    def cost_value(self):
+        return self.edit_cost.currentData() or ''
 
     @staticmethod
     def _label(text):
@@ -3508,7 +3513,7 @@ class _ItemDialog(QDialog):
         if not desc:
             QMessageBox.warning(self, '저장 실패', '산출내역(내용)을 입력해주세요.')
             return
-        cost = self.edit_cost.text().strip() or '일반'
+        cost = self.cost_value() or '일반'
         expense = None
         self.result_data = {
             'category_id': self.combo_cat.currentData(),

@@ -52,3 +52,24 @@ def test_saved_list_and_in_use(tmp_path, monkeypatch):
     cid = db.add_budget_category('A')
     db.add_budget_item(cid, '시설장비유지비', 'x', 10, 0)
     assert bt.known() == ['여비', '업무추진비', '시설장비유지비']   # 지금 쓰는 비목도 함께
+
+
+def test_old_saved_list_is_reordered_once(tmp_path, monkeypatch):
+    import db
+    monkeypatch.setattr(db, 'DB_DIR', str(tmp_path))
+    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 'ssnnote.db'))
+    db.init_db()
+    import json
+    db.set_setting(bt.SETTING_KEY, json.dumps(['여비', '운영수당', '내가 더한 비목'], ensure_ascii=False))
+    names = bt.load_saved()
+    assert names[:len(bt.PRIORITY)] == list(bt.PRIORITY) and names[-1] == '내가 더한 비목'
+    assert len(names) == len(bt.DEFAULTS) + 1
+    bt.save(['여비'])                                       # 그다음부터는 사용자가 고친 목록 그대로
+    assert bt.load_saved() == ['여비']
+
+
+def test_defaults_from_edufine_list():
+    assert bt.DEFAULTS[:len(bt.PRIORITY)] == bt.PRIORITY and len(bt.PRIORITY) == 11
+    for n in ('학습준비물', '도서구입비', '기간제직원법정부담금', '일반회계전출금', '기간제근로자법정부담금'):
+        assert n in bt.DEFAULTS
+    assert not any('(' in n for n in bt.DEFAULTS)
