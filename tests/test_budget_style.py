@@ -53,6 +53,7 @@ def test_no_text_smaller_than_10pt():
     import re
     src = open(__import__('budget').__file__, encoding='utf-8').read()
     sizes = [float(x) for x in re.findall(r'font-size:\s*([\d.]+)pt', src)]
+    sizes += [float(x) for x in re.findall(r'font-size:\s*\{_pt\(([\d.]+)\)\}pt', src)]   # 글자 크기 배율 적용
     assert sizes and min(sizes) >= 10.0       # 힌팅 없는 Pretendard는 12px 안팎에서 가장 흐려 보인다
 
 
