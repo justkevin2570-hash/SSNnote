@@ -23,10 +23,10 @@ def test_one_color_per_meaning():
 
 
 def test_state_text_readable_on_white_and_balance_colors():
-    from budget import _text_color, _bal_color, _BAL_POS, C
+    from budget import _text_color, _bal_color, C
     for pct in (0, 95, 120):
         assert _contrast(_text_color(pct)) >= 4.5
-    assert _bal_color(1000) == _BAL_POS and _bal_color(-1) == C.OVER_TEXT
+    assert _bal_color(1000) == C.OK_TEXT and _bal_color(-1) == C.OVER_TEXT
     assert _bal_color(100, pct=95) == C.WARN_TEXT and _bal_color(100, done=True) == C.FAINT
 
 

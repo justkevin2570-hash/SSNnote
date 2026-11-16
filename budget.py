@@ -97,16 +97,71 @@ class C:
     DONE_BAR                       = '#C9CED6'
     TAG_BG      = '#F2F4F7'    # 산출내역 옆 비목 꼬리표
     TOTAL_BG    = '#FAFBFC'    # 합계 줄 · 표 머리
+    SPEND_BG, SPEND_LINE = '#F5F8FF', '#C9D6F7'   # [쓴 돈 추가] 단추
+    HEAD_BG, HEAD_TEXT = '#FAFBFC', '#64748B'     # 표 머리줄
+    # 모서리 둥글기 (px)
+    R_CARD, R_BTN, R_ROW, R_ICON, R_PILL, R_TAG, R_BAR = 12, 8, 7, 6, 11, 4, 3
+    # 사무형 디자인에서만 켜는 모양
+    OFFICE = False             # 왼쪽 목록 진한 바탕 · 표 격자선 · 90% 이상 줄 바탕 · 요약 칸 세로선
+    NAV_BG, NAV_TEXT, NAV_MUTED = '#1F2925', '#D9E0DB', '#9FB0A7'
+    NAV_ON_BG, NAV_HOVER, NAV_MARK, NAV_TRACK = '#2E3F37', '#2A3832', '#6FCF97', '#3B4B44'
+    NAV_OK, NAV_WARN, NAV_OVER, NAV_DONE = '#6FCF97', '#F2C46D', '#FF9C8F', '#5C6B64'
+    GRID        = '#E1E3DE'    # 사무형 표 격자선
+
+
+# ── 디자인 (⋯ → 디자인): 기본 · 사무형. 틀(칸 · 단추 · 기능)은 같고 색과 모양만 다르다 ──────────
+DESIGNS = {'base': '기본', 'office': '사무형'}
+DESIGN_KEY = 'budget_design'
+_BASE_COLORS = {k: v for k, v in vars(C).items() if k.isupper()}
+_OFFICE_COLORS = {
+    'BG': '#EDEDEA', 'SURFACE': '#FFFFFF', 'BORDER': '#D5D8D2', 'BORDER_HI': '#C4C7C1', 'LINE': '#E1E3DE',
+    'TEXT': '#1B2420', 'BODY': '#22302A', 'MUTED': '#55605A', 'FAINT': '#6B746F', 'HOVER': '#F3F4F1',
+    'ACCENT': '#1E6B47', 'ACCENT_HI': '#17573A', 'ACCENT_SOFT': '#E8F2EC', 'ACCENT_LINE': '#B9CDBF',
+    'WARN_BG': '#FFF7E6', 'NAV_ON': '#2E3F37',
+    'OK_BAR': '#2E8B5A', 'OK_TEXT': '#1E6B47', 'OK_SOFT': '#E8F2EC',
+    'WARN_BAR': '#E0A040', 'WARN_TEXT': '#8A4B00', 'WARN_SOFT': '#FFF7E6',
+    'DONE_BAR': '#C4C7C1', 'TAG_BG': '#F3F4F1', 'TOTAL_BG': '#F3F4F1',
+    'SPEND_BG': '#FFFFFF', 'SPEND_LINE': '#B9CDBF', 'HEAD_BG': '#F3F4F1', 'HEAD_TEXT': '#3C4742',
+    'R_CARD': 3, 'R_BTN': 3, 'R_ROW': 3, 'R_ICON': 3, 'R_PILL': 3, 'R_TAG': 2, 'R_BAR': 0,
+    'OFFICE': True,
+}
+
+
+def current_design():
+    try:
+        from db import get_setting
+        d = get_setting(DESIGN_KEY, 'base')
+    except Exception:
+        d = 'base'
+    return d if d in DESIGNS else 'base'
+
+
+def apply_design(name):
+    """색표를 바꾸고 전체 QSS를 다시 만든다. 이미 열린 창은 BudgetWindow.set_design으로 다시 그린다."""
+    global STYLE
+    name = name if name in DESIGNS else 'base'
+    for k, v in _BASE_COLORS.items():
+        setattr(C, k, v)
+    if name == 'office':
+        for k, v in _OFFICE_COLORS.items():
+            setattr(C, k, v)
+    STYLE = _build_style()
+    return name
 
 
 # ── 전체 QSS ─────────────────────────────────────────────────────
-STYLE = f"""
+def _build_style():
+    return _BASE_QSS() + (_OFFICE_QSS() if C.OFFICE else '')
+
+
+def _BASE_QSS():
+    return f"""
     QMainWindow, QDialog {{ background: {C.BG}; }}
     QWidget {{ font-family: {_UI_FONT_QSS}; font-size: 10pt; color: {C.TEXT}; }}
     QLabel {{ background: transparent; }}
     QScrollArea {{ border: none; background: transparent; }}
     QScrollArea > QWidget > QWidget {{ background: transparent; }}
-    QFrame#Card {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 12px; }}
+    QFrame#Card {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_CARD}px; }}
     QFrame#VSep {{ background: {C.BORDER}; border: none; }}
     QLabel#Title {{ font-size: 16pt; font-weight: 800; }}
     QLabel#Meta {{ color: {C.MUTED}; font-size: 10pt; }}
@@ -118,7 +173,7 @@ STYLE = f"""
     QLabel#EmptyTitle {{ font-size: 13pt; font-weight: 800; }}
 
     QPushButton {{
-        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px;
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_BTN}px;
         padding: 6px 14px; color: {C.TEXT}; font-weight: 600;
     }}
     QPushButton:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
@@ -128,16 +183,16 @@ STYLE = f"""
     QPushButton#Primary {{ background: {C.ACCENT}; border: 1px solid {C.ACCENT}; color: white; font-weight: 700; }}
     QPushButton#Primary:hover {{ background: {C.ACCENT_HI}; border-color: {C.ACCENT_HI}; }}
     QPushButton#Primary:disabled {{ background: {C.ACCENT_LINE}; border-color: {C.ACCENT_LINE}; color: white; }}
-    QPushButton#IconBtn {{ background: transparent; border: none; border-radius: 6px; padding: 0; }}
+    QPushButton#IconBtn {{ background: transparent; border: none; border-radius: {C.R_ICON}px; padding: 0; }}
     QPushButton#IconBtn:hover {{ background: {C.HOVER}; }}
     QPushButton#IconBtn:disabled {{ background: transparent; }}
     QPushButton#RowBtn {{
-        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 7px;
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_ROW}px;
         padding: 0 10px; font-size: 10pt; font-weight: 600; color: {C.BODY};
     }}
     QPushButton#RowBtn:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
     QPushButton#RowDone {{
-        background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 7px;
+        background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: {C.R_ROW}px;
         padding: 0 10px; font-size: 10pt; font-weight: 700; color: #047857;
     }}
     QPushButton#RowDone:hover {{ background: #D1FAE5; border-color: #6EE7B7; }}
@@ -146,16 +201,17 @@ STYLE = f"""
     QPushButton#Link {{ background: transparent; border: none; color: {C.MUTED}; padding: 4px 2px; text-align: left; }}
     QPushButton#Link:hover {{ color: {C.TEXT}; }}
     QPushButton#QuickBtn {{
-        background: {C.BG}; border: 1px solid {C.BORDER}; border-radius: 11px; padding: 3px 11px;
+        background: {C.BG}; border: 1px solid {C.BORDER}; border-radius: {C.R_PILL}px; padding: 3px 11px;
         font-size: 10pt; font-weight: 600; color: {C.BODY};
     }}
     QPushButton#QuickBtn:hover {{ border-color: {C.ACCENT_LINE}; color: {C.ACCENT_HI}; background: {C.ACCENT_SOFT}; }}
     QTextBrowser#Answer {{
-        background: {C.BG}; border: none; border-radius: 8px; padding: 8px 10px; color: {C.TEXT};
+        background: {C.BG}; border: none; border-radius: {C.R_BTN}px; padding: 8px 10px; color: {C.TEXT};
     }}
-    QFrame#Proposal {{ background: {C.ACCENT_SOFT}; border: 1px solid {C.ACCENT_LINE}; border-radius: 8px; }}
+    QFrame#Proposal {{ background: {C.ACCENT_SOFT}; border: 1px solid {C.ACCENT_LINE}; border-radius: {C.R_BTN}px; }}
 
-    QFrame#Nav {{ background: transparent; border: none; border-radius: 8px; }}
+    QFrame#Nav {{ background: transparent; border: none; border-radius: {C.R_BTN}px; }}
+    QFrame#StatSep {{ background: transparent; border: none; }}
     QFrame#Nav:hover {{ background: {C.HOVER}; }}
     QFrame#Nav[active="true"] {{ background: {C.NAV_ON}; }}
     QLabel#NavName {{ font-weight: 600; }}
@@ -164,7 +220,7 @@ STYLE = f"""
     QFrame#Nav[excluded="true"] QLabel#NavName {{ color: {C.FAINT}; }}
     QFrame#Nav[group="true"] QLabel#NavName {{ color: {C.MUTED}; font-size: 10pt; font-weight: 700; }}
     QLabel#ExTag {{
-        background: {C.HOVER}; color: {C.FAINT}; border-radius: 6px; padding: 1px 6px;
+        background: {C.HOVER}; color: {C.FAINT}; border-radius: {C.R_ICON}px; padding: 1px 6px;
         font-size: 10pt; font-weight: 600;
     }}
     QPushButton#NavFold {{ background: transparent; border: none; padding: 0; color: {C.MUTED}; font-weight: 800; }}
@@ -177,25 +233,25 @@ STYLE = f"""
     QTableWidget::item:selected {{ background: transparent; color: {C.TEXT}; }}
     QTableWidget QLineEdit {{ border: 1px solid {C.ACCENT}; border-radius: 4px; padding: 2px 6px; }}
     QHeaderView::section {{
-        background: {C.TOTAL_BG}; color: {C.FAINT}; padding: 6px 10px; border: none;
+        background: {C.HEAD_BG}; color: {C.HEAD_TEXT}; padding: 6px 10px; border: none;
         border-top: 1px solid {C.LINE}; border-bottom: 1px solid {C.LINE}; font-weight: 500; font-size: 10pt;
     }}
-    QPushButton#RowIcon {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 6px; padding: 0; }}
+    QPushButton#RowIcon {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_ICON}px; padding: 0; }}
     QPushButton#RowIcon:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
-    QPushButton#RowSpend {{ background: #F5F8FF; border: 1px solid #C9D6F7; border-radius: 6px; padding: 0 9px;
+    QPushButton#RowSpend {{ background: {C.SPEND_BG}; border: 1px solid {C.SPEND_LINE}; border-radius: {C.R_ICON}px; padding: 0 9px;
         color: {C.OK_TEXT}; font-weight: 600; font-size: 10pt; }}
     QPushButton#RowSpend:hover {{ background: {C.OK_SOFT}; border-color: {C.OK_BAR}; }}
-    QLabel#CostTag {{ background: {C.TAG_BG}; color: {C.MUTED}; border-radius: 4px; padding: 1px 6px; font-size: 10pt; }}
+    QLabel#CostTag {{ background: {C.TAG_BG}; color: {C.MUTED}; border-radius: {C.R_TAG}px; padding: 1px 6px; font-size: 10pt; }}
     QLabel#Legend {{ color: {C.FAINT}; font-size: 10pt; }}
-    QLabel#Pill {{ border-radius: 10px; padding: 3px 10px; font-weight: 700; font-size: 10pt; }}
+    QLabel#Pill {{ border-radius: {C.R_PILL}px; padding: 3px 10px; font-weight: 700; font-size: 10pt; }}
     QLineEdit, QComboBox {{
-        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 6px 9px;
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_BTN}px; padding: 6px 9px;
     }}
     QLineEdit:focus, QComboBox:focus {{ border: 1px solid {C.ACCENT}; }}
     QRadioButton {{ spacing: 8px; }}
-    QProgressBar {{ background: {C.LINE}; border: none; border-radius: 3px; }}
-    QProgressBar::chunk {{ background: {C.ACCENT}; border-radius: 3px; }}
-    QMenu {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 6px; }}
+    QProgressBar {{ background: {C.LINE}; border: none; border-radius: {C.R_BAR}px; }}
+    QProgressBar::chunk {{ background: {C.ACCENT}; border-radius: {C.R_BAR}px; }}
+    QMenu {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_BTN}px; padding: 6px; }}
     QMenu::item {{ padding: 7px 18px 7px 12px; border-radius: 5px; color: {C.TEXT}; }}
     QMenu::item:selected {{ background: {C.HOVER}; }}
     QMenu::item:disabled {{ color: {C.FAINT}; }}
@@ -209,6 +265,32 @@ STYLE = f"""
     QScrollBar::handle:horizontal {{ background: {C.BORDER_HI}; border-radius: 4px; min-width: 24px; }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 """
+
+
+def _OFFICE_QSS():
+    """사무형에만 더하는 모양: 진한 왼쪽 목록 · 격자표 머리 · 요약 칸 세로선."""
+    return f"""
+    QFrame#Card[nav="true"] {{ background: {C.NAV_BG}; border: 1px solid {C.NAV_BG}; }}
+    QFrame#Card[nav="true"] QLabel#StatLabel {{ color: {C.NAV_MUTED}; }}
+    QFrame#Card[nav="true"] QFrame#Nav {{ border-radius: 0; border-left: 3px solid transparent; }}
+    QFrame#Card[nav="true"] QFrame#Nav:hover {{ background: {C.NAV_HOVER}; }}
+    QFrame#Card[nav="true"] QFrame#Nav[active="true"] {{ background: {C.NAV_ON_BG}; border-left: 3px solid {C.NAV_MARK}; }}
+    QFrame#Card[nav="true"] QLabel#NavName {{ color: {C.NAV_TEXT}; }}
+    QFrame#Card[nav="true"] QFrame#Nav[active="true"] QLabel#NavName {{ color: white; }}
+    QFrame#Card[nav="true"] QFrame#Nav[group="true"] QLabel#NavName {{ color: {C.NAV_MUTED}; }}
+    QFrame#Card[nav="true"] QFrame#Nav[excluded="true"] QLabel#NavName {{ color: {C.NAV_MUTED}; }}
+    QFrame#Card[nav="true"] QLabel#NavMeta {{ color: {C.NAV_MUTED}; }}
+    QFrame#Card[nav="true"] QLabel#ExTag {{ background: {C.NAV_TRACK}; color: {C.NAV_TEXT}; }}
+    QFrame#Card[nav="true"] QPushButton#NavFold {{ color: {C.NAV_MUTED}; }}
+    QFrame#Card[nav="true"] QScrollBar::handle:vertical {{ background: {C.NAV_TRACK}; }}
+    QFrame#StatSep {{ background: {C.LINE}; }}
+    QHeaderView::section {{ border: none; border-right: 1px solid {C.BORDER}; border-bottom: 1px solid {C.BORDER}; }}
+    QTableWidget {{ gridline-color: {C.GRID}; }}
+    QTableWidget::item {{ border-bottom: none; }}
+"""
+
+
+STYLE = _build_style()
 
 _STATE_FILE = os.path.join(os.environ.get('APPDATA', '.'), 'SSNnote', 'budget_state.json')
 
@@ -226,8 +308,8 @@ _COL_BUDGET, _COL_REM, _COL_PCT, _COL_ACT = 1, 2, 3, 4
 # 글자용 파랑은 흰 바탕에서 읽히도록 바보다 한 단계 진하게 시작한다.
 # 잔액 숫자는 고정: 양수 진한 파랑, 음수 빨강.
 WARN_PCT = 90                     # 이만큼 쓰면 주황 (거의 다 씀)
-_BAL_POS = C.OK_TEXT
-_LEVEL_SOFT = {'ok': C.OK_SOFT, 'warn': C.WARN_SOFT, 'over': C.OVER_SOFT, 'done': C.HOVER}
+def _level_soft(level):
+    return {'ok': C.OK_SOFT, 'warn': C.WARN_SOFT, 'over': C.OVER_SOFT, 'done': C.HOVER}[level]
 
 
 def _level(pct, done=False):
@@ -260,16 +342,23 @@ def _bal_color(rem, done=False, pct=None):
         return C.OVER_TEXT
     if pct is not None and pct >= WARN_PCT:
         return C.WARN_TEXT
-    return _BAL_POS
+    return C.OK_TEXT
 
 
 def _pill_qss(pct, done=False):
-    return f'background: {_LEVEL_SOFT[_level(pct, done)]}; color: {_text_color(pct, done)};'
+    return f'background: {_level_soft(_level(pct, done))}; color: {_text_color(pct, done)};'
 
 
-def _bar_qss(color):
-    return (f'QProgressBar {{ background: {C.LINE}; border: none; border-radius: 3px; }}'
-            f'QProgressBar::chunk {{ background: {color}; border-radius: 3px; }}')
+def _bar_qss(color, track=None):
+    return (f'QProgressBar {{ background: {track or C.LINE}; border: none; border-radius: {C.R_BAR}px; }}'
+            f'QProgressBar::chunk {{ background: {color}; border-radius: {C.R_BAR}px; }}')
+
+
+def _won(n):
+    """요약 칸 금액: 사무형은 「원」을 작고 흐리게."""
+    if C.OFFICE:
+        return (f'{_fmt(n)}<span style="font-size:10pt; font-weight:400; color:{C.MUTED}"> 원</span>')
+    return f'{_fmt(n)}원'
 
 
 def _fmt(n):
@@ -315,7 +404,8 @@ def _make_strike_font(font):
     return f
 
 
-def _icon_btn(icon_name, tooltip, color=C.MUTED, size=16):
+def _icon_btn(icon_name, tooltip, color=None, size=16):
+    color = color or C.MUTED
     btn = QPushButton()
     btn.setObjectName('IconBtn')
     btn.setIcon(qta.icon(icon_name, color=color))
@@ -718,7 +808,7 @@ def _cost_chip_qss(budget, spent, selector='QPushButton'):
     pct = _pct(spent, budget)
     color = C.BODY if _level(pct) == 'ok' else _text_color(pct)
     return (f'{selector} {{ background: {C.SURFACE}; color: {color};'
-            f' border: 1px solid {C.BORDER}; border-radius: 11px; padding: 3px 10px;'
+            f' border: 1px solid {C.BORDER}; border-radius: {C.R_PILL}px; padding: 3px 10px;'
             f' font-weight: 600; font-size: 10pt; }}'
             f'{selector}:hover {{ border-color: {C.BORDER_HI}; }}'
             f'{selector}:checked {{ background: {C.OK_SOFT}; border: 1px solid {C.OK_BAR}; color: {C.OK_TEXT}; }}')
@@ -741,6 +831,7 @@ class _BudgetTable(QTableWidget):
         self.row_items = {}                # 표 줄 번호 → 항목 id
         self.follow = None                 # 열 폭을 따라 할 표
         self.followers = []
+        self.tint_rows = {}                # 줄 번호 → 바탕색 (사무형: 거의 다 쓴 줄)
         self._hover_row = -1
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
@@ -790,6 +881,18 @@ class _BudgetTable(QTableWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.sync_geometry()
+
+    def paintEvent(self, event):
+        # 줄 바탕색은 칸 그림(QSS ::item)이 덮어 버려서, 표 바탕에 먼저 칠한다 (칸 속 위젯은 투명)
+        if self.tint_rows:
+            from PyQt5.QtGui import QPainter
+            p = QPainter(self.viewport())
+            w = self.viewport().width()
+            for r, color in self.tint_rows.items():
+                if 0 <= r < self.rowCount() and not self.isRowHidden(r):
+                    p.fillRect(QRect(0, self.rowViewportPosition(r), w, self.rowHeight(r)), QColor(color))
+            p.end()
+        super().paintEvent(event)
 
     # ── 마우스를 올린 줄에만 단추 ───────────────────────────────────
     def _item_row(self, r):
@@ -905,11 +1008,20 @@ class _NavItem(QFrame):
     def set_values(self, budget, spent, extra=''):
         pct = _pct(spent, budget)
         self.bar.setValue(int(round(min(pct, 100))))
-        self.bar.setStyleSheet(_bar_qss(_bar_color(pct)))
-        self.lbl_pct.setText(f'{pct:.0f}%')
-        self.lbl_pct.setStyleSheet(f'color: {_text_color(pct)}; font-weight: 600;')
         rem = budget - spent
-        self.lbl_meta.setText(f'<span style="color:{C.OVER_TEXT if rem < 0 else C.FAINT}">잔액 {_fmt(rem)}원</span>{extra}')
+        if C.OFFICE:                                    # 진한 바탕용 밝은 색
+            lv = _level(pct)
+            bar = {'over': C.NAV_OVER, 'warn': C.NAV_WARN}.get(lv, C.NAV_OK)
+            txt = {'over': C.NAV_OVER, 'warn': C.NAV_WARN}.get(lv, C.NAV_TEXT)
+            self.bar.setStyleSheet(_bar_qss(bar, C.NAV_TRACK))
+            meta = C.NAV_OVER if rem < 0 else C.NAV_MUTED
+        else:
+            self.bar.setStyleSheet(_bar_qss(_bar_color(pct)))
+            txt = _text_color(pct)
+            meta = C.OVER_TEXT if rem < 0 else C.FAINT
+        self.lbl_pct.setText(f'{pct:.0f}%')
+        self.lbl_pct.setStyleSheet(f'color: {txt}; font-weight: 600;')
+        self.lbl_meta.setText(f'<span style="color:{meta}">잔액 {_fmt(rem)}원</span>{extra}')
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
@@ -951,6 +1063,7 @@ class BudgetWindow(QMainWindow):
         self._expenses_by_item = {}       # 항목별 사용 내역 (최근 날짜 먼저)
         self._expense_ui = {}             # 이번 창을 여는 동안만 기억: 펼침 · 더 보기 (창을 닫으면 사라짐)
         self._restore_window_state()
+        self.design = apply_design(current_design())   # 기본 · 사무형 (⋯ → 디자인)
         self._init_ui()
         self._apply_ai_btn()
         from ui import ai_connect
@@ -1025,7 +1138,13 @@ class BudgetWindow(QMainWindow):
         sl = QHBoxLayout()
         sl.setSpacing(16)
         self.stat = {}
-        for key, label in (('budget', '예산현액'), ('spent', '집행액'), ('remaining', '잔액'), ('pct', '집행률')):
+        for i, (key, label) in enumerate((('budget', '예산현액'), ('spent', '집행액'),
+                                          ('remaining', '잔액'), ('pct', '집행률'))):
+            if i:                                           # 칸 사이 세로선 (사무형에서만 보임)
+                sep = QFrame()
+                sep.setObjectName('StatSep')
+                sep.setFixedWidth(1)
+                sl.addWidget(sep)
             box = QVBoxLayout()
             box.setSpacing(1)
             lb = QLabel(label)
@@ -1052,6 +1171,7 @@ class BudgetWindow(QMainWindow):
         bl.setSpacing(14)
         self.nav_card = QFrame()
         self.nav_card.setObjectName('Card')
+        self.nav_card.setProperty('nav', 'true')          # 사무형에서는 진한 바탕
         self.nav_card.setFixedWidth(_sizes()['nav_w'])
         nl = QVBoxLayout(self.nav_card)
         nl.setContentsMargins(8, 12, 8, 8)
@@ -1337,10 +1457,35 @@ class BudgetWindow(QMainWindow):
         m = self._menu()
         m.addAction('원가통계비목 목록…', lambda: _CostTypeDialog(self).exec_())
         m.addAction('화면 배치 기본값으로', lambda: self.reset_layout())
+        dm = m.addMenu('디자인')
+        dm.setStyleSheet(STYLE)
+        for key, label in DESIGNS.items():
+            act = dm.addAction(label + ('  (초록 · 격자표)' if key == 'office' else '  (지금 모습)'),
+                               lambda k=key: self.set_design(k))
+            act.setCheckable(True)
+            act.setChecked(key == self.design)
         m.addSeparator()
         a = m.addAction('전체 지우기…', lambda: self._reset_all())
         a.setEnabled(bool(self.categories or self.items))
         return m
+
+    def set_design(self, name):
+        """디자인 바꾸기: 색표를 바꾸고 창 안을 다시 그린다 (보던 세부항목 · 펼침 · 스크롤은 그대로)."""
+        if name not in DESIGNS:
+            return
+        from db import set_setting
+        set_setting(DESIGN_KEY, name)
+        pos = self.scroll.verticalScrollBar().value()
+        q = self.ask_input.text()
+        self.design = apply_design(name)
+        self.setStyleSheet(STYLE)
+        self._init_ui()
+        self._apply_ai_btn()
+        self.refresh(keep_scroll=False)
+        self.ask_input.setText(q)
+        keep_light(self)
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(pos))
 
     def contextMenuEvent(self, e):
         m = self._import_menu()
@@ -1434,7 +1579,7 @@ class BudgetWindow(QMainWindow):
             else:
                 b, s = self._cat_totals(key)
                 n_over = self._over_count({key})
-                nav.set_values(b, s, f' · <span style="color:{C.OVER_TEXT}">초과 {n_over}건</span>' if n_over else '')
+                nav.set_values(b, s, f' · <span style="color:{C.NAV_OVER if C.OFFICE else C.OVER_TEXT}">초과 {n_over}건</span>' if n_over else '')
             nav.set_active(key == self.active_tab)
 
     def _set_tab(self, tab):
@@ -1711,8 +1856,9 @@ class BudgetWindow(QMainWindow):
         for col in range(len(_COLS)):
             hdr.setSectionResizeMode(col, QHeaderView.Fixed)
         hdr.setStretchLastSection(True)
+        t.setShowGrid(C.OFFICE)                          # 사무형: 격자선
         t.setStyleSheet(f'QTableWidget {{ background: {C.TOTAL_BG}; border-top: 1px solid {C.LINE}; '
-                        f'border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; }}'
+                        f'border-bottom-left-radius: {C.R_CARD}px; border-bottom-right-radius: {C.R_CARD}px; }}'
                         f'QTableWidget::item {{ border: none; padding: 0 10px; }}')
         t.setRowCount(1)
         t.setRowHeight(0, px(36))
@@ -1846,7 +1992,7 @@ class BudgetWindow(QMainWindow):
         t.setSelectionMode(QAbstractItemView.NoSelection)
         t.setEditTriggers(QAbstractItemView.NoEditTriggers)        # 더블클릭 = 항목 수정 창
         t.setFocusPolicy(Qt.ClickFocus)
-        t.setShowGrid(False)
+        t.setShowGrid(C.OFFICE)                          # 사무형: 칸마다 격자선
         t.setWordWrap(False)
         t.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         t.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)   # 창이 아주 좁을 때만 (잘리는 대신)
@@ -1993,6 +2139,8 @@ class BudgetWindow(QMainWindow):
         for wdg in (dcell, wrap, acts):                  # 칸 속 위젯 위에 있어도 단추가 보이게
             t.watch_row(wdg)
         t.row_items[r] = item['id']
+        if C.OFFICE and _level(pct, done) == 'warn':        # 사무형: 거의 다 쓴 줄은 연한 주황 바탕
+            t.tint_rows[r] = C.WARN_BG
         t.setRowHeight(r, sz['row_h'])
         self._row_refs[item['id']] = {'rem': rem_it, 'bar': bar, 'pct': lbl, 'desc': dcell}
         dcell._fit_row()                                   # 펼쳐 둔 줄은 다시 펼친 높이로
@@ -2070,9 +2218,9 @@ class BudgetWindow(QMainWindow):
         budget, spent = self._sum(self._total_items())
         rem = budget - spent
         pct = _pct(spent, budget)
-        self.stat['budget'].setText(f'{_fmt(budget)}원')
-        self.stat['spent'].setText(f'{_fmt(spent)}원')
-        self.stat['remaining'].setText(f'{_fmt(rem)}원')
+        self.stat['budget'].setText(_won(budget))
+        self.stat['spent'].setText(_won(spent))
+        self.stat['remaining'].setText(_won(rem))
         self.stat['remaining'].setStyleSheet(f'color: {_bal_color(rem)};')
         self.lbl_pct.setText(f'{pct:.1f}%')
         self.lbl_pct.setStyleSheet(f'color: {_text_color(pct)};')
