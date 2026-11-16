@@ -1081,6 +1081,9 @@ class _NavItem(QFrame):
         v.addLayout(top)
         v.addLayout(row)
         v.addWidget(self.lbl_meta)
+        if self.kind != 'cat':                    # 전체 · 그룹: 막대 · 집행률 없이 (집행률은 가운데 요약 · 머리에)
+            self.bar.hide()
+            self.lbl_pct.hide()
 
     def set_active(self, on):
         self.setProperty('active', 'true' if on else 'false')
@@ -1912,11 +1915,7 @@ class BudgetWindow(QMainWindow):
         if done:
             # 완료한 항목은 접어서 아래로: ▸ 완료한 항목 2개 (교재 구입, 진로 체험 버스)
             open_ = cat['id'] in self._show_done
-            toggle = QPushButton()
-            toggle.setObjectName('Link')
-            toggle.setCursor(Qt.PointingHandCursor)
-            toggle.setStyleSheet(f'QPushButton#Link {{ padding: 6px 16px; color: {C.FAINT}; font-size: {_pt(10)}pt; }}'
-                                 f'QPushButton#Link:hover {{ color: {C.TEXT}; }}')
+            toggle = _FoldLink()
             names = ', '.join(it['description'] for it in done[:3]) + (' …' if len(done) > 3 else '')
             dtable = self._make_table(done, finished=True)
             if main is not None:
@@ -1929,7 +1928,7 @@ class BudgetWindow(QMainWindow):
             def set_open(on, cid=cat['id'], t=dtable, b=toggle, n=len(done), names=names):
                 (self._show_done.add if on else self._show_done.discard)(cid)
                 t.setVisible(on)
-                b.setText(f'{"▾" if on else "▸"}  완료한 항목 {n}개' + ('' if on else f'  ({names})'))
+                b.set_open(on, f'완료한 항목 {n}개' + ('' if on else f'  ({names})'))
                 if on:
                     t.sync_geometry()
             toggle.clicked.connect(lambda _, c=cat['id'], f=set_open: (f(c not in self._show_done), self._schedule_save()))
@@ -2903,6 +2902,41 @@ class _ImportPreviewDialog(QDialog):
 
 
 # ── 예산 항목 추가/수정 다이얼로그 ────────────────────────────────
+class _FoldLink(QPushButton):
+    """「› 완료한 항목 n개」 같은 접기/펼치기 글자 단추. 꺾쇠는 글자 기호(▸▾) 대신 벡터 아이콘이라 선명.
+    마우스를 올리면 아이콘과 글자가 함께 진해진다."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName('Link')
+        self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet(f'QPushButton#Link {{ padding: 6px 16px; color: {C.FAINT}; font-size: {_pt(10)}pt; '
+                           f'text-align: left; }} QPushButton#Link:hover {{ color: {C.TEXT}; }}')
+        ip = px(_sz(12))
+        self.setIconSize(QSize(ip, ip))
+        self._open, self._hot = False, False
+
+    def set_open(self, on, text):
+        self._open = bool(on)
+        self.setProperty('open', self._open)
+        self.setText('  ' + text)
+        self._paint_icon()
+
+    def _paint_icon(self):
+        name = 'ph.caret-down-bold' if self._open else 'ph.caret-right-bold'
+        self.setIcon(qta.icon(name, color=C.TEXT if self._hot else C.FAINT))
+
+    def enterEvent(self, e):
+        self._hot = True
+        self._paint_icon()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self._hot = False
+        self._paint_icon()
+        super().leaveEvent(e)
+
+
 class _RowIconButton(QPushButton):
     """사용 내역 줄의 작은 선 아이콘 단추 (연필 · 휴지통). 벡터 아이콘이라 화면 배율이 커도 선명.
     평소엔 옅은 회색, 마우스를 올리면 옅은 바탕의 둥근 네모와 진한 색 아이콘."""
@@ -3003,7 +3037,7 @@ class _DescCell(QWidget):
         self.btn_toggle = QPushButton()
         self.btn_toggle.setCursor(Qt.PointingHandCursor)
         self.btn_toggle.setFlat(True)
-        self.btn_toggle.setFixedSize(px(_sz(14)), px(_sz(18)))
+        self.btn_toggle.setFixedSize(px(_sz(16)), px(_sz(20)))
         self.btn_toggle.setToolTip('사용 내역 펼치기/접기')
         self.btn_toggle.setStyleSheet('QPushButton { border: none; background: transparent; padding: 0; }')
         self.btn_toggle.clicked.connect(self._toggle)
@@ -3070,8 +3104,9 @@ class _DescCell(QWidget):
             self.lbl_sum.setText('')
         self.lbl_sum.setVisible(unassigned < 0)    # 빈 줄이 자리를 차지하면 이름이 위로 밀린다
         self.lbl_name.setText(self._item['description'])
-        self.btn_toggle.setIcon(qta.icon('fa5s.chevron-down' if self._open() else 'fa5s.chevron-right', color=C.MUTED))
-        self.btn_toggle.setIconSize(QSize(9, 9))
+        self.btn_toggle.setIcon(qta.icon('ph.caret-down-bold' if self._open() else 'ph.caret-right-bold', color=C.MUTED))
+        ip = px(_sz(12))                          # 화면 배율에 맞는 크기로 바로 그려 선명하게
+        self.btn_toggle.setIconSize(QSize(ip, ip))
         self._rebuild_detail(unassigned)
         self.detail.setVisible(self._open())
         self._fit_row()
