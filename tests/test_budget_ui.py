@@ -58,7 +58,7 @@ def test_columns_name_first_no_spent_and_total_row(win):
     assert w.stat['spent'].text() == '700원' and w.stat['remaining'].text() == '800원'
     assert table.item(0, 2).text() == '300' and '700' in table.item(0, 2).toolTip()   # 집행액은 잔액에 마우스를 올리면
     cell = table.cellWidget(0, 0)
-    assert cell.btn_toggle.text() == '강사 수당' and cell.lbl_cost.text() == item['cost_type']
+    assert cell.lbl_name.text() == '강사 수당' and cell.lbl_cost.text() == item['cost_type']
     total = w._sec_refs[item['category_id']]['total']
     assert total.item(0, 0).text() == '합계'
     assert total.item(0, 2).text() == _fmt_sum(db, item['category_id'])
@@ -134,7 +134,7 @@ def test_row_right_click_menu(win, monkeypatch):
     shown = {}
     monkeypatch.setattr(budget.QMenu, 'exec_', lambda self, *a: shown.setdefault('acts', [a.text() for a in self.actions()]))
     w._row_menu(iid, budget.QPoint(0, 0))
-    assert [x for x in shown['acts'] if x] == ['쓴 돈 추가…', '수정…', '완료로 표시', '지우기']
+    assert [x for x in shown['acts'] if x] == ['쓴 돈 추가…', '수정…', '완료로 표시', '산출내역 복사', '지우기']
     monkeypatch.setattr(budget.QMessageBox, 'question', lambda *a, **k: budget.QMessageBox.Yes)
     w._delete_item(iid)
     assert iid not in [i['id'] for i in db.get_budget_items()]
