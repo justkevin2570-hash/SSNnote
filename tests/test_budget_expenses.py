@@ -387,13 +387,13 @@ def test_expense_rows_have_edit_button_and_double_click(win, monkeypatch):
     w._expense_ui[iid] = {'open': True}
     w.refresh()
     cell = _cell(w, iid)
-    edits = [b for b in cell.detail.findChildren(type(cell.btn_toggle)) if b.text() == '✎']
+    edits = [b for b in cell.detail.findChildren(budget._RowIconButton) if '고치기' in b.toolTip() or '적기' in b.toolTip()]
     assert len(edits) == 2                                                 # 명목 없음 줄 + 기록 줄
     calls = []
     monkeypatch.setattr(w, '_edit_expense', lambda i, ex: calls.append((i, ex['id'], ex['amount'])))
     w.refresh()
     cell = _cell(w, iid)
-    edits = [b for b in cell.detail.findChildren(type(cell.btn_toggle)) if b.text() == '✎']
+    edits = [b for b in cell.detail.findChildren(budget._RowIconButton) if '고치기' in b.toolTip() or '적기' in b.toolTip()]
     edits[0].click()
     assert calls[-1] == (iid, None, 50000)                                 # 명목 없음 → 기록 남기기
     lbl = next(lb for lb in cell.detail.findChildren(type(cell.lbl_sum)) if lb.text() == '체육대회')

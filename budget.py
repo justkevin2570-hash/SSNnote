@@ -136,6 +136,41 @@ def current_design():
     return d if d in DESIGNS else 'base'
 
 
+# ── 글자 크기 (⋯ → 글자 크기): 기본 · 크게 · 더 크게 ─────────────────────
+TEXT_SIZES = {'base': ('기본', 1.0), 'large': ('크게', 1.15), 'xlarge': ('더 크게', 1.3)}
+TEXT_SIZE_KEY = 'budget_text_size'
+_TEXT_SCALE = 1.0
+
+
+def current_text_size():
+    try:
+        from db import get_setting
+        t = get_setting(TEXT_SIZE_KEY, 'base')
+    except Exception:
+        t = 'base'
+    return t if t in TEXT_SIZES else 'base'
+
+
+def apply_text_size(name):
+    """글자 크기 배율을 정하고 QSS · 칸 크기 계산을 다시 한다."""
+    global _TEXT_SCALE, STYLE, _SIZES
+    name = name if name in TEXT_SIZES else 'base'
+    _TEXT_SCALE = TEXT_SIZES[name][1]
+    STYLE = _build_style()
+    _SIZES = None
+    return name
+
+
+def _pt(n):
+    """글자 크기(pt)에 배율을 곱한다 (0.5pt 단위)."""
+    return round(n * _TEXT_SCALE * 2) / 2
+
+
+def _sz(n):
+    """글자를 따라 커져야 하는 고정 크기(px)."""
+    return int(round(n * _TEXT_SCALE))
+
+
 def apply_design(name):
     """색표를 바꾸고 전체 QSS를 다시 만든다. 이미 열린 창은 BudgetWindow.set_design으로 다시 그린다."""
     global STYLE
@@ -146,6 +181,7 @@ def apply_design(name):
         for k, v in _OFFICE_COLORS.items():
             setattr(C, k, v)
     STYLE = _build_style()
+    globals()['_SIZES'] = None
     return name
 
 
@@ -157,20 +193,20 @@ def _build_style():
 def _BASE_QSS():
     return f"""
     QMainWindow, QDialog {{ background: {C.BG}; }}
-    QWidget {{ font-family: {_UI_FONT_QSS}; font-size: 10pt; color: {C.TEXT}; }}
+    QWidget {{ font-family: {_UI_FONT_QSS}; font-size: {_pt(10)}pt; color: {C.TEXT}; }}
     QLabel {{ background: transparent; }}
     QScrollArea {{ border: none; background: transparent; }}
     QScrollArea > QWidget > QWidget {{ background: transparent; }}
     QFrame#Card {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_CARD}px; }}
     QFrame#VSep {{ background: {C.BORDER}; border: none; }}
-    QLabel#Title {{ font-size: 16pt; font-weight: 800; }}
-    QLabel#Meta {{ color: {C.MUTED}; font-size: 10pt; }}
-    QLabel#StatLabel {{ color: {C.MUTED}; font-size: 10pt; font-weight: 600; }}
-    QLabel#StatValue {{ font-size: 15pt; font-weight: 800; }}
-    QLabel#SectionTitle {{ font-size: 12pt; font-weight: 800; }}
-    QLabel#SectionMeta {{ color: {C.MUTED}; font-size: 10pt; }}
+    QLabel#Title {{ font-size: {_pt(16)}pt; font-weight: 800; }}
+    QLabel#Meta {{ color: {C.MUTED}; font-size: {_pt(10)}pt; }}
+    QLabel#StatLabel {{ color: {C.MUTED}; font-size: {_pt(10)}pt; font-weight: 600; }}
+    QLabel#StatValue {{ font-size: {_pt(15)}pt; font-weight: 800; }}
+    QLabel#SectionTitle {{ font-size: {_pt(12)}pt; font-weight: 800; }}
+    QLabel#SectionMeta {{ color: {C.MUTED}; font-size: {_pt(10)}pt; }}
     QLabel#Muted {{ color: {C.MUTED}; }}
-    QLabel#EmptyTitle {{ font-size: 13pt; font-weight: 800; }}
+    QLabel#EmptyTitle {{ font-size: {_pt(13)}pt; font-weight: 800; }}
 
     QPushButton {{
         background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_BTN}px;
@@ -188,12 +224,12 @@ def _BASE_QSS():
     QPushButton#IconBtn:disabled {{ background: transparent; }}
     QPushButton#RowBtn {{
         background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_ROW}px;
-        padding: 0 10px; font-size: 10pt; font-weight: 600; color: {C.BODY};
+        padding: 0 10px; font-size: {_pt(10)}pt; font-weight: 600; color: {C.BODY};
     }}
     QPushButton#RowBtn:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
     QPushButton#RowDone {{
         background: #ECFDF5; border: 1px solid #A7F3D0; border-radius: {C.R_ROW}px;
-        padding: 0 10px; font-size: 10pt; font-weight: 700; color: #047857;
+        padding: 0 10px; font-size: {_pt(10)}pt; font-weight: 700; color: #047857;
     }}
     QPushButton#RowDone:hover {{ background: #D1FAE5; border-color: #6EE7B7; }}
     QPushButton#Danger {{ background: {C.SURFACE}; border: 1px solid #FBCFD8; color: #E11D48; font-weight: 700; }}
@@ -202,7 +238,7 @@ def _BASE_QSS():
     QPushButton#Link:hover {{ color: {C.TEXT}; }}
     QPushButton#QuickBtn {{
         background: {C.BG}; border: 1px solid {C.BORDER}; border-radius: {C.R_PILL}px; padding: 3px 11px;
-        font-size: 10pt; font-weight: 600; color: {C.BODY};
+        font-size: {_pt(10)}pt; font-weight: 600; color: {C.BODY};
     }}
     QPushButton#QuickBtn:hover {{ border-color: {C.ACCENT_LINE}; color: {C.ACCENT_HI}; background: {C.ACCENT_SOFT}; }}
     QTextBrowser#Answer {{
@@ -215,13 +251,13 @@ def _BASE_QSS():
     QFrame#Nav:hover {{ background: {C.HOVER}; }}
     QFrame#Nav[active="true"] {{ background: {C.NAV_ON}; }}
     QLabel#NavName {{ font-weight: 600; }}
-    QLabel#NavMeta {{ color: {C.FAINT}; font-size: 10pt; }}
+    QLabel#NavMeta {{ color: {C.FAINT}; font-size: {_pt(10)}pt; }}
     QFrame#Nav[indent="true"] {{ margin-left: 12px; }}
     QFrame#Nav[excluded="true"] QLabel#NavName {{ color: {C.FAINT}; }}
-    QFrame#Nav[group="true"] QLabel#NavName {{ color: {C.MUTED}; font-size: 10pt; font-weight: 700; }}
+    QFrame#Nav[group="true"] QLabel#NavName {{ color: {C.MUTED}; font-size: {_pt(10)}pt; font-weight: 700; }}
     QLabel#ExTag {{
         background: {C.HOVER}; color: {C.FAINT}; border-radius: {C.R_ICON}px; padding: 1px 6px;
-        font-size: 10pt; font-weight: 600;
+        font-size: {_pt(10)}pt; font-weight: 600;
     }}
     QPushButton#NavFold {{ background: transparent; border: none; padding: 0; color: {C.MUTED}; font-weight: 800; }}
 
@@ -234,16 +270,16 @@ def _BASE_QSS():
     QTableWidget QLineEdit {{ border: 1px solid {C.ACCENT}; border-radius: 4px; padding: 2px 6px; }}
     QHeaderView::section {{
         background: {C.HEAD_BG}; color: {C.HEAD_TEXT}; padding: 6px 10px; border: none;
-        border-top: 1px solid {C.LINE}; border-bottom: 1px solid {C.LINE}; font-weight: 500; font-size: 10pt;
+        border-top: 1px solid {C.LINE}; border-bottom: 1px solid {C.LINE}; font-weight: 500; font-size: {_pt(10)}pt;
     }}
     QPushButton#RowIcon {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_ICON}px; padding: 0; }}
     QPushButton#RowIcon:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
     QPushButton#RowSpend {{ background: {C.SPEND_BG}; border: 1px solid {C.SPEND_LINE}; border-radius: {C.R_ICON}px; padding: 0 9px;
-        color: {C.OK_TEXT}; font-weight: 600; font-size: 10pt; }}
+        color: {C.OK_TEXT}; font-weight: 600; font-size: {_pt(10)}pt; }}
     QPushButton#RowSpend:hover {{ background: {C.OK_SOFT}; border-color: {C.OK_BAR}; }}
-    QLabel#CostTag {{ background: {C.TAG_BG}; color: {C.MUTED}; border-radius: {C.R_TAG}px; padding: 1px 6px; font-size: 10pt; }}
-    QLabel#Legend {{ color: {C.FAINT}; font-size: 10pt; }}
-    QLabel#Pill {{ border-radius: {C.R_PILL}px; padding: 3px 10px; font-weight: 700; font-size: 10pt; }}
+    QLabel#CostTag {{ background: {C.TAG_BG}; color: {C.MUTED}; border-radius: {C.R_TAG}px; padding: 1px 6px; font-size: {_pt(10)}pt; }}
+    QLabel#Legend {{ color: {C.FAINT}; font-size: {_pt(10)}pt; }}
+    QLabel#Pill {{ border-radius: {C.R_PILL}px; padding: 3px 10px; font-weight: 700; font-size: {_pt(10)}pt; }}
     QLineEdit, QComboBox {{
         background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_BTN}px; padding: 6px 9px;
     }}
@@ -357,7 +393,7 @@ def _bar_qss(color, track=None):
 def _won(n):
     """요약 칸 금액: 사무형은 「원」을 작고 흐리게."""
     if C.OFFICE:
-        return (f'{_fmt(n)}<span style="font-size:10pt; font-weight:400; color:{C.MUTED}"> 원</span>')
+        return (f'{_fmt(n)}<span style="font-size: {_pt(10)}pt; font-weight:400; color:{C.MUTED}"> 원</span>')
     return f'{_fmt(n)}원'
 
 
@@ -410,7 +446,7 @@ def _icon_btn(icon_name, tooltip, color=None, size=16):
     btn.setObjectName('IconBtn')
     btn.setIcon(qta.icon(icon_name, color=color))
     btn.setIconSize(QSize(size, size))
-    btn.setFixedSize(28, 28)
+    btn.setFixedSize(_sz(28), _sz(28))
     btn.setToolTip(tooltip)
     return btn
 
@@ -809,7 +845,7 @@ def _cost_chip_qss(budget, spent, selector='QPushButton'):
     color = C.BODY if _level(pct) == 'ok' else _text_color(pct)
     return (f'{selector} {{ background: {C.SURFACE}; color: {color};'
             f' border: 1px solid {C.BORDER}; border-radius: {C.R_PILL}px; padding: 3px 10px;'
-            f' font-weight: 600; font-size: 10pt; }}'
+            f' font-weight: 600; font-size: {_pt(10)}pt; }}'
             f'{selector}:hover {{ border-color: {C.BORDER_HI}; }}'
             f'{selector}:checked {{ background: {C.OK_SOFT}; border: 1px solid {C.OK_BAR}; color: {C.OK_TEXT}; }}')
 
@@ -1063,6 +1099,7 @@ class BudgetWindow(QMainWindow):
         self._expenses_by_item = {}       # 항목별 사용 내역 (최근 날짜 먼저)
         self._expense_ui = {}             # 이번 창을 여는 동안만 기억: 펼침 · 더 보기 (창을 닫으면 사라짐)
         self._restore_window_state()
+        self.text_size = apply_text_size(current_text_size())   # 기본 · 크게 · 더 크게 (⋯ → 글자 크기)
         self.design = apply_design(current_design())   # 기본 · 사무형 (⋯ → 디자인)
         self._init_ui()
         self._apply_ai_btn()
@@ -1111,7 +1148,7 @@ class BudgetWindow(QMainWindow):
         self.btn_more = QPushButton()
         self.btn_more.setObjectName('IconBtn')
         self.btn_more.setIcon(qta.icon('fa5s.ellipsis-h', color=C.MUTED))
-        self.btn_more.setFixedSize(34, 34)
+        self.btn_more.setFixedSize(_sz(34), _sz(34))
         self.btn_more.setToolTip('원가통계비목 목록 · 전체 지우기')
         self.btn_more.clicked.connect(lambda: self._exec_menu(self._more_menu(), self.btn_more))
         # AI 연결 (공문 작성 창과 같은 메뉴 · 같은 설정)
@@ -1120,7 +1157,7 @@ class BudgetWindow(QMainWindow):
         self.btn_ai.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · Claude 구독)')
         self.btn_ai.clicked.connect(lambda: self._ai_menu())
         for b in (self.btn_ai, self.btn_import, self.btn_manage):
-            b.setFixedHeight(34)
+            b.setFixedHeight(_sz(34))
             b.setCursor(Qt.PointingHandCursor)
         header.addWidget(self.btn_ai)
         header.addSpacing(6)
@@ -1236,7 +1273,7 @@ class BudgetWindow(QMainWindow):
         title.setStyleSheet(f'color: {C.ACCENT}; font-weight: 700;')
         self.quick_buttons = []           # 빠른 질문 버튼은 없앰 (AI 대화 창과 같게)
         self.ask_input = QLineEdit()
-        self.ask_input.setFixedHeight(32)
+        self.ask_input.setFixedHeight(_sz(32))
         self.ask_input.setStyleSheet('QLineEdit { border: none; background: transparent; padding: 0 4px; }')
         self.ask_input.returnPressed.connect(lambda: self._ask(self.ask_input.text()))
         self.ask_status = QLabel()
@@ -1250,7 +1287,7 @@ class BudgetWindow(QMainWindow):
         self.ask_send = QPushButton()
         self.ask_send.setObjectName('Primary')
         self.ask_send.setIcon(qta.icon('fa5s.paper-plane', color='white'))
-        self.ask_send.setFixedSize(36, 30)
+        self.ask_send.setFixedSize(_sz(36), _sz(30))
         self.ask_send.setToolTip('보내기 (Enter)')
         self.ask_send.setCursor(Qt.PointingHandCursor)
         self.ask_send.clicked.connect(lambda: self._ask(self.ask_input.text()))
@@ -1464,6 +1501,12 @@ class BudgetWindow(QMainWindow):
                                lambda k=key: self.set_design(k))
             act.setCheckable(True)
             act.setChecked(key == self.design)
+        tm = m.addMenu('글자 크기')
+        tm.setStyleSheet(STYLE)
+        for key, (label, _scale) in TEXT_SIZES.items():
+            act = tm.addAction(label, lambda k=key: self.set_text_size(k))
+            act.setCheckable(True)
+            act.setChecked(key == self.text_size)
         m.addSeparator()
         a = m.addAction('전체 지우기…', lambda: self._reset_all())
         a.setEnabled(bool(self.categories or self.items))
@@ -1475,9 +1518,22 @@ class BudgetWindow(QMainWindow):
             return
         from db import set_setting
         set_setting(DESIGN_KEY, name)
+        self.design = apply_design(name)
+        self._redraw()
+
+    def set_text_size(self, name):
+        """글자 크기 바꾸기 (기본 · 크게 · 더 크게): 글자와 칸 크기를 다시 재고 창 안을 다시 그린다."""
+        if name not in TEXT_SIZES:
+            return
+        from db import set_setting
+        set_setting(TEXT_SIZE_KEY, name)
+        self.text_size = apply_text_size(name)
+        self._redraw()
+
+    def _redraw(self):
+        """창 안을 새로 만든다 (보던 세부항목 · 펼침 · 스크롤 · 적던 질문은 그대로)."""
         pos = self.scroll.verticalScrollBar().value()
         q = self.ask_input.text()
-        self.design = apply_design(name)
         self.setStyleSheet(STYLE)
         self._init_ui()
         self._apply_ai_btn()
@@ -1809,7 +1865,7 @@ class BudgetWindow(QMainWindow):
             toggle = QPushButton()
             toggle.setObjectName('Link')
             toggle.setCursor(Qt.PointingHandCursor)
-            toggle.setStyleSheet(f'QPushButton#Link {{ padding: 6px 16px; color: {C.FAINT}; font-size: 10pt; }}'
+            toggle.setStyleSheet(f'QPushButton#Link {{ padding: 6px 16px; color: {C.FAINT}; font-size: {_pt(10)}pt; }}'
                                  f'QPushButton#Link:hover {{ color: {C.TEXT}; }}')
             names = ', '.join(it['description'] for it in done[:3]) + (' …' if len(done) > 3 else '')
             dtable = self._make_table(done, finished=True)
@@ -2831,6 +2887,44 @@ class _ImportPreviewDialog(QDialog):
 
 
 # ── 예산 항목 추가/수정 다이얼로그 ────────────────────────────────
+class _RowIconButton(QPushButton):
+    """사용 내역 줄의 작은 선 아이콘 단추 (연필 · 휴지통). 벡터 아이콘이라 화면 배율이 커도 선명.
+    평소엔 옅은 회색, 마우스를 올리면 옅은 바탕의 둥근 네모와 진한 색 아이콘."""
+    ICON = 15
+    SIDE = 26
+
+    @classmethod
+    def side(cls):
+        return _sz(cls.SIDE)
+
+    def __init__(self, icon, hover_color, hover_bg, tip):
+        super().__init__()
+        self._icons = (qta.icon(icon, color=C.MUTED), qta.icon(icon, color=hover_color))
+        self.setIcon(self._icons[0])
+        self.setIconSize(QSize(_sz(self.ICON), _sz(self.ICON)))
+        self.setFixedSize(self.side(), self.side())
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(tip)
+        self.setFlat(True)
+        base = f'border: none; padding: 0; border-radius: {min(C.R_ICON, 6)}px;'
+        self._qss = (f'QPushButton {{ {base} background: transparent; }}',
+                     f'QPushButton {{ {base} background: {hover_bg}; }}')
+        self.setStyleSheet(self._qss[0])
+
+    def set_hot(self, on):
+        """마우스를 올린 모양 (진한 아이콘 + 옅은 바탕)."""
+        self.setIcon(self._icons[1 if on else 0])
+        self.setStyleSheet(self._qss[1 if on else 0])
+
+    def enterEvent(self, e):
+        self.set_hot(True)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.set_hot(False)
+        super().leaveEvent(e)
+
+
 def _make_selectable(label):
     """글자를 마우스로 드래그해서 고르고 Ctrl+C로 복사할 수 있게. 우클릭은 표의 줄 메뉴로 넘긴다."""
     label.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -2882,7 +2976,7 @@ class _DescCell(QWidget):
         self.btn_toggle = QPushButton()
         self.btn_toggle.setCursor(Qt.PointingHandCursor)
         self.btn_toggle.setFlat(True)
-        self.btn_toggle.setFixedSize(px(14), px(18))
+        self.btn_toggle.setFixedSize(px(_sz(14)), px(_sz(18)))
         self.btn_toggle.setToolTip('사용 내역 펼치기/접기')
         self.btn_toggle.setStyleSheet('QPushButton { border: none; background: transparent; padding: 0; }')
         self.btn_toggle.clicked.connect(self._toggle)
@@ -2896,7 +2990,7 @@ class _DescCell(QWidget):
         name_font.setStrikeOut(done)
         self.lbl_name.setFont(name_font)
         self.lbl_sum = QLabel()
-        self.lbl_sum.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt; background: transparent;')
+        self.lbl_sum.setStyleSheet(f'color: {C.MUTED}; font-size: {_pt(10)}pt; background: transparent;')
         name_row.setSpacing(2)
         name_row.addWidget(self.btn_toggle)
         name_row.addWidget(self.lbl_name)
@@ -2904,7 +2998,7 @@ class _DescCell(QWidget):
         self.lbl_cost = QLabel(item.get('cost_type') or '')       # 원가통계비목 꼬리표 (운영비 · 재료비 …)
         self.lbl_cost.setObjectName('CostTag')
         self.lbl_cost.setStyleSheet(f'background: {C.TAG_BG}; color: {C.MUTED}; border-radius: 4px; '
-                                    f'padding: 1px 6px; font-size: 10pt;')   # 칸의 투명 바탕보다 먼저
+                                    f'padding: 1px 6px; font-size: {_pt(10)}pt;')   # 칸의 투명 바탕보다 먼저
         name_row.addWidget(self.lbl_cost)                          # 칸에 넣은 뒤에 숨겨야 따로 창으로 뜨지 않음
         if not item.get('cost_type'):
             self.lbl_cost.hide()
@@ -2932,7 +3026,7 @@ class _DescCell(QWidget):
         unassigned = int(self._item['spent']) - used
         if unassigned < 0:
             self.lbl_sum.setText('⚠ 기록 초과')
-            self.lbl_sum.setStyleSheet(f'color: {C.NEG}; font-size: 10pt; background: transparent;')
+            self.lbl_sum.setStyleSheet(f'color: {C.NEG}; font-size: {_pt(10)}pt; background: transparent;')
         else:
             self.lbl_sum.setText('')
         self.lbl_sum.setVisible(unassigned < 0)    # 빈 줄이 자리를 차지하면 이름이 위로 밀린다
@@ -2969,64 +3063,56 @@ class _DescCell(QWidget):
             btn.setFlat(True)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(f'QPushButton {{ text-align: left; border: none; background: transparent; '
-                              f'padding: 0; color: {C.ACCENT_HI}; font-size: 10pt; }}')
+                              f'padding: 0; color: {C.ACCENT_HI}; font-size: {_pt(10)}pt; }}')
             btn.clicked.connect(self._toggle_more)
             self._dv.addWidget(btn)
         if unassigned < 0:
             warn = QLabel('⚠ 기록 합계가 집행액보다 큽니다. 집행액을 직접 낮췄다면 기록을 확인하세요.')
             warn.setWordWrap(True)
-            warn.setStyleSheet(f'color: {C.NEG}; font-size: 10pt; background: transparent;')
+            warn.setStyleSheet(f'color: {C.NEG}; font-size: {_pt(10)}pt; background: transparent;')
             self._dv.addWidget(warn)
 
     def _entry_row(self, date, purpose, amount, eid=None, ex=None):
-        """사용 내역 한 줄: 날짜 · 쓴 곳 · 금액 · ✎ ✕. 글자는 드래그해서 복사, 줄을 더블클릭하면 고치기."""
+        """사용 내역 한 줄: 날짜 · 쓴 곳 · 금액 · [연필] [휴지통]. 글자는 드래그해서 복사, 줄을 더블클릭하면 고치기."""
         row = QHBoxLayout()
         row.setSpacing(8)
         d = QLabel(date)
-        d.setFixedWidth(88)
-        d.setStyleSheet(f'color: {C.MUTED}; font-size: 10pt; background: transparent;')
+        d.setFixedWidth(_sz(88))
+        d.setStyleSheet(f'color: {C.MUTED}; font-size: {_pt(10)}pt; background: transparent;')
         p = QLabel(purpose or ('(쓴 곳 미입력)' if eid is not None else purpose))
-        p.setStyleSheet(f'color: {C.TEXT if purpose or eid is None else C.FAINT}; font-size: 10pt; background: transparent;')
+        p.setStyleSheet(f'color: {C.TEXT if purpose or eid is None else C.FAINT}; font-size: {_pt(10)}pt; background: transparent;')
         a = QLabel(f"{_fmt(amount)}원")
-        a.setStyleSheet(f'color: {C.TEXT}; font-size: 10pt; font-weight: 700; background: transparent;')
+        a.setStyleSheet(f'color: {C.TEXT}; font-size: {_pt(10)}pt; font-weight: 700; background: transparent;')
         a.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         for lb in (d, p, a):
             _make_selectable(lb)
         row.addWidget(d)
         row.addWidget(p, 1)
         row.addWidget(a)
+        btns = QHBoxLayout()                          # 아이콘 단추 둘은 조금 붙여서
+        btns.setSpacing(px(4))
+        row.addLayout(btns)
         editable = ex is not None and self._on_edit is not None
         if editable:
             for lb in (d, p, a):
                 lb.installEventFilter(self)
                 lb.setProperty('expense', ex)
-            e = QPushButton('✎')
-            e.setFlat(True)
-            e.setFixedSize(20, 20)
-            e.setCursor(Qt.PointingHandCursor)
-            e.setToolTip('쓴 곳 · 날짜 적기 (기록으로 남겨요)' if eid is None else '이 사용 내역 고치기')
-            e.setStyleSheet(f'QPushButton {{ border: none; background: transparent; color: {C.FAINT}; }} '
-                            f'QPushButton:hover {{ color: {C.ACCENT}; }}')
+            e = _RowIconButton('ph.pencil-simple', C.ACCENT, C.ACCENT_SOFT,
+                               '쓴 곳 · 날짜 적기 (기록으로 남겨요)' if eid is None else '이 사용 내역 고치기')
             e.clicked.connect(lambda _, ex=ex: self._on_edit(ex))
-            row.addWidget(e)
+            btns.addWidget(e)
         else:
             spacer = QWidget()
-            spacer.setFixedSize(20, 20)
-            row.addWidget(spacer)
-        if eid is None:
+            spacer.setFixedSize(_RowIconButton.side(), _RowIconButton.side())
+            btns.addWidget(spacer)
+        if eid is None:                              # 명목 없음: 지우기 자리는 비워 아이콘 줄을 맞춤
             spacer = QWidget()
-            spacer.setFixedSize(20, 20)
-            row.addWidget(spacer)
+            spacer.setFixedSize(_RowIconButton.side(), _RowIconButton.side())
+            btns.addWidget(spacer)
             return row
-        x = QPushButton('✕')
-        x.setFlat(True)
-        x.setFixedSize(20, 20)
-        x.setCursor(Qt.PointingHandCursor)
-        x.setToolTip('이 사용 내역을 지웁니다 (집행액도 그만큼 줄어요)')
-        x.setStyleSheet(f'QPushButton {{ border: none; background: transparent; color: {C.FAINT}; }} '
-                        f'QPushButton:hover {{ color: {C.NEG}; }}')
+        x = _RowIconButton('ph.trash', C.NEG, C.OVER_SOFT, '이 사용 내역 지우기 (집행액도 그만큼 줄어요)')
         x.clicked.connect(lambda _, eid=eid: self._on_delete(eid))
-        row.addWidget(x)
+        btns.addWidget(x)
         return row
 
     def eventFilter(self, obj, e):
@@ -3078,7 +3164,7 @@ class _SpendDialog(QDialog):
         title_text = '쓴 돈 추가' if expense is None else '사용 내역 수정'
         self.setWindowTitle(title_text)
         self.setStyleSheet(STYLE)
-        self.setMinimumWidth(px(400))
+        self.setMinimumWidth(px(_sz(400)))
         self._item = item
         self.result_data = None
 
@@ -3098,7 +3184,7 @@ class _SpendDialog(QDialog):
         self.edit_spend_now = QLineEdit()                 # 왼쪽 정렬 (다른 칸과 같은 방향, 커서가 왼쪽에서 시작)
         self.edit_spend_now.setPlaceholderText('0')
         self.edit_spend_now.setStyleSheet(
-            f'QLineEdit {{ font-size: 16pt; font-weight: 700; padding: 8px 12px; border: 1px solid {C.ACCENT_LINE}; }}'
+            f'QLineEdit {{ font-size: {_pt(16)}pt; font-weight: 700; padding: 8px 12px; border: 1px solid {C.ACCENT_LINE}; }}'
             f'QLineEdit:focus {{ border: 1px solid {C.ACCENT}; }}')
         _attach_amount_format(self.edit_spend_now)
         v.addWidget(self.edit_spend_now)
@@ -3110,7 +3196,7 @@ class _SpendDialog(QDialog):
         self.edit_purpose = QLineEdit()
         self.edit_purpose.setPlaceholderText('쓴 곳 (예: 11월 방과후 강사료)')
         self.edit_spend_date = QLineEdit(date.today().isoformat())
-        self.edit_spend_date.setFixedWidth(px(120))
+        self.edit_spend_date.setFixedWidth(px(_sz(120)))
         self.edit_spend_date.setToolTip('사용한 날짜 (예: 2026-11-10)')
         where.addWidget(self.edit_purpose, 1)
         where.addWidget(self.edit_spend_date)
@@ -3120,7 +3206,7 @@ class _SpendDialog(QDialog):
         self.lbl_spend_preview.setTextFormat(Qt.RichText)
         self.lbl_spend_preview.setWordWrap(False)            # 한 줄 (잔액만)
         self.lbl_spend_preview.setStyleSheet(f'background: {C.SURFACE}; border: 1px solid {C.BORDER}; '
-                                             f'border-radius: 8px; padding: 9px 12px; color: {C.MUTED}; font-size: 10pt;')
+                                             f'border-radius: 8px; padding: 9px 12px; color: {C.MUTED}; font-size: {_pt(10)}pt;')
         self.lbl_spend_preview.ensurePolished()
         _fm = self.lbl_spend_preview.fontMetrics()
         self.lbl_spend_preview.setMinimumHeight(_fm.lineSpacing() + px(24))
@@ -3136,17 +3222,17 @@ class _SpendDialog(QDialog):
         if recent:
             v.addSpacing(4)
             cap = QLabel('최근 쓴 돈')
-            cap.setStyleSheet(f'color: {C.FAINT}; font-size: 10pt; font-weight: 600;')
+            cap.setStyleSheet(f'color: {C.FAINT}; font-size: {_pt(10)}pt; font-weight: 600;')
             v.addWidget(cap)
             for ex in recent:
                 row = QHBoxLayout()
                 d = QLabel(ex.get('spent_on') or '-')
-                d.setFixedWidth(px(88))
-                d.setStyleSheet(f'color: {C.FAINT}; font-size: 10pt;')
+                d.setFixedWidth(px(_sz(88)))
+                d.setStyleSheet(f'color: {C.FAINT}; font-size: {_pt(10)}pt;')
                 pu = QLabel(ex.get('purpose') or '(쓴 곳 미입력)')
-                pu.setStyleSheet(f'color: {C.BODY}; font-size: 10pt;')
+                pu.setStyleSheet(f'color: {C.BODY}; font-size: {_pt(10)}pt;')
                 am = QLabel(f"{_fmt(ex['amount'])}원")
-                am.setStyleSheet(f'color: {C.BODY}; font-size: 10pt; font-weight: 600;')
+                am.setStyleSheet(f'color: {C.BODY}; font-size: {_pt(10)}pt; font-weight: 600;')
                 row.addWidget(d)
                 row.addWidget(pu, 1)
                 row.addWidget(am)
@@ -3298,7 +3384,7 @@ class _ItemDialog(QDialog):
             note = QLabel('집행액은 잘못 넣은 값을 바로잡을 때만 고쳐요. 새로 쓴 돈은 줄의 [쓴 돈 추가]로 넣으면 '
                           '사용 내역에 남아요.')
             note.setWordWrap(True)
-            note.setStyleSheet(f'color: {C.FAINT}; font-size: 10pt;')
+            note.setStyleSheet(f'color: {C.FAINT}; font-size: {_pt(10)}pt;')
             note.ensurePolished()
             note.setMinimumHeight(note.heightForWidth(px(380)))   # 줄바꿈 높이를 미리 잡아 금액 칸이 눌리지 않게
             v.addWidget(note)
@@ -3340,7 +3426,7 @@ class _ItemDialog(QDialog):
     @staticmethod
     def _label(text):
         lbl = QLabel(text)
-        lbl.setStyleSheet(f'font-size: 10pt; font-weight: 700; color: {C.MUTED};')
+        lbl.setStyleSheet(f'font-size: {_pt(10)}pt; font-weight: 700; color: {C.MUTED};')
         return lbl
 
     def _save(self):

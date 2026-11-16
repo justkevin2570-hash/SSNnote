@@ -41,10 +41,24 @@ else:
     ICON = QColor('#5F6368')
 
 
-def _font():
-    f = QFont('Pretendard GOV', 10)
+def _font(scale=1.0):
+    f = QFont('Pretendard GOV')
+    f.setPointSizeF(10 * scale)
     f.setFamilies(['Pretendard GOV', 'Pretendard', 'Malgun Gothic'])
     return f
+
+
+def _scale_of(widget):
+    """메뉴 글자 배율 (업무창 글자 크기를 따름). 메뉴가 아니면 1."""
+    try:
+        v = widget.property('menu_scale') if widget is not None else None
+    except RuntimeError:
+        v = None
+    return float(v) if v else 1.0
+
+
+def _icon_px(widget):
+    return round(16 * _scale_of(widget))
 
 
 def _is_danger(label: str) -> bool:
@@ -60,7 +74,7 @@ class MenuStyle(QProxyStyle):
         if metric == QStyle.PM_MenuVMargin:
             return SHADOW + 5
         if metric == QStyle.PM_SmallIconSize:
-            return 16
+            return _icon_px(widget)
         if metric == QStyle.PM_SubMenuOverlap:
             return -(SHADOW * 2 - 2)          # 그림자 자리만큼 겹쳐서 하위 메뉴가 바로 옆에 붙게
         if metric == QStyle.PM_MenuDesktopFrameWidth:
@@ -83,15 +97,16 @@ class MenuStyle(QProxyStyle):
             return QSize(size.width(), 9)
         label, _, shortcut = opt.text.partition('\t')
         header = not (opt.state & QStyle.State_Enabled) and opt.icon.isNull()
-        h = max(fm.height() + 14, 30)
+        k = _scale_of(widget)
+        h = max(fm.height() + 14, round(30 * k))
         if header:
-            h = max(fm.height() + 8, 24)
-        w = 12 + (26 if opt.maxIconWidth > 0 else 0) + fm.horizontalAdvance(label) + 14
+            h = max(fm.height() + 8, round(24 * k))
+        w = 12 + ((_icon_px(widget) + 10) if opt.maxIconWidth > 0 else 0) + fm.horizontalAdvance(label) + 14
         if shortcut:
             w += fm.horizontalAdvance(shortcut) + 28
         if opt.menuItemType == QStyleOptionMenuItem.SubMenu:
             w += 22
-        return QSize(max(w + 8, 150), h)
+        return QSize(max(w + 8, round(150 * k)), h)
 
     # ── 바탕 ────────────────────────────────────────────────────
     def drawPrimitive(self, element, opt, painter, widget=None):
@@ -154,13 +169,14 @@ class MenuStyle(QProxyStyle):
         text_color = DANGER if danger else (TEXT if enabled else MUTED)
         x = rect.left() + 8
         if opt.maxIconWidth > 0:
+            ip = _icon_px(widget)
             if not opt.icon.isNull():
                 mode = QIcon.Normal if enabled else QIcon.Disabled
-                pm = opt.icon.pixmap(QSize(16, 16), mode)
-                painter.drawPixmap(x + 1, rect.center().y() - 8, pm)
+                pm = opt.icon.pixmap(QSize(ip, ip), mode)
+                painter.drawPixmap(QRect(x + 1, rect.center().y() - ip // 2, ip, ip), pm)
             elif opt.checkType != QStyleOptionMenuItem.NotCheckable and opt.checked:
-                _draw_check(painter, QRectF(x + 1, rect.center().y() - 8, 16, 16), text_color)
-            x += 26
+                _draw_check(painter, QRectF(x + 1, rect.center().y() - ip / 2, ip, ip), text_color)
+            x += ip + 10
 
         painter.setFont(f)
         painter.setPen(text_color)
@@ -201,13 +217,15 @@ def _style():
     return _STYLE
 
 
-def style_menu(menu: QMenu) -> QMenu:
-    """기존 QMenu에 새 모양을 입힌다 (하위 메뉴는 add_submenu로 만들면 자동)."""
+def style_menu(menu: QMenu, scale=1.0) -> QMenu:
+    """기존 QMenu에 새 모양을 입힌다 (하위 메뉴는 add_submenu로 만들면 자동).
+    scale: 글자 배율 (업무창 글자 크기를 따라 메뉴 글자·아이콘·줄 높이도 함께 커짐)."""
+    menu.setProperty('menu_scale', float(scale or 1.0))
     menu.setStyle(_style())
     menu.setStyleSheet('')
     menu.setAttribute(Qt.WA_TranslucentBackground, True)
     menu.setWindowFlags(menu.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
-    menu.setFont(_font())
+    menu.setFont(_font(scale or 1.0))
     menu.setToolTipsVisible(True)
     return menu
 
@@ -223,9 +241,24 @@ def _clean_parent(parent):
     return parent
 
 
-def make_menu(parent=None, title='') -> QMenu:
+def _scale_from(parent):
+    """메뉴를 연 곳의 글자 배율: 하위 메뉴는 위 메뉴를, 업무창·업무 줄은 그 창의 글자 크기(_scale)를 따른다."""
+    w = parent
+    while w is not None:
+        if isinstance(w, QMenu):
+            return _scale_of(w)
+        sc = getattr(w, '_scale', None)
+        if isinstance(sc, (int, float)) and sc > 0:
+            return float(sc)
+        w = w.parentWidget()
+    return 1.0
+
+
+def make_menu(parent=None, title='', scale=None) -> QMenu:
+    if scale is None:
+        scale = _scale_from(parent)
     parent = _clean_parent(parent)
-    return style_menu(QMenu(title, parent) if title else QMenu(parent))
+    return style_menu(QMenu(title, parent) if title else QMenu(parent), scale)
 
 
 def line_icon(name: str, color=None) -> QIcon:

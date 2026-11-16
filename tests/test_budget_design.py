@@ -24,6 +24,7 @@ def win(tmp_path, monkeypatch):
     yield w, db, budget
     w.close()
     budget.apply_design('base')
+    budget.apply_text_size('base')
 
 
 def test_default_is_base_and_menu_offers_both(win):
@@ -80,3 +81,22 @@ def test_office_text_contrast(win):
     assert ratio(C.WARN_TEXT, C.WARN_BG) >= 4.5
     for fg in (C.NAV_TEXT, C.NAV_MUTED, C.NAV_OK, C.NAV_WARN, C.NAV_OVER):
         assert ratio(fg, C.NAV_BG) >= 4.5, fg
+
+
+def test_text_size_menu_and_scaling(win):
+    w, db, budget = win
+    menu = next(a.menu() for a in w._more_menu().actions() if a.text() == '글자 크기')
+    assert [a.text() for a in menu.actions()] == ['기본', '크게', '더 크게']
+    assert menu.actions()[0].isChecked()
+    base_row = budget._sizes()['row_h']
+    base_font = w.font().pointSizeF()
+    w.set_text_size('xlarge')
+    _flush()
+    assert db.get_setting(budget.TEXT_SIZE_KEY) == 'xlarge' and budget.current_text_size() == 'xlarge'
+    assert budget._pt(10) == 13.0 and 'font-size: 13.0pt' in budget.STYLE
+    assert budget._sizes()['row_h'] > base_row                    # 줄 높이도 글자를 따라 커짐
+    w.set_text_size('large')
+    assert budget._pt(10) == 11.5
+    w.set_text_size('base')
+    assert budget._pt(10) == 10 and budget._sizes()['row_h'] == base_row
+    assert w.font().pointSizeF() == base_font
