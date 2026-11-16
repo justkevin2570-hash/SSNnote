@@ -2167,8 +2167,7 @@ class BudgetWindow(QMainWindow):
                           self._expenses_by_item.get(item['id'], []), self._delete_expense, done,
                           on_edit=lambda ex, iid=item['id']: self._edit_expense(iid, ex),
                           actions={'spend': lambda iid=item['id']: self._open_spend(iid),
-                                   'edit': lambda iid=item['id']: self._open_edit_item(iid),
-                                   'delete': lambda iid=item['id']: self._delete_item(iid)})
+                                   'done': lambda iid=item['id']: self._toggle_complete(iid)})
         t.setCellWidget(r, 0, dcell)
         t.setSpan(r + 1, 0, 1, 3)                                  # 숨은 줄: 산출내역 ~ 잔액 칸을 하나로
         t.setCellWidget(r + 1, 0, dcell.detail)
@@ -2961,7 +2960,20 @@ class _SelectableName(QLabel):
         self._press = e.pos() if e.button() == Qt.LeftButton else None
         super().mousePressEvent(e)
 
+    def mouseDoubleClickEvent(self, e):
+        # 더블클릭: 이름 전체를 고른다 (Ctrl+C로 바로 복사)
+        if e.button() == Qt.LeftButton:
+            self._press = None
+            self._dbl = True
+            self.setSelection(0, len(self.text()))
+            self.setFocus(Qt.MouseFocusReason)
+            return
+        super().mouseDoubleClickEvent(e)
+
     def mouseReleaseEvent(self, e):
+        if getattr(self, '_dbl', False):          # 더블클릭 직후 손을 뗄 때는 펼치기 · 선택 해제 없음
+            self._dbl = False
+            return
         super().mouseReleaseEvent(e)
         start, self._press = self._press, None
         if (start is not None and e.button() == Qt.LeftButton and not self.hasSelectedText()
@@ -2998,7 +3010,7 @@ class _DescCell(QWidget):
         self.btn_toggle.clicked.connect(self._toggle)
         self.lbl_name = _SelectableName(item['description'])
         self.lbl_name.clicked.connect(self._toggle)
-        self.lbl_name.setToolTip(f"{item['description']}\n우클릭: 쓴 돈 추가 · 수정 · 완료 · 삭제")
+        self.lbl_name.setToolTip(f"{item['description']}\n드래그 · 더블클릭으로 고른 뒤 Ctrl+C로 복사\n우클릭: 쓴 돈 추가 · 수정 · 완료 · 삭제")
         self.lbl_name.setStyleSheet(
             f'QLabel {{ background: transparent; color: {C.FAINT if done else C.TEXT}; font-weight: 600; }} '
             f'QLabel:hover {{ color: {C.ACCENT}; }}')
@@ -3018,23 +3030,23 @@ class _DescCell(QWidget):
         name_row.addWidget(self.lbl_cost)                          # 칸에 넣은 뒤에 숨겨야 따로 창으로 뜨지 않음
         if not item.get('cost_type'):
             self.lbl_cost.hide()
-        # 비목 꼬리표 오른쪽: [+ 쓴 돈 추가] [수정] [삭제] [복사] (완료한 항목은 쓴 돈 추가 없음)
+        # 비목 꼬리표 오른쪽: [+ 쓴 돈 추가] [✓ 완료] (완료한 항목은 [↺ 완료 취소]만)
+        # 수정 · 삭제는 우클릭 메뉴, 복사는 이름을 드래그(또는 더블클릭)한 뒤 Ctrl+C
         actions = actions or {}
         self.row_buttons = {}
         name_row.addSpacing(2)
-        specs = (('spend', 'ph.plus', C.ACCENT, C.ACCENT_SOFT, '쓴 돈 추가'),
-                 ('edit', 'ph.pencil-simple', C.ACCENT, C.ACCENT_SOFT, '수정'),
-                 ('delete', 'ph.trash', C.NEG, C.OVER_SOFT, '삭제'))
+        if done:
+            specs = (('done', 'ph.arrow-counter-clockwise', C.ACCENT, C.ACCENT_SOFT, '완료 취소'),)
+        else:
+            specs = (('spend', 'ph.plus', C.ACCENT, C.ACCENT_SOFT, '쓴 돈 추가'),
+                     ('done', 'ph.check', '#047857', '#E7F6EE', '완료'))
         for key, icon, color, bg, tip in specs:
-            if key not in actions or (key == 'spend' and done):
+            if key not in actions:
                 continue
             b = _RowIconButton(icon, color, bg, tip, icon_px=15, side=24)
             b.clicked.connect(lambda _, f=actions[key]: f())
             name_row.addWidget(b)
             self.row_buttons[key] = b
-        self.btn_copy = _RowIconButton('ph.copy', C.ACCENT, C.ACCENT_SOFT, '산출내역 복사', icon_px=15, side=24)
-        self.btn_copy.clicked.connect(self._copy_name)
-        name_row.addWidget(self.btn_copy)                      # 복사는 맨 오른쪽
         name_row.addStretch(1)
         head.addLayout(name_row)
         head.addWidget(self.lbl_sum)
@@ -3051,13 +3063,6 @@ class _DescCell(QWidget):
 
     def _open(self):
         return bool(self._state.get('open'))
-
-    def _copy_name(self):
-        """산출내역 이름 전체를 클립보드로 복사하고, 단추 옆에 「복사됨」을 잠깐 보여 준다."""
-        QApplication.clipboard().setText(self._item['description'])
-        from PyQt5.QtWidgets import QToolTip
-        b = self.btn_copy
-        QToolTip.showText(b.mapToGlobal(QPoint(b.width(), 0)), '복사됨', b, b.rect(), 1200)
 
     def set_expenses(self, expenses):
         """사용 내역이 바뀌면 요약과 펼친 내용을 새로 그린다."""
