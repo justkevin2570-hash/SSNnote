@@ -107,6 +107,9 @@ class C:
     NAV_ON_BG, NAV_HOVER, NAV_MARK, NAV_TRACK = '#2E3F37', '#2A3832', '#6FCF97', '#3B4B44'
     NAV_OK, NAV_WARN, NAV_OVER, NAV_DONE = '#6FCF97', '#F2C46D', '#FF9C8F', '#5C6B64'
     GRID        = '#E1E3DE'    # 사무형 표 격자선
+    NAV_ALL_BG, NAV_ALL_LINE = '#F3F5F9', '#E3E7EE'   # 왼쪽 목록 「전체」 카드
+    NAV_GUIDE   = '#DDE2EA'    # 그룹 안 세부항목 왼쪽 안내선
+    NAV_ALL_BG_D, NAV_GUIDE_D = '#2A3832', '#3B4B44'  # 사무형(진한 바탕)용
 
 
 # ── 디자인 (⋯ → 디자인): 기본 · 사무형. 틀(칸 · 단추 · 기능)은 같고 색과 모양만 다르다 ──────────
@@ -252,9 +255,16 @@ def _BASE_QSS():
     QFrame#Nav[active="true"] {{ background: {C.NAV_ON}; }}
     QLabel#NavName {{ font-weight: 600; }}
     QLabel#NavMeta {{ color: {C.FAINT}; font-size: {_pt(10)}pt; }}
-    QFrame#Nav[indent="true"] {{ margin-left: 12px; }}
+    QFrame#Nav[indent="true"] {{ margin-left: 14px; border-left: 2px solid {C.NAV_GUIDE};
+        border-top-left-radius: 0; border-bottom-left-radius: 0; }}
+    QFrame#Nav[kind="all"] {{ background: {C.NAV_ALL_BG}; border: 1px solid {C.NAV_ALL_LINE}; }}
+    QFrame#Nav[kind="all"][active="true"] {{ background: {C.NAV_ON}; border: 1px solid {C.ACCENT_LINE}; }}
+    QFrame#Nav[kind="all"] QLabel#NavName {{ font-size: {_pt(12)}pt; font-weight: 800; }}
+    QFrame#NavDivider {{ background: {C.BORDER}; border: none; }}
+    QLabel#NavCount {{ background: {C.HOVER}; color: {C.FAINT}; border-radius: {C.R_TAG}px; padding: 0 5px;
+        font-size: {_pt(10)}pt; font-weight: 600; }}
     QFrame#Nav[excluded="true"] QLabel#NavName {{ color: {C.FAINT}; }}
-    QFrame#Nav[group="true"] QLabel#NavName {{ color: {C.MUTED}; font-size: {_pt(10)}pt; font-weight: 700; }}
+    QFrame#Nav[group="true"] QLabel#NavName {{ color: {C.TEXT}; font-weight: 800; }}
     QLabel#ExTag {{
         background: {C.HOVER}; color: {C.FAINT}; border-radius: {C.R_ICON}px; padding: 1px 6px;
         font-size: {_pt(10)}pt; font-weight: 600;
@@ -318,6 +328,14 @@ def _OFFICE_QSS():
     QFrame#Card[nav="true"] QLabel#NavMeta {{ color: {C.NAV_MUTED}; }}
     QFrame#Card[nav="true"] QLabel#ExTag {{ background: {C.NAV_TRACK}; color: {C.NAV_TEXT}; }}
     QFrame#Card[nav="true"] QPushButton#NavFold {{ color: {C.NAV_MUTED}; }}
+    QFrame#Card[nav="true"] QFrame#Nav[indent="true"] {{ border-left: 3px solid {C.NAV_GUIDE_D}; }}
+    QFrame#Card[nav="true"] QFrame#Nav[indent="true"][active="true"] {{ border-left: 3px solid {C.NAV_MARK}; }}
+    QFrame#Card[nav="true"] QFrame#Nav[kind="all"] {{ background: {C.NAV_ALL_BG_D}; border: none; border-left: 3px solid transparent; }}
+    QFrame#Card[nav="true"] QFrame#Nav[kind="all"][active="true"] {{ background: {C.NAV_ON_BG}; border-left: 3px solid {C.NAV_MARK}; }}
+    QFrame#Card[nav="true"] QFrame#Nav[kind="all"] QLabel#NavName {{ color: white; }}
+    QFrame#Card[nav="true"] QFrame#Nav[group="true"] QLabel#NavName {{ color: white; }}
+    QFrame#Card[nav="true"] QFrame#NavDivider {{ background: {C.NAV_GUIDE_D}; }}
+    QFrame#Card[nav="true"] QLabel#NavCount {{ background: {C.NAV_TRACK}; color: {C.NAV_TEXT}; }}
     QFrame#Card[nav="true"] QScrollBar::handle:vertical {{ background: {C.NAV_TRACK}; }}
     QFrame#StatSep {{ background: {C.LINE}; }}
     QHeaderView::section {{ border: none; border-right: 1px solid {C.BORDER}; border-bottom: 1px solid {C.BORDER}; }}
@@ -986,31 +1004,52 @@ class _NavItem(QFrame):
     menuRequested = pyqtSignal(QPoint)
     foldClicked = pyqtSignal()
 
-    def __init__(self, name, group=False, indent=False, excluded=False, collapsed=False):
+    BAR_H = {'all': 6, 'group': 4, 'cat': 3}       # 막대 두께로도 단계를 구분 (전체 > 그룹 > 세부항목)
+
+    def __init__(self, name, group=False, indent=False, excluded=False, collapsed=False, total=False, count=0):
         super().__init__()
+        self.kind = 'all' if total else ('group' if group else 'cat')
         self.setObjectName('Nav')
         self.setProperty('active', 'false')
+        self.setProperty('kind', self.kind)
         self.setProperty('group', 'true' if group else 'false')
         self.setProperty('excluded', 'true' if excluded else 'false')
         self.setProperty('indent', 'true' if indent else 'false')
         self.setCursor(Qt.PointingHandCursor)
         v = QVBoxLayout(self)
-        v.setContentsMargins(10, 8, 10, 9)
-        v.setSpacing(4)
+        v.setContentsMargins(10, 9 if total else 8, 10, 10 if total else 9)
+        v.setSpacing(5 if total else 4)
         top = QHBoxLayout()
         top.setSpacing(4)
         self.btn_fold = None
         if group:
-            self.btn_fold = QPushButton('▸' if collapsed else '▾')
+            # 접기 단추: 글자(▾▸) 대신 벡터 아이콘 — 화면 배율에 맞는 크기로 바로 그려 선명하게
+            icon_c = C.NAV_TEXT if C.OFFICE else C.BODY
+            self.btn_fold = QPushButton()
             self.btn_fold.setObjectName('NavFold')
-            self.btn_fold.setFixedWidth(16)
+            self.btn_fold.setIcon(qta.icon('ph.caret-right-bold' if collapsed else 'ph.caret-down-bold', color=icon_c))
+            ip = px(_sz(14))
+            self.btn_fold.setIconSize(QSize(ip, ip))
+            self.btn_fold.setFixedSize(px(_sz(20)), px(_sz(20)))
+            self.btn_fold.setCursor(Qt.PointingHandCursor)
             self.btn_fold.setToolTip('펼치기' if collapsed else '접기')
             self.btn_fold.clicked.connect(self.foldClicked.emit)
-            top.addWidget(self.btn_fold, 0, Qt.AlignTop)
+            top.addWidget(self.btn_fold, 0, Qt.AlignVCenter)
+            folder = QLabel()                          # 그룹 표시: 폴더 아이콘
+            fp = px(_sz(17))
+            folder.setPixmap(qta.icon('ph.folder-simple-bold' if collapsed else 'ph.folder-open-bold',
+                                      color=icon_c).pixmap(fp, fp))
+            folder.setFixedSize(fp + 2, fp)
+            top.addWidget(folder, 0, Qt.AlignVCenter)
         self.lbl_name = QLabel(name)
         self.lbl_name.setObjectName('NavName')
         self.lbl_name.setWordWrap(True)
         top.addWidget(self.lbl_name, 1)
+        if group and count:
+            cnt = QLabel(f'{count}개')
+            cnt.setObjectName('NavCount')
+            cnt.setToolTip(f'세부항목 {count}개를 묶은 그룹')
+            top.addWidget(cnt, 0, Qt.AlignVCenter)
         if excluded:
             tag = QLabel('합계 제외')
             tag.setObjectName('ExTag')
@@ -1021,11 +1060,11 @@ class _NavItem(QFrame):
         self.bar = QProgressBar()
         self.bar.setRange(0, 100)
         self.bar.setTextVisible(False)
-        self.bar.setFixedHeight(4)
+        self.bar.setFixedHeight(self.BAR_H[self.kind])
         self.lbl_pct = QLabel()
         self.lbl_pct.setObjectName('NavMeta')
         self.lbl_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.lbl_pct.setFixedWidth(_sizes()['nav_pct'])
+        self.lbl_pct.setFixedWidth(_sizes()['nav_pct'] + (px(_sz(12)) if total else 0))
         row.addWidget(self.bar, 1)
         row.addWidget(self.lbl_pct)
         self.lbl_meta = QLabel()
@@ -1056,7 +1095,8 @@ class _NavItem(QFrame):
             txt = _text_color(pct)
             meta = C.OVER_TEXT if rem < 0 else C.FAINT
         self.lbl_pct.setText(f'{pct:.0f}%')
-        self.lbl_pct.setStyleSheet(f'color: {txt}; font-weight: 600;')
+        big = f' font-size: {_pt(12)}pt; font-weight: 800;' if self.kind == 'all' else ' font-weight: 600;'
+        self.lbl_pct.setStyleSheet(f'color: {txt};{big}')
         self.lbl_meta.setText(f'<span style="color:{meta}">잔액 {_fmt(rem)}원</span>{extra}')
 
     def mousePressEvent(self, e):
@@ -1601,12 +1641,18 @@ class BudgetWindow(QMainWindow):
             self.nav_layout.addWidget(nav)
             self._nav_refs[key] = nav
 
-        add('ALL', _NavItem('전체'))
+        add('ALL', _NavItem('전체', total=True))
+        div = QFrame()                        # 「전체」와 목록 사이 구분선
+        div.setObjectName('NavDivider')
+        div.setFixedHeight(1)
+        self.nav_layout.addSpacing(4)
+        self.nav_layout.addWidget(div)
+        self.nav_layout.addSpacing(4)
         for g in self.groups:
             members = self._group_members(g['id'])
             if not members:
                 continue                      # 빈 그룹은 [세부항목 관리]에서만 보임
-            gnav = _NavItem(g['name'], group=True, collapsed=bool(g['collapsed']))
+            gnav = _NavItem(g['name'], group=True, collapsed=bool(g['collapsed']), count=len(members))
             gnav.foldClicked.connect(lambda gid=g['id'], c=bool(g['collapsed']): self._fold_group(gid, not c))
             add(('G', g['id']), gnav)
             if not g['collapsed']:
