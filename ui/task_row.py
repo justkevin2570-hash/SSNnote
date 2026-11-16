@@ -1063,8 +1063,9 @@ class TaskRow(QWidget):
         """업무 ⋮ 메뉴: 업무 이름·마감 → 반복(한 줄 칩) → 완료 표시 · 삭제."""
         from PyQt5.QtWidgets import QWidgetAction
         from . import menu_style as ms
-        menu = ms.make_menu(self)
-        menu.setMinimumWidth(px(250) + 2 * ms.SHADOW)
+        menu = ms.make_menu(self)                          # 글자 크기는 업무창 글자 크기를 따름
+        k = ms._scale_of(menu)
+        menu.setMinimumWidth(round(px(250) * k) + 2 * ms.SHADOW)
 
         # ── 머리: 업무 이름 + 마감 ──
         head = QWidget()
@@ -1077,7 +1078,7 @@ class TaskRow(QWidget):
         nf.setWeight(QFont.DemiBold)
         name.setFont(nf)
         name.setStyleSheet(f'color: {ms.TEXT.name()};')
-        name.setText(QFontMetrics(nf).elidedText(task.get('name', ''), Qt.ElideRight, px(230)))
+        name.setText(QFontMetrics(nf).elidedText(task.get('name', ''), Qt.ElideRight, round(px(230) * k)))
         name.setToolTip(task.get('name', ''))
         hl.addWidget(name)
         sub = QLabel(self._menu_subtitle())
