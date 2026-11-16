@@ -14,6 +14,61 @@ from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TIT
 from .dates import calc_dday
 from .theme import T, tc, tct, qcolor
 
+class ResizeOutline(QWidget):
+    """왼쪽·위쪽 테두리로 크기를 바꾸는 동안 보여 주는 윤곽선 (손을 떼면 그 크기로 한 번에 바뀜).
+
+    창의 위치와 크기를 계속 함께 바꾸면 Windows가 예전 그림을 새 자리에 잠깐 보여 줘서 반대쪽 테두리가 흔들린다.
+    끄는 동안 창은 그대로 두고, 화면 전체를 덮는 투명한 창 하나에 사각형만 그린다 (이 창은 움직이지 않음)."""
+    _inst = None
+
+    def __init__(self):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._rect = None
+        self._color = QColor(T.ACCENT)
+
+    @classmethod
+    def instance(cls):
+        if cls._inst is None:
+            cls._inst = cls()
+        return cls._inst
+
+    def begin(self, rect, color=None):
+        screens = QApplication.screens()
+        area = screens[0].geometry()
+        for sc in screens[1:]:
+            area = area.united(sc.geometry())       # 모니터가 여럿이어도 한 번에 덮기
+        self.setGeometry(area)
+        self._color = QColor(color or T.ACCENT)
+        self.show()
+        self.raise_()
+        self.set_rect(rect)
+
+    def set_rect(self, rect):
+        self._rect = rect
+        self.update()
+
+    def end(self):
+        self._rect = None
+        self.hide()
+
+    def paintEvent(self, e):
+        if self._rect is None:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self._rect.translated(-self.geometry().topLeft())).adjusted(1, 1, -1, -1)
+        fill = QColor(self._color)
+        fill.setAlpha(28)
+        pen = QPen(self._color, 2)
+        p.setPen(pen)
+        p.setBrush(fill)
+        p.drawRoundedRect(r, 6, 6)
+        p.end()
+
+
 class EdgeHandle(QWidget):
     EDGE  = 6   # 가장자리 감지 두께(px)
     CORNER = 16  # 모서리 감지 크기(px)
@@ -31,7 +86,7 @@ class EdgeHandle(QWidget):
         'top-right':    Qt.SizeBDiagCursor,
     }
 
-    # 끌면 창의 왼쪽 위 점(위치)도 함께 움직이는 쪽
+    # 끌면 창의 왼쪽 위 점(위치)도 함께 움직이는 쪽 → 끄는 동안 윤곽선만 (ResizeOutline)
     _ORIGIN_EDGES = ('left', 'top', 'top-left', 'top-right', 'bottom-left')
 
     def __init__(self, parent, edge):
@@ -51,6 +106,10 @@ class EdgeHandle(QWidget):
             self._right_anchor = g.x() + g.width()   # 왼쪽 드래그 시 고정되는 오른쪽 끝
             self._bottom_anchor = g.y() + g.height()  # 위쪽 드래그 시 고정되는 아래쪽 끝
             self.grabKeyboard()
+            self._outline = self.edge in self._ORIGIN_EDGES
+            self._target = None
+            if self._outline:
+                ResizeOutline.instance().begin(g, getattr(self.window(), '_accent', None))
             # 리사이즈 중 합체 파트너가 딸려오지 않도록 양쪽 동기화 일시 정지
             win = self.window()
             if getattr(win, '_link_group', None):
@@ -143,15 +202,25 @@ class EdgeHandle(QWidget):
 
         nx, ny, nw, nh = win._snap_resize(nx, ny, nw, nh, self.edge)
 
+        if getattr(self, '_outline', False):
+            # 왼쪽·위쪽: 창은 그대로 두고 윤곽선만 (손을 떼면 한 번에 바꿈 → 반대쪽 테두리가 흔들리지 않음)
+            from PyQt5.QtCore import QRect
+            self._target = QRect(nx, ny, nw, nh)
+            ResizeOutline.instance().set_rect(self._target)
+            return
         win.setGeometry(nx, ny, nw, nh)
-        partner = self._anchor_partner(win)
-        if self.edge in self._ORIGIN_EDGES:
-            # 위치와 크기가 함께 바뀌는 쪽(왼쪽·위쪽·그 모서리): 바로 다시 그려 반대쪽 테두리가 흔들리지 않게
-            from .common import paint_now
-            paint_now(win, partner)
+        self._anchor_partner(win)
 
     def mouseReleaseEvent(self, e):
         self.releaseKeyboard()
+        if getattr(self, '_outline', False):
+            ResizeOutline.instance().end()
+            self._outline = False
+            if self._target is not None and self._drag_start is not None:
+                win = self.window()
+                win.setGeometry(self._target)              # 손을 뗀 크기로 한 번에
+                self._anchor_partner(win)
+            self._target = None
         self._drag_start = None
         self._start_geom = None
         # 리사이즈 완료 후 offset 재계산 후 동기화 재개
@@ -163,6 +232,10 @@ class EdgeHandle(QWidget):
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Escape and self._drag_start:
+            if getattr(self, '_outline', False):
+                ResizeOutline.instance().end()
+                self._outline = False
+                self._target = None
             self.window().setGeometry(self._start_geom)
             self.releaseKeyboard()
             self._drag_start = None

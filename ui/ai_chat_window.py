@@ -109,6 +109,11 @@ class _EdgeGrip(QWidget):
         if e.button() != Qt.LeftButton:
             return
         self._start = (e.globalPos(), self._win.dock_size)
+        self._outline = self._where in ('left', 'top')      # 왼쪽·위쪽: 끄는 동안 윤곽선만 (흔들림 방지)
+        self._size = self._win.dock_size
+        if self._outline:
+            from .chrome import ResizeOutline
+            ResizeOutline.instance().begin(self._win.geometry())
 
     def mouseMoveEvent(self, e):
         if not self._start:
@@ -116,15 +121,22 @@ class _EdgeGrip(QWidget):
         p0, size0 = self._start
         d = e.globalPos() - p0
         delta = {'right': d.x(), 'left': -d.x(), 'bottom': d.y(), 'top': -d.y()}[self._where]
+        if self._outline:
+            from .chrome import ResizeOutline
+            self._size, rect = self._win.preview_dock(size0 + delta)
+            if rect is not None:
+                ResizeOutline.instance().set_rect(rect)
+            return
         self._win.set_dock_size(size0 + delta)
-        if self._where in ('left', 'top'):
-            # 위치와 크기가 함께 바뀌는 쪽: 기다리지 않고 바로 다시 그려 맞닿은 쪽 가장자리가 흔들리지 않게
-            from .common import paint_now
-            paint_now(self._win)
 
     def mouseReleaseEvent(self, e):
         if self._start:
             self._start = None
+            if self._outline:
+                from .chrome import ResizeOutline
+                ResizeOutline.instance().end()
+                self._outline = False
+                self._win.set_dock_size(self._size)          # 손을 뗀 크기로 한 번에
             _save(SIZE_KEY + '_' + self._win.side, self._win.dock_size)
 
 
@@ -555,10 +567,24 @@ class AiChatWindow(QWidget):
         self.grip.setGeometry(geo)
         self.grip.raise_()
 
-    def set_dock_size(self, size):
+    def _clamp_dock(self, size):
         geo = QApplication.primaryScreen().availableGeometry()
         limit = geo.width() // 2 if self.side in ('left', 'right') else geo.height() // 2
-        self.dock_size = max(MIN_SIZE[self.side], min(int(size), max(MIN_SIZE[self.side], limit)))
+        return max(MIN_SIZE[self.side], min(int(size), max(MIN_SIZE[self.side], limit)))
+
+    def preview_dock(self, size):
+        """이 크기로 바꾸면 놓일 자리 (창은 그대로). (범위 맞춘 크기, 사각형 또는 None)"""
+        size = self._clamp_dock(size)
+        if self.host is None or self.side == 'inside':
+            return size, None
+        try:
+            rect, _ = dock_rect(self._host_rect(), self.side, size)
+        except RuntimeError:
+            return size, None
+        return size, rect
+
+    def set_dock_size(self, size):
+        self.dock_size = self._clamp_dock(size)
         self.follow()
 
     def set_side(self, side):

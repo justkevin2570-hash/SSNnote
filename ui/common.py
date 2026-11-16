@@ -425,15 +425,3 @@ def icon_png(name: str, color: str, size: int = 16) -> str:
         return path.replace('\\', '/')
     except Exception:
         return ''
-
-
-def paint_now(*widgets):
-    """창 위치와 크기를 함께 바꾼 직후(왼쪽·위쪽 테두리로 크기 조절) 바로 다시 그린다.
-    Windows는 창을 옮긴 순간 예전 그림을 새 자리에 잠깐 보여 주는데, 다시 그리기를 다음 차례로 미루면
-    그 틈에 반대쪽(고정된) 테두리가 흔들려 보인다. 기다리지 않고 지금 그려 그 틈을 없앤다."""
-    for w in widgets:
-        try:
-            if w is not None and w.isVisible():
-                w.repaint()
-        except RuntimeError:          # 이미 닫힌 창
-            pass

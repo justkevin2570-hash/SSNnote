@@ -397,28 +397,28 @@ def test_user_bubble_padding_is_even(win):
     assert abs(xs[0] - (W - 1 - xs[-1])) <= 2
 
 
-def test_left_edge_drag_repaints_at_once_and_keeps_contact(win, monkeypatch):
-    """왼쪽에 붙은 AI 창의 왼쪽 가장자리를 끌면 바로 다시 그린다 (맞닿은 오른쪽이 흔들리지 않게).
-    업무창과 맞닿은 쪽은 그대로, 폭은 끝나면 기억."""
+def test_left_edge_drag_shows_outline_then_resizes_once(win):
+    """왼쪽에 붙은 AI 창의 왼쪽 가장자리를 끄는 동안은 윤곽선만, 손을 떼면 한 번에 (맞닿은 쪽 그대로, 폭 기억)."""
     w, acw, db, app = win
     w._toggle_ai_chat()
     c = acw.instance()
     c.set_side('left')
     app.processEvents()
-    painted = []
-    from ui import common
-    monkeypatch.setattr(common, 'paint_now', lambda *ws: painted.extend(ws))
     from PyQt5.QtCore import QPoint, QEvent
     from PyQt5.QtGui import QMouseEvent
+    from ui.chrome import ResizeOutline
     g = c.grip
     p0 = g.mapToGlobal(QPoint(1, 5))
     g.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, QPoint(1, 5), p0, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
-    right = c.geometry().right()
+    geo0, right = c.geometry(), c.geometry().right()
     p1 = p0 - QPoint(80, 0)
     g.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, QPoint(-79, 5), p1, Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
-    assert painted == [c]                                              # 바로 다시 그림
-    assert c.geometry().right() == right == w.frameGeometry().left()   # 맞닿은 쪽 그대로
+    outline = ResizeOutline.instance()
+    assert c.geometry() == geo0 and outline.isVisible()               # 끄는 동안 창은 그대로
+    assert outline._rect.right() == right and outline._rect.width() == geo0.width() + 80
     g.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, QPoint(-79, 5), p1, Qt.LeftButton, Qt.NoButton, Qt.NoModifier))
+    assert not outline.isVisible()
+    assert c.width() == geo0.width() + 80 and c.geometry().right() == right == w.frameGeometry().left()
     assert db.get_setting(acw.SIZE_KEY + '_left') == str(c.dock_size)
 
 

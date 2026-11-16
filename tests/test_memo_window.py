@@ -124,28 +124,40 @@ def test_bottom_buttons_same_height_and_row(make):
     assert bar.height() - (top + btns[0].height()) == top          # 위아래 여백 같게
 
 
-def test_left_edge_resize_repaints_at_once_and_keeps_right_edge(make, monkeypatch):
-    """업무창 왼쪽(위쪽·모서리) 테두리로 크기를 바꾸면 바로 다시 그린다 → 고정된 오른쪽 테두리가 흔들리지 않게.
-    오른쪽 테두리로 바꿀 때는 그럴 필요가 없다."""
+def test_left_edge_resize_shows_outline_then_applies_once(make, monkeypatch):
+    """업무창 왼쪽(위쪽·모서리) 테두리로 크기를 바꾸면 끄는 동안은 창을 그대로 두고 윤곽선만 움직이고,
+    손을 떼면 그 크기로 한 번에 바뀐다 (반대쪽 테두리가 흔들리지 않게). 오른쪽 테두리는 지금처럼 바로 바뀜."""
     from PyQt5.QtCore import QPoint, QEvent, Qt
     from PyQt5.QtGui import QMouseEvent
-    from ui import common
-    from ui.chrome import EdgeHandle
+    from ui.chrome import EdgeHandle, ResizeOutline
     w = make(False)
     w.setGeometry(300, 200, 400, 500)
     w.show()
-    painted = []
-    monkeypatch.setattr(common, 'paint_now', lambda *ws: painted.append(ws[0]))
     monkeypatch.setattr(w, '_snap_resize', lambda x, y, wd, h, edge: (x, y, wd, h))
-    for edge, dx, expect in (('left', -60, True), ('right', 60, False), ('top-left', -30, True)):
-        painted.clear()
+    outline = ResizeOutline.instance()
+
+    def drag(edge, dx, release=True):
         h = EdgeHandle(w, edge)
-        right = w.geometry().right()
         p0 = QPoint(500, 400)
         h.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, QPoint(0, 0), p0, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
         h.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, QPoint(dx, 0), p0 + QPoint(dx, 0), Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
-        assert bool(painted) == expect, edge
-        if edge in ('left', 'top-left'):
-            assert w.geometry().right() == right                     # 오른쪽 끝은 그대로
-        h.releaseKeyboard()
-        h._drag_start = None
+        return h, p0
+
+    g0 = w.geometry()
+    h, p0 = drag('left', -60)
+    assert w.geometry() == g0                                        # 끄는 동안 창은 그대로
+    assert outline.isVisible() and outline._rect.left() == g0.left() - 60 and outline._rect.right() == g0.right()
+    h.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, QPoint(-60, 0), p0 + QPoint(-60, 0), Qt.LeftButton, Qt.NoButton, Qt.NoModifier))
+    assert not outline.isVisible()
+    assert w.geometry().left() == g0.left() - 60 and w.geometry().right() == g0.right()   # 손을 떼면 한 번에
+
+    g1 = w.geometry()
+    h, p0 = drag('left', -40)
+    from PyQt5.QtGui import QKeyEvent
+    h.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_Escape, Qt.NoModifier))              # Esc → 취소
+    assert not outline.isVisible() and w.geometry() == g1
+    h.releaseKeyboard()
+
+    h, p0 = drag('right', 50)                                        # 오른쪽은 지금처럼 바로
+    assert w.geometry().width() == g1.width() + 50 and not outline.isVisible()
+    h.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, QPoint(50, 0), p0 + QPoint(50, 0), Qt.LeftButton, Qt.NoButton, Qt.NoModifier))
