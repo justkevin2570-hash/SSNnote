@@ -90,22 +90,32 @@ def test_completed_items_folded_by_default_and_can_open(win):
     assert done[0].cellWidget(0, 3).findChild(budget.QLabel).text() == '완료'   # 집행률 대신 「완료」
 
 
-def test_row_buttons_spend_edit_done_only_on_hovered_row(win):
+def test_no_row_buttons_hover_tints_row(win):
+    """줄 끝 단추([쓴 돈 추가] · 수정 · 완료)는 없음 — 우클릭 메뉴로. 마우스를 올린 줄은 바탕만 옅게."""
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     t = w.findChildren(budget._BudgetTable)[0]
-    spend, edit, done = t.action_buttons[0]
-    assert spend.text() == '쓴 돈 추가' and spend.icon().isNull()     # 아이콘 없이 글자만
-    assert not any(b.isVisible() for b in (spend, edit, done))      # 평소엔 숨김
-    t.set_hover_row(0)                                              # 마우스를 올린 줄에만
-    assert spend.isVisible() and edit.isVisible() and done.isVisible()
-    xs = [b.mapTo(t, b.rect().topLeft()).x() for b in (spend, edit, done)]
-    assert xs == sorted(xs)                                         # 왼쪽부터 쓴 돈 · 수정 · 완료
-    assert spend.mapTo(t, spend.rect().topRight()).x() <= t.viewport().width()   # 잘리지 않음
+    assert t.columnCount() == 4 and not any(t.action_buttons)
+    from PyQt5.QtWidgets import QPushButton
+    assert not [b for b in w.findChildren(QPushButton) if b.text() == '쓴 돈 추가']
+    t.set_hover_row(0)
+    assert t._hover_row == 0
     t.set_hover_row(-1)
-    assert not spend.isVisible()
+    assert t._hover_row == -1
+    cell = t.cellWidget(0, 0)
+    assert '우클릭' in cell.lbl_name.toolTip()
+
+
+def test_window_blank_right_click_has_no_menu(win, monkeypatch):
+    w, db, budget, app = win
+    from PyQt5.QtCore import QPoint
+    from PyQt5.QtGui import QContextMenuEvent
+    shown = []
+    monkeypatch.setattr(budget.QMenu, 'exec_', lambda self, *a: shown.append(1))
+    w.contextMenuEvent(QContextMenuEvent(QContextMenuEvent.Mouse, QPoint(5, 5), QPoint(5, 5)))
+    assert not shown
 
 
 def test_spend_button_adds_expense(win, monkeypatch):
@@ -134,7 +144,7 @@ def test_row_right_click_menu(win, monkeypatch):
     shown = {}
     monkeypatch.setattr(budget.QMenu, 'exec_', lambda self, *a: shown.setdefault('acts', [a.text() for a in self.actions()]))
     w._row_menu(iid, budget.QPoint(0, 0))
-    assert [x for x in shown['acts'] if x] == ['쓴 돈 추가…', '수정…', '완료로 표시', '지우기']
+    assert [x for x in shown['acts'] if x] == ['쓴 돈 추가', '수정', '완료', '삭제']
     monkeypatch.setattr(budget.QMessageBox, 'question', lambda *a, **k: budget.QMessageBox.Yes)
     w._delete_item(iid)
     assert iid not in [i['id'] for i in db.get_budget_items()]
@@ -687,29 +697,6 @@ def test_opening_window_shows_no_stray_small_windows(win):
     finally:
         app.removeEventFilter(spy)
     assert set(shown) <= {'BudgetWindow'}
-
-
-def test_buttons_stay_when_cursor_moves_onto_them(win):
-    """줄의 단추 위로 마우스를 옮기면 표 바탕에는 '떠남'이 온다 → 그래도 단추가 사라지지 않아야 한다."""
-    w, db, budget, app = win
-    from PyQt5.QtCore import QEvent, QPoint
-    from PyQt5.QtGui import QCursor
-    w._apply_import(CATS, 'append')
-    w.show()
-    app.processEvents()
-    t = w.findChildren(budget._BudgetTable)[0]
-    spend, edit, done = t.action_buttons[0]
-    QCursor.setPos(t.viewport().mapToGlobal(QPoint(20, t.rowViewportPosition(0) + 5)))
-    t.eventFilter(t.viewport(), QEvent(QEvent.Leave))                # 바탕에서 떠남 (칸 속으로)
-    assert spend.isVisible() and edit.isVisible()
-    t.set_hover_row(-1)
-    acts = spend.parentWidget()
-    QCursor.setPos(acts.mapToGlobal(acts.rect().center()))
-    t.eventFilter(spend, QEvent(QEvent.Enter))                        # 단추 칸으로 바로 들어와도
-    assert spend.isVisible() and done.isVisible()
-    QCursor.setPos(t.viewport().mapToGlobal(QPoint(-50, -50)))
-    t.eventFilter(spend, QEvent(QEvent.Leave))                        # 표 밖으로 나가면 숨김
-    assert not spend.isVisible()
 
 
 def test_spend_preview_balance_only_without_growing(win):
