@@ -4,7 +4,7 @@
 화면: 위 요약 한 줄(예산현액·집행액·잔액·집행률) / 왼쪽 세부항목 목록 / 오른쪽 세부항목별 표.
   · 집행액 칸은 눌러서 바로 고치고, 완료·수정·삭제는 행에 마우스를 올리면 나온다.
   · 완료한 항목은 흐리게 아래로 접힌다. 집행률 색: 높을수록 진한 파랑 → 100% 넘으면 빨강.
-가져오기: 엑셀 파일(끌어다 놓기) · 엑셀에서 복사한 표 · 예산 화면 캡처(우클릭 → 붙여넣기, Ctrl+V)
+가져오기: 엑셀 파일(끌어다 놓기) · 엑셀에서 복사한 표 · 예산 화면 캡처([가져오기] → 붙여넣기, Ctrl+V)
   → 세부항목별로 보여 주고(_ImportPreviewDialog) 고친 뒤 가져온다. 캡처 읽기는 budget_image.py.
 데이터는 ssnnote.db의 budget_categories, budget_items 테이블에 저장.
 """
@@ -353,10 +353,10 @@ _ROW_H = 38
 # 열: 산출내역(+비목 꼬리표) · 예산현액 · 잔액 · 집행률 · [✎][✓] (마우스를 올린 줄에만). 집행액 칸은 두지 않는다.
 # 넉넉할 때의 폭과, 좁아져도 이 아래로는 줄이지 않는 최소 폭(100% 배율 기준, _sizes()가 배율을 곱함).
 # 집행률·버튼 칸은 글꼴 폭으로 계산한다. 남는 폭은 산출내역이 가져간다.
-_COL_W = (300, 118, 118, 0, 0)
-_COL_MIN = (150, 96, 96, 0, 0)
-_COLS = ('산출내역', '예산현액', '잔액', '집행률', '')
-_COL_BUDGET, _COL_REM, _COL_PCT, _COL_ACT = 1, 2, 3, 4
+_COL_W = (300, 118, 118, 0)
+_COL_MIN = (150, 96, 96, 0)
+_COLS = ('산출내역', '예산현액', '잔액', '집행률')
+_COL_BUDGET, _COL_REM, _COL_PCT = 1, 2, 3     # 줄 단추 칸은 없앰 (쓴 돈 추가 · 수정 · 완료 · 삭제는 우클릭)
 
 # 집행률 색: 0%는 연한 파랑, 100%에 가까울수록 진한 파랑, 100% 초과는 빨강, 완료는 회색.
 # 글자용 파랑은 흰 바탕에서 읽히도록 바보다 한 단계 진하게 시작한다.
@@ -711,8 +711,6 @@ def _sizes():
         pct_col = px(6) + px(60) + px(8) + pct_lbl + px(10) + pad
         btn_h = max(px(26), fs.height() + px(8))
         btn_w = btn_wide = btn_h            # [✎] [✓] 네모 아이콘 단추
-        spend_w = fs.horizontalAdvance('쓴 돈 추가') + px(22)          # [쓴 돈 추가]
-        act_col = spend_w + 2 * btn_h + 2 * px(6) + px(14) + pad
         # 금액 칸: 글꼴이 바뀌어도(맑은 고딕 ↔ Pretendard) 9자리 금액까지 안 잘리게 실제 글꼴로 잰다
         num_w = fm.horizontalAdvance('999,999,999') + pad + px(6)       # 넉넉할 때: 9자리 금액
         num_min = fm.horizontalAdvance('99,999,999') + pad              # 줄여도 이 아래로는 안 줄임: 8자리 금액
@@ -720,7 +718,7 @@ def _sizes():
         m = [px(x) for x in _COL_MIN[:3]]
         for i in (_COL_BUDGET, _COL_REM):
             w[i], m[i] = max(w[i], num_w), max(m[i], num_min)
-        w, m = tuple(w) + (pct_col, act_col), tuple(m) + (pct_col, act_col)
+        w, m = tuple(w) + (pct_col,), tuple(m) + (pct_col,)
         # 왼쪽 세부항목 목록: 가장 긴 보조 글과 퍼센트가 안 잘리게
         meta = QLabel('잔액 99,999,999원 · 초과 1건')
         meta.setObjectName('NavMeta')
@@ -748,7 +746,7 @@ def _fit_columns(table):
     hdr = table.horizontalHeader()
     avail = table.viewport().width()
     col_w, col_min = list(_sizes()['w']), list(_sizes()['min'])
-    for col in (_COL_PCT, _COL_ACT):       # 집행률·버튼 칸: 화면에 실제로 그려질 크기(글꼴·배율 반영)에 맞춤
+    for col in (_COL_PCT,):                # 집행률 칸: 화면에 실제로 그려질 크기(글꼴·배율 반영)에 맞춤
         need = _cell_widgets_width(table, col)
         col_min[col] = max(col_min[col], need)
         col_w[col] = max(col_w[col], need)
@@ -946,6 +944,14 @@ class _BudgetTable(QTableWidget):
                 if 0 <= r < self.rowCount() and not self.isRowHidden(r):
                     p.fillRect(QRect(0, self.rowViewportPosition(r), w, self.rowHeight(r)), QColor(color))
             p.end()
+        if self._hover_row in self.row_items:
+            from PyQt5.QtGui import QPainter
+            p = QPainter(self.viewport())
+            w = self.viewport().width()
+            for r in (self._hover_row, self._hover_row + 1):     # 항목 줄 + 펼친 사용 내역 줄
+                if 0 <= r < self.rowCount() and not self.isRowHidden(r):
+                    p.fillRect(QRect(0, self.rowViewportPosition(r), w, self.rowHeight(r)), QColor(C.HOVER))
+            p.end()
         super().paintEvent(event)
 
     # ── 마우스를 올린 줄에만 단추 ───────────────────────────────────
@@ -956,8 +962,10 @@ class _BudgetTable(QTableWidget):
         return r - (r % 2) if (r - (r % 2)) in self.row_items else -1
 
     def set_hover_row(self, r):
+        """마우스를 올린 줄: 바탕을 옅게 칠해 어느 줄을 우클릭할지 보이게."""
         if r == self._hover_row:
             return
+        self.viewport().update()
         for row in (self._hover_row, r):
             pair = self.action_buttons[row] if 0 <= row < len(self.action_buttons) else None
             if pair:
@@ -1490,7 +1498,7 @@ class BudgetWindow(QMainWindow):
         t.setObjectName('EmptyTitle')
         t.setAlignment(Qt.AlignCenter)
         s = QLabel('사업관리카드 엑셀 파일을 이 창에 끌어다 놓거나,\n'
-                   '예산 화면을 캡처해 붙여넣으면(우클릭 → 붙여넣기 또는 Ctrl+V) 세부항목별로 정리해 드려요.')
+                   '예산 화면을 캡처해 붙여넣으면([가져오기] → 붙여넣기 또는 Ctrl+V) 세부항목별로 정리해 드려요.')
         s.setObjectName('Muted')
         s.setAlignment(Qt.AlignCenter)
         row = QHBoxLayout()
@@ -1584,11 +1592,7 @@ class BudgetWindow(QMainWindow):
         QTimer.singleShot(0, lambda: self.scroll.verticalScrollBar().setValue(pos))
 
     def contextMenuEvent(self, e):
-        m = self._import_menu()
-        m.addSeparator()
-        a = m.addAction('항목 추가…', lambda: self._open_add_item())
-        a.setEnabled(bool(self.categories))
-        m.exec_(e.globalPos())
+        e.accept()                        # 창 빈 곳 우클릭 메뉴는 없음 (가져오기 · 항목 추가는 위 단추와 [+]로)
 
     # ── 데이터 새로고침 ────────────────────────────────────────────
     def refresh(self, keep_scroll=True):
@@ -2120,7 +2124,7 @@ class BudgetWindow(QMainWindow):
         return t
 
     def _row_menu(self, item_id, pos):
-        """항목 줄 오른쪽 클릭: 쓴 돈 추가 · 수정 · 완료(완료 취소) · (고른 글자 복사) · 지우기.
+        """항목 줄 오른쪽 클릭: 쓴 돈 추가 · 수정 · 완료(완료 취소) · (고른 글자 복사) · 삭제.
         산출내역 전체 복사는 비목 꼬리표 옆 복사 단추로."""
         item = self._items_by_id.get(item_id)
         if not item:
@@ -2128,19 +2132,19 @@ class BudgetWindow(QMainWindow):
         m = QMenu(self)
         m.setStyleSheet(STYLE)
         if not item['completed']:
-            m.addAction('쓴 돈 추가…', lambda: self._open_spend(item_id))
-        m.addAction(qta.icon('fa5s.pen', color=C.MUTED), '수정…', lambda: self._open_edit_item(item_id))
+            m.addAction(qta.icon('fa5s.plus', color=C.MUTED), '쓴 돈 추가', lambda: self._open_spend(item_id))
+        m.addAction(qta.icon('fa5s.pen', color=C.MUTED), '수정', lambda: self._open_edit_item(item_id))
         if item['completed']:
             m.addAction(qta.icon('fa5s.undo', color=C.MUTED), '완료 취소', lambda: self._toggle_complete(item_id))
         else:
-            m.addAction(qta.icon('fa5s.check', color=C.MUTED), '완료로 표시', lambda: self._toggle_complete(item_id))
+            m.addAction(qta.icon('fa5s.check', color=C.MUTED), '완료', lambda: self._toggle_complete(item_id))
         m.addSeparator()
         cell = (self._row_refs.get(item_id) or {}).get('desc')
         if cell is not None and cell.lbl_name.hasSelectedText():
             m.addAction(qta.icon('fa5s.copy', color=C.MUTED), '고른 글자 복사',
                         lambda: self._copy_desc(item_id, selected_only=True))
         m.addSeparator()
-        m.addAction(qta.icon('fa5s.trash-alt', color=C.NEG), '지우기', lambda: self._delete_item(item_id))
+        m.addAction(qta.icon('fa5s.trash-alt', color=C.NEG), '삭제', lambda: self._delete_item(item_id))
         m.exec_(pos)
 
     def _delete_item(self, item_id):
@@ -2203,42 +2207,8 @@ class BudgetWindow(QMainWindow):
         self._set_pct(bar, lbl, pct, done)
         t.pct_labels.append(lbl)
 
-        # [✎] [✓] — 마우스를 올린 줄에만 보임 (_BudgetTable.set_hover_row)
         sz = _sizes()
-        acts = QWidget()
-        al = QHBoxLayout(acts)
-        al.setContentsMargins(4, 0, 10, 0)
-        al.setSpacing(6)
-        al.addStretch()
-        b_spend = QPushButton('쓴 돈 추가')
-        b_spend.setObjectName('RowSpend')
-        b_spend.setToolTip('이번에 쓴 돈을 넣어요 (집행액에 더하고 사용 내역에 남김)')
-        b_spend.clicked.connect(lambda _, iid=item['id']: self._open_spend(iid))
-        b_spend.setFixedHeight(sz['btn_h'])
-        b_spend.setCursor(Qt.PointingHandCursor)
-        b_spend.setVisible(False)
-        if not done:                                     # 완료한 항목에는 쓴 돈을 넣지 않음
-            al.addWidget(b_spend)
-        b_edit = QPushButton()
-        b_edit.setObjectName('RowIcon')
-        b_edit.setIcon(qta.icon('fa5s.pen', color=C.MUTED))
-        b_edit.setToolTip('수정 (산출내역 · 비목 · 예산 · 집행액 바로잡기 · 삭제)')
-        b_edit.clicked.connect(lambda _, iid=item['id']: self._open_edit_item(iid))
-        b_done = QPushButton()
-        b_done.setObjectName('RowIcon')
-        b_done.setIcon(qta.icon('fa5s.undo' if done else 'fa5s.check', color=C.MUTED if done else '#047857'))
-        b_done.setToolTip('완료 취소' if done else '완료로 표시')
-        b_done.clicked.connect(lambda _, iid=item['id']: self._toggle_complete(iid))
-        for b in (b_edit, b_done):                       # 수정 왼쪽 · 완료 오른쪽
-            b.setIconSize(QSize(11, 11))
-            b.setFixedSize(sz['btn_h'], sz['btn_h'])
-            b.setCursor(Qt.PointingHandCursor)
-            b.setVisible(False)
-            al.addWidget(b)
-        t.setItem(r, _COL_ACT, cell('', R))
-        t.setCellWidget(r, _COL_ACT, acts)
-        t.action_buttons[r] = (b_edit, b_done) if done else (b_spend, b_edit, b_done)
-        for wdg in (dcell, wrap, acts):                  # 칸 속 위젯 위에 있어도 단추가 보이게
+        for wdg in (dcell, wrap):                        # 칸 속 위젯 위에 있어도 그 줄을 '마우스 올린 줄'로
             t.watch_row(wdg)
         t.row_items[r] = item['id']
         if C.OFFICE and _level(pct, done) == 'warn':        # 사무형: 거의 다 쓴 줄은 연한 주황 바탕
@@ -3039,7 +3009,7 @@ class _DescCell(QWidget):
         self.btn_toggle.clicked.connect(self._toggle)
         self.lbl_name = _SelectableName(item['description'])
         self.lbl_name.clicked.connect(self._toggle)
-        self.lbl_name.setToolTip(item['description'])
+        self.lbl_name.setToolTip(f"{item['description']}\n우클릭: 쓴 돈 추가 · 수정 · 완료 · 삭제")
         self.lbl_name.setStyleSheet(
             f'QLabel {{ background: transparent; color: {C.FAINT if done else C.TEXT}; font-weight: 600; }} '
             f'QLabel:hover {{ color: {C.ACCENT}; }}')
