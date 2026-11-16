@@ -71,7 +71,7 @@ def _fmt_sum(db, cat_id):
     return f"{sum(i['budget'] for i in its) - sum(i['spent'] for i in its):,}"
 
 
-def test_completed_items_folded_by_default_and_can_open(win):
+def test_completed_items_always_shown_below_without_toggle(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     first = db.get_budget_items()[0]
@@ -81,12 +81,9 @@ def test_completed_items_folded_by_default_and_can_open(win):
     app.processEvents()
     done = [t for t in w.findChildren(budget._BudgetTable)
             if t.horizontalHeader().isHidden() and t.row_items]
-    assert len(done) == 1 and not done[0].isVisible()             # 완료 항목은 접은 것이 기본
+    assert len(done) == 1 and done[0].isVisible()                 # 완료 항목은 늘 보임 (접기 단추 없음)
     from PyQt5.QtWidgets import QPushButton
-    toggle = next(b for b in w.findChildren(QPushButton) if '완료한 항목 1개' in b.text())
-    assert toggle.property('open') is False and first['description'] in toggle.text() and not toggle.icon().isNull()
-    toggle.click()
-    assert done[0].isVisible() and toggle.property('open') is True
+    assert not [b for b in w.findChildren(QPushButton) if '완료한 항목' in b.text()]
     assert done[0].cellWidget(0, 3).findChild(budget.QLabel).text() == '완료'   # 집행률 대신 「완료」
 
 

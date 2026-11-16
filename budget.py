@@ -3,7 +3,7 @@
 
 화면: 위 요약 한 줄(예산현액·집행액·잔액·집행률) / 왼쪽 세부항목 목록 / 오른쪽 세부항목별 표.
   · 집행액 칸은 눌러서 바로 고치고, 완료·수정·삭제는 행에 마우스를 올리면 나온다.
-  · 완료한 항목은 흐리게 아래로 접힌다. 집행률 색: 높을수록 진한 파랑 → 100% 넘으면 빨강.
+  · 완료한 항목은 흐리게 아래에 늘 보인다. 집행률 색: 높을수록 진한 파랑 → 100% 넘으면 빨강.
 가져오기: 엑셀 파일(끌어다 놓기) · 엑셀에서 복사한 표 · 예산 화면 캡처([가져오기] → 붙여넣기, Ctrl+V)
   → 세부항목별로 보여 주고(_ImportPreviewDialog) 고친 뒤 가져온다. 캡처 읽기는 budget_image.py.
 데이터는 ssnnote.db의 budget_categories, budget_items 테이블에 저장.
@@ -1913,10 +1913,7 @@ class BudgetWindow(QMainWindow):
             lbl.setContentsMargins(16, 2, 16, 6)
             v.addWidget(lbl)
         if done:
-            # 완료한 항목은 접어서 아래로: ▸ 완료한 항목 2개 (교재 구입, 진로 체험 버스)
-            open_ = cat['id'] in self._show_done
-            toggle = _FoldLink()
-            names = ', '.join(it['description'] for it in done[:3]) + (' …' if len(done) > 3 else '')
+            # 완료한 항목은 진행 중인 항목 아래에 늘 보이게 (접기 단추 없음)
             dtable = self._make_table(done, finished=True)
             if main is not None:
                 dtable.follow = main
@@ -1924,17 +1921,7 @@ class BudgetWindow(QMainWindow):
             else:
                 main = dtable
             tables.append(dtable)
-
-            def set_open(on, cid=cat['id'], t=dtable, b=toggle, n=len(done), names=names):
-                (self._show_done.add if on else self._show_done.discard)(cid)
-                t.setVisible(on)
-                b.set_open(on, f'완료한 항목 {n}개' + ('' if on else f'  ({names})'))
-                if on:
-                    t.sync_geometry()
-            toggle.clicked.connect(lambda _, c=cat['id'], f=set_open: (f(c not in self._show_done), self._schedule_save()))
-            v.addWidget(toggle, 0, Qt.AlignLeft)
             v.addWidget(dtable)
-            set_open(open_)                               # 칸에 넣은 뒤에 펼쳐야 따로 창으로 뜨지 않음
         total = None
         if cat_items:
             total = self._make_total_table(main)
@@ -2902,41 +2889,6 @@ class _ImportPreviewDialog(QDialog):
 
 
 # ── 예산 항목 추가/수정 다이얼로그 ────────────────────────────────
-class _FoldLink(QPushButton):
-    """「› 완료한 항목 n개」 같은 접기/펼치기 글자 단추. 꺾쇠는 글자 기호(▸▾) 대신 벡터 아이콘이라 선명.
-    마우스를 올리면 아이콘과 글자가 함께 진해진다."""
-
-    def __init__(self):
-        super().__init__()
-        self.setObjectName('Link')
-        self.setCursor(Qt.PointingHandCursor)
-        self.setStyleSheet(f'QPushButton#Link {{ padding: 6px 16px; color: {C.FAINT}; font-size: {_pt(10)}pt; '
-                           f'text-align: left; }} QPushButton#Link:hover {{ color: {C.TEXT}; }}')
-        ip = px(_sz(12))
-        self.setIconSize(QSize(ip, ip))
-        self._open, self._hot = False, False
-
-    def set_open(self, on, text):
-        self._open = bool(on)
-        self.setProperty('open', self._open)
-        self.setText('  ' + text)
-        self._paint_icon()
-
-    def _paint_icon(self):
-        name = 'ph.caret-down-bold' if self._open else 'ph.caret-right-bold'
-        self.setIcon(qta.icon(name, color=C.TEXT if self._hot else C.FAINT))
-
-    def enterEvent(self, e):
-        self._hot = True
-        self._paint_icon()
-        super().enterEvent(e)
-
-    def leaveEvent(self, e):
-        self._hot = False
-        self._paint_icon()
-        super().leaveEvent(e)
-
-
 class _RowIconButton(QPushButton):
     """사용 내역 줄의 작은 선 아이콘 단추 (연필 · 휴지통). 벡터 아이콘이라 화면 배율이 커도 선명.
     평소엔 옅은 회색, 마우스를 올리면 옅은 바탕의 둥근 네모와 진한 색 아이콘."""
