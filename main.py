@@ -206,6 +206,7 @@ if __name__ == '__main__':
     from ui.common import setup_high_dpi
     setup_high_dpi()          # 배율은 정수로, 글꼴은 Windows가 선명하게 (ui/common.py 설명)
     QApplication.setAttribute(Qt.AA_ShareOpenGLContexts, True)
+    QApplication.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)   # 창 제목줄의 쓸모없는 ? 단추 없앰
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 

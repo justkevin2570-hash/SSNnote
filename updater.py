@@ -67,6 +67,8 @@ AUTO_KEY = 'auto_update'         # app_settings: '1'(기본) / '0'
 LAST_VERSION_KEY = 'last_run_version'
 
 # 화면 없이 설치: 실행 중인 서서니 노트·연결 프로그램은 설치 프로그램이 닫는다
+UPDATE_TITLE = '서서니 노트 업데이트'          # 업데이트 관련 창 제목 (모두 같게)
+
 SILENT_ARGS = ['/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS', '/FORCECLOSEAPPLICATIONS']
 NO_RELAUNCH_ARG = '/NORELAUNCH'  # 설치 뒤 앱을 다시 켜지 않음 (사용자가 끈 경우)
 
@@ -383,7 +385,7 @@ class UpdateNotifier(QObject):
 
     def _on_failed(self, version: str):
         QMessageBox.information(
-            None, 'SSNnote 업데이트',
+            None, UPDATE_TITLE,
             f'{version} 자동 설치가 잘 되지 않았어요.\n메뉴 → 도움말 → 업데이트 확인에서 직접 설치해 주세요.')
 
 
@@ -455,7 +457,7 @@ def _korean_buttons(msg: QMessageBox):
 def show_update_notification(version: str, changelog: str = '', parent=None):
     """자동 업데이트를 끈 경우: 새 버전 안내 한 번."""
     msg = QMessageBox(parent)
-    msg.setWindowTitle('SSNnote 업데이트')
+    msg.setWindowTitle(UPDATE_TITLE)
     msg.setText(f'새 버전이 있습니다.\n\n현재 버전: {APP_VERSION}\n최신 버전: {version}\n\n'
                 '메뉴 → 도움말 → 업데이트 확인에서 설치할 수 있어요.')
     msg.setDetailedText(changelog or '업데이트 내역 없음')
@@ -469,7 +471,7 @@ def show_update_notification(version: str, changelog: str = '', parent=None):
 def show_update_dialog(info: dict, parent=None):
     """메뉴에서 확인: [지금 업데이트] 한 번이면 받아서 설치하고 다시 켜진다."""
     msg = QMessageBox(parent)
-    msg.setWindowTitle('SSNnote 업데이트')
+    msg.setWindowTitle(UPDATE_TITLE)
     msg.setText(f"현재 버전: {APP_VERSION}\n최신 버전: {info['version']}\n\n"
                 '지금 업데이트할까요? 잠깐 꺼졌다가 다시 켜져요.')
     msg.setDetailedText(info.get('changelog') or '업데이트 내역 없음')
@@ -486,12 +488,12 @@ def show_update_dialog(info: dict, parent=None):
 def download_and_install(info: dict, parent=None):
     """받기(진행 표시) → 확인 → 화면 없이 설치 → 앱 종료 (설치 뒤 자동으로 다시 켜짐)."""
     if not getattr(sys, 'frozen', False):
-        QMessageBox.information(parent, '개발 환경', '개발 환경에서는 업데이트를 지원하지 않습니다.')
+        QMessageBox.information(parent, UPDATE_TITLE, '개발 환경에서는 업데이트를 지원하지 않습니다.')
         return
     cur = ready_update()
     if not (cur and cur['version'] == info['version']):
         progress = QProgressDialog('업데이트 받는 중…', '취소', 0, 100, parent)
-        progress.setWindowTitle('SSNnote 업데이트')
+        progress.setWindowTitle(UPDATE_TITLE)
         progress.setWindowModality(Qt.WindowModal)
         progress.show()
 
@@ -510,18 +512,18 @@ def download_and_install(info: dict, parent=None):
         except Exception as e:
             progress.close()
             if not progress.wasCanceled():
-                QMessageBox.warning(parent, '업데이트 실패', f'업데이트를 받지 못했습니다.\n{e}')
+                QMessageBox.warning(parent, UPDATE_TITLE, f'업데이트를 받지 못했습니다.\n{e}')
             return
         progress.close()
     if not launch_installer(cur, relaunch=True):
-        QMessageBox.warning(parent, '업데이트 실패', '설치 프로그램을 실행하지 못했습니다.')
+        QMessageBox.warning(parent, UPDATE_TITLE, '설치 프로그램을 실행하지 못했습니다.')
         return
     QApplication.quit()
 
 
 def _show_offline_msg(parent=None):
-    QMessageBox.information(parent, '업데이트 확인', '서버에 연결할 수 없습니다.\n인터넷 연결을 확인해 주세요.')
+    QMessageBox.information(parent, UPDATE_TITLE, '서버에 연결할 수 없습니다.\n인터넷 연결을 확인해 주세요.')
 
 
 def _show_up_to_date_msg(parent=None):
-    QMessageBox.information(parent, '업데이트 확인', f'현재 최신 버전({APP_VERSION})을 사용 중입니다.')
+    QMessageBox.information(parent, UPDATE_TITLE, f'현재 최신 버전({APP_VERSION})을 사용 중입니다.')

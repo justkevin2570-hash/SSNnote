@@ -2192,6 +2192,7 @@ class _ModelSelectDialog(QDialog):
 
 
 if __name__ == "__main__":
+    QApplication.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)   # 제목줄 ? 단추 없앰
     app = QApplication(sys.argv)
     window = DocumentEditorWindow()
     window.show()
