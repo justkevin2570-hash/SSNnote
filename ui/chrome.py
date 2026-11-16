@@ -31,6 +31,9 @@ class EdgeHandle(QWidget):
         'top-right':    Qt.SizeBDiagCursor,
     }
 
+    # 끌면 창의 왼쪽 위 점(위치)도 함께 움직이는 쪽
+    _ORIGIN_EDGES = ('left', 'top', 'top-left', 'top-right', 'bottom-left')
+
     def __init__(self, parent, edge):
         super().__init__(parent)
         self.edge         = edge
@@ -58,7 +61,7 @@ class EdgeHandle(QWidget):
         """파트너가 리사이즈로 움직이는 쪽 모서리에 붙어 있을 때만 따라붙게 한다.
         고정된 모서리 쪽에 파트너가 있으면 아무것도 하지 않는다."""
         if not win._link_group:
-            return
+            return None
         # 리사이즈 방향에 인접한 그룹 멤버를 파트너로 선택
         partner = None
         if self.edge in ('right', 'top-right', 'bottom-right'):
@@ -76,7 +79,7 @@ class EdgeHandle(QWidget):
                      and m.x() < win.x() + win.width() and m.x() + m.width() > win.x()]
             if cands: partner = max(cands, key=lambda m: m.y())
         if partner is None:
-            return
+            return None
         partner_on_right = win.x() < partner.x()
         partner_on_bottom = win.y() < partner.y()
         nx, ny = partner.x(), partner.y()
@@ -95,6 +98,8 @@ class EdgeHandle(QWidget):
             need_move = True
         if need_move:
             partner.move(nx, ny)
+            return partner
+        return None
 
     def mouseMoveEvent(self, e):
         if not (e.buttons() == Qt.LeftButton and self._drag_start):
@@ -139,7 +144,11 @@ class EdgeHandle(QWidget):
         nx, ny, nw, nh = win._snap_resize(nx, ny, nw, nh, self.edge)
 
         win.setGeometry(nx, ny, nw, nh)
-        self._anchor_partner(win)
+        partner = self._anchor_partner(win)
+        if self.edge in self._ORIGIN_EDGES:
+            # 위치와 크기가 함께 바뀌는 쪽(왼쪽·위쪽·그 모서리): 바로 다시 그려 반대쪽 테두리가 흔들리지 않게
+            from .common import paint_now
+            paint_now(win, partner)
 
     def mouseReleaseEvent(self, e):
         self.releaseKeyboard()

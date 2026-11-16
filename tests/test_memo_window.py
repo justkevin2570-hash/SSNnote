@@ -122,3 +122,30 @@ def test_bottom_buttons_same_height_and_row(make):
     assert len({b.height() for b in btns}) == 1 and len({b.y() for b in btns}) == 1
     top = btns[0].y()
     assert bar.height() - (top + btns[0].height()) == top          # 위아래 여백 같게
+
+
+def test_left_edge_resize_repaints_at_once_and_keeps_right_edge(make, monkeypatch):
+    """업무창 왼쪽(위쪽·모서리) 테두리로 크기를 바꾸면 바로 다시 그린다 → 고정된 오른쪽 테두리가 흔들리지 않게.
+    오른쪽 테두리로 바꿀 때는 그럴 필요가 없다."""
+    from PyQt5.QtCore import QPoint, QEvent, Qt
+    from PyQt5.QtGui import QMouseEvent
+    from ui import common
+    from ui.chrome import EdgeHandle
+    w = make(False)
+    w.setGeometry(300, 200, 400, 500)
+    w.show()
+    painted = []
+    monkeypatch.setattr(common, 'paint_now', lambda *ws: painted.append(ws[0]))
+    monkeypatch.setattr(w, '_snap_resize', lambda x, y, wd, h, edge: (x, y, wd, h))
+    for edge, dx, expect in (('left', -60, True), ('right', 60, False), ('top-left', -30, True)):
+        painted.clear()
+        h = EdgeHandle(w, edge)
+        right = w.geometry().right()
+        p0 = QPoint(500, 400)
+        h.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, QPoint(0, 0), p0, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+        h.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, QPoint(dx, 0), p0 + QPoint(dx, 0), Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
+        assert bool(painted) == expect, edge
+        if edge in ('left', 'top-left'):
+            assert w.geometry().right() == right                     # 오른쪽 끝은 그대로
+        h.releaseKeyboard()
+        h._drag_start = None
