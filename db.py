@@ -802,6 +802,28 @@ def save_budget_item_edit(item_id, category_id, cost_type, description, budget, 
             _insert_expense(conn, item_id, expense['amount'], expense['purpose'], expense['spent_on'])
 
 
+def update_budget_expense(expense_id, amount, purpose, spent_on):
+    """사용 내역 한 건 고치기. 금액이 바뀌면 집행액도 그 차이만큼 함께 바꾼다 (한 번에)."""
+    with _connect() as conn:
+        row = conn.execute('SELECT item_id, amount FROM budget_expenses WHERE id=?', (expense_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute('UPDATE budget_expenses SET amount=?, purpose=?, spent_on=? WHERE id=?',
+                     (amount, purpose.strip(), spent_on, expense_id))
+        conn.execute('UPDATE budget_items SET spent = spent + ? WHERE id=?',
+                     (amount - row['amount'], row['item_id']))
+        return True
+
+
+def record_unassigned_expense(item_id, old_amount, amount, purpose, spent_on):
+    """「명목 없음」 금액(기록 없이 집행액에만 있던 old_amount)을 사용 내역으로 남긴다.
+    적은 금액이 다르면 집행액을 그 차이만큼 맞춘다. 새 기록 id."""
+    with _connect() as conn:
+        eid = _insert_expense(conn, item_id, amount, purpose, spent_on)
+        conn.execute('UPDATE budget_items SET spent = spent + ? WHERE id=?', (amount - old_amount, item_id))
+        return eid
+
+
 def delete_budget_expense(expense_id, adjust_spent=True):
     """사용 내역 한 건 삭제. adjust_spent면 집행액도 그만큼 줄인다 (되돌리기 때는 집행액을 따로 맞춘다)."""
     with _connect() as conn:

@@ -166,7 +166,7 @@ def test_row_is_collapsed_by_default_without_summary(win):
     w.refresh()
     cell = _cell(w, iid)
     assert cell._table.isRowHidden(cell._row + 1)                    # 접힌 상태가 기본
-    assert cell.lbl_sum.text() == '' and cell.btn_toggle.text() == '협의회비'
+    assert cell.lbl_sum.text() == '' and cell.lbl_name.text() == '협의회비'
     assert cell._table.rowHeight(cell._row) == budget._sizes()['row_h']   # 항목 줄 높이는 그대로
     cell._state['open'] = True
     cell.set_expenses(cell._expenses)
@@ -318,3 +318,114 @@ def test_ai_spend_with_purpose_is_recorded_and_undone(win, monkeypatch):
     assert [e['purpose'] for e in db.get_budget_expenses()] == ['체육대회']
     w._undo_apply()
     assert _spent(db, iid) == 200000 and db.get_budget_expenses() == []   # 기록도 함께 지워짐
+
+
+# ── 사용 내역 고치기 · 산출내역 글자 복사 ─────────────────────────────────
+
+def test_update_expense_adjusts_spent_by_difference(db):
+    _, iid = _item(db, spent=100000)
+    eid = db.add_budget_expense(iid, 50000, '간식', '2026-11-01')          # 집행액 150,000
+    assert db.update_budget_expense(eid, 80000, ' 간식비 ', '2026-11-02')
+    ex = db.get_budget_expenses()[0]
+    assert (ex['amount'], ex['purpose'], ex['spent_on']) == (80000, '간식비', '2026-11-02')
+    assert _spent(db, iid) == 180000
+    assert db.update_budget_expense(eid, 30000, '간식비', '2026-11-02') and _spent(db, iid) == 130000
+    assert db.update_budget_expense(9999, 1, '', '2026-11-02') is False
+
+
+def test_record_unassigned_expense(db):
+    _, iid = _item(db, spent=115500)                                       # 기록 없이 집행액만 (명목 없음)
+    db.record_unassigned_expense(iid, 115500, 115500, '협의회 다과', '2026-10-01')
+    assert _spent(db, iid) == 115500                                      # 같은 금액 → 집행액 그대로
+    assert [(e['purpose'], e['amount']) for e in db.get_budget_expenses()] == [('협의회 다과', 115500)]
+
+
+def test_edit_dialog_prefills_and_saves_difference(win, monkeypatch):
+    w, db, budget, app = win
+    iid = _open_one_item(w, db, spent=0)
+    eid = db.add_budget_expense(iid, 150000, '체육대회', '2026-09-12')
+    w._expense_ui[iid] = {'open': True}
+    w.refresh()
+    seen = {}
+
+    def fake_exec(self):
+        seen['title'] = self.windowTitle()
+        seen['fields'] = (self.edit_spend_now.text(), self.edit_purpose.text(), self.edit_spend_date.text())
+        seen['btn'] = self.btn_save.text()
+        self.edit_spend_now.setText('200000')
+        seen['preview'] = self.lbl_spend_preview.text()
+        self.edit_purpose.setText('체육대회 간식')
+        self._save()
+        return budget.QDialog.Accepted
+    monkeypatch.setattr(budget._SpendDialog, 'exec_', fake_exec)
+    ex = next(e for e in w._expenses_by_item[iid] if e['id'] == eid)
+    w._edit_expense(iid, ex)
+    assert seen['title'] == '사용 내역 수정' and seen['btn'] == '저장'
+    assert seen['fields'] == ('150,000', '체육대회', '2026-09-12')
+    assert '1,000,000' in seen['preview'] and '950,000' in seen['preview']   # 잔액 1,000,000 → 950,000
+    assert _spent(db, iid) == 200000
+    assert db.get_budget_expenses()[0]['purpose'] == '체육대회 간식'
+    assert w._expense_ui[iid]['open'] is True                              # 펼친 줄은 그대로
+
+
+def test_edit_cancel_changes_nothing(win, monkeypatch):
+    w, db, budget, app = win
+    iid = _open_one_item(w, db, spent=0)
+    db.add_budget_expense(iid, 150000, '체육대회', '2026-09-12')
+    w.refresh()
+    monkeypatch.setattr(budget._SpendDialog, 'exec_', lambda self: budget.QDialog.Rejected)
+    w._edit_expense(iid, w._expenses_by_item[iid][0])
+    assert _spent(db, iid) == 150000 and db.get_budget_expenses()[0]['purpose'] == '체육대회'
+
+
+def test_expense_rows_have_edit_button_and_double_click(win, monkeypatch):
+    w, db, budget, app = win
+    from PyQt5.QtCore import Qt, QEvent, QPointF
+    from PyQt5.QtGui import QMouseEvent
+    iid = _open_one_item(w, db, spent=50000)                               # 명목 없음 50,000
+    db.add_budget_expense(iid, 150000, '체육대회', '2026-09-12')
+    w._expense_ui[iid] = {'open': True}
+    w.refresh()
+    cell = _cell(w, iid)
+    edits = [b for b in cell.detail.findChildren(type(cell.btn_toggle)) if b.text() == '✎']
+    assert len(edits) == 2                                                 # 명목 없음 줄 + 기록 줄
+    calls = []
+    monkeypatch.setattr(w, '_edit_expense', lambda i, ex: calls.append((i, ex['id'], ex['amount'])))
+    w.refresh()
+    cell = _cell(w, iid)
+    edits = [b for b in cell.detail.findChildren(type(cell.btn_toggle)) if b.text() == '✎']
+    edits[0].click()
+    assert calls[-1] == (iid, None, 50000)                                 # 명목 없음 → 기록 남기기
+    lbl = next(lb for lb in cell.detail.findChildren(type(cell.lbl_sum)) if lb.text() == '체육대회')
+    assert lbl.textInteractionFlags() & Qt.TextSelectableByMouse
+    ev = QMouseEvent(QEvent.MouseButtonDblClick, QPointF(3, 3), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+    app.sendEvent(lbl, ev)
+    assert calls[-1][0] == iid and calls[-1][2] == 150000
+
+
+def test_name_is_selectable_click_toggles_and_copy(win):
+    w, db, budget, app = win
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    iid = _open_one_item(w, db, desc='2학기 방과후 강사 수당', spent=0)
+    w.show()
+    app.processEvents()
+    cell = _cell(w, iid)
+    name = cell.lbl_name
+    assert name.textInteractionFlags() & Qt.TextSelectableByMouse
+    assert name.contextMenuPolicy() == Qt.NoContextMenu                   # 우클릭은 줄 메뉴로
+    QTest.mouseClick(name, Qt.LeftButton, pos=name.rect().center())        # 그냥 누르면 펼치기
+    assert w._expense_ui[iid].get('open') is True
+    y = name.height() // 2                                                 # 드래그 → 글자 고르기, 펼침은 그대로
+    QTest.mousePress(name, Qt.LeftButton, pos=budget.QPoint(1, y))
+    from PyQt5.QtCore import QEvent, QPointF
+    from PyQt5.QtGui import QMouseEvent
+    app.sendEvent(name, QMouseEvent(QEvent.MouseMove, QPointF(name.width() - 2, y), Qt.NoButton,
+                                    Qt.LeftButton, Qt.NoModifier))     # 누른 채로 끌기
+    QTest.mouseRelease(name, Qt.LeftButton, pos=budget.QPoint(name.width() - 2, y))
+    assert name.hasSelectedText() and w._expense_ui[iid].get('open') is True
+    app.clipboard().clear()
+    w._copy_desc(iid, selected_only=True)
+    assert app.clipboard().text() == name.selectedText() != ''
+    w._copy_desc(iid)
+    assert app.clipboard().text() == '2학기 방과후 강사 수당'
