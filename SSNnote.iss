@@ -9,7 +9,7 @@
 
 [Setup]
 AppName=SSNnote
-AppVersion=3.31
+AppVersion=3.32
 AppPublisher=justkevin2570
 AppId={{12345678-1234-1234-1234-123456789012}}
 PrivilegesRequired=lowest
@@ -26,10 +26,10 @@ SolidCompression=yes
 CloseApplications=force
 RestartApplications=no
 UninstallDisplayIcon={app}\SSNnote.exe
-VersionInfoVersion=3.31.0.0
+VersionInfoVersion=3.32.0.0
 VersionInfoProductName=SSNnote
 VersionInfoCompany=justkevin2570
-VersionInfoProductVersion=3.31
+VersionInfoProductVersion=3.32
 
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
