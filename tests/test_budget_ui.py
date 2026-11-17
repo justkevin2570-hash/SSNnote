@@ -94,13 +94,15 @@ def test_no_row_buttons_hover_tints_row(win):
     w.show()
     app.processEvents()
     t = w.findChildren(budget._BudgetTable)[0]
-    assert t.columnCount() == 4 and not any(t.action_buttons)
+    assert t.columnCount() == 4
     from PyQt5.QtWidgets import QPushButton
     assert not [b for b in w.findChildren(QPushButton) if b.text() == '쓴 돈 추가']
+    btns = t.action_buttons[0]
+    assert btns and not any(b.isVisible() for b in btns)            # 평소엔 숨김
     t.set_hover_row(0)
-    assert t._hover_row == 0
+    assert t._hover_row == 0 and all(b.isVisible() for b in btns)    # 마우스를 올린 줄에만
     t.set_hover_row(-1)
-    assert t._hover_row == -1
+    assert t._hover_row == -1 and not any(b.isVisible() for b in btns)
     cell = t.cellWidget(0, 0)
     assert '우클릭' in cell.lbl_name.toolTip()
 
