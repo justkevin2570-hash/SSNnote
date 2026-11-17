@@ -890,14 +890,21 @@ class TaskRow(QWidget):
             self.btn_star.setIconSize(QSize(int(self._star_sz * 0.8), int(self._star_sz * 0.8)))
             self.btn_star.setToolTip('중요한 업무인데 기한이 지났어요')
             return
-        if starred and u.get('star_glow'):
+        # 보통 업무: 주황 세로줄이 반짝이면 빈 별도 같은 주황색 · 같은 박자로 (중요 업무는 금색 그대로)
+        orange = (not starred and not self._overdue and not self.task.get('strikethrough')
+                  and self._line_style(u, cfg) is not None)
+        if not starred:
+            self._set_plain_star_color('#EA580C' if orange else None)
+        if (starred and u.get('star_glow')) or orange:
             eff = QGraphicsOpacityEffect(self.btn_star)
             self.btn_star.setGraphicsEffect(eff)
             period = u['breathe'] or 3.0
+            btn = self.btn_star
 
-            def glow(t, eff=eff, period=period):      # 세로선과 같은 박자로 0%까지 옅어졌다 돌아옴
+            def glow(t, eff=eff, period=period, btn=btn):   # 세로선과 같은 박자로 0%까지 옅어졌다 돌아옴
                 try:
-                    eff.setOpacity(motion.breath(t, period))
+                    # 마우스를 올리면 멈추고 또렷하게 (누를 곳이 보이게)
+                    eff.setOpacity(1.0 if btn.underMouse() else motion.breath(t, period))
                 except RuntimeError:
                     pass
             motion.clock().register(self.btn_star, glow)
@@ -905,6 +912,19 @@ class TaskRow(QWidget):
             motion.clock().unregister(self.btn_star)
             if not self._overdue:
                 self.btn_star.setGraphicsEffect(None)
+
+    def _set_plain_star_color(self, color=None):
+        """빈 별(중요 표시 안 한 업무) 색: color가 없으면 평소 회색."""
+        if color == getattr(self, '_plain_star_color', None):
+            return
+        self._plain_star_color = color
+        c = tc(color) if color else tc("rgba(0,0,0,0.25)")
+        hover = tc(color) if color else tc("rgba(0,0,0,0.5)")
+        self.btn_star.setStyleSheet(f"""
+            QPushButton {{ color: {c}; border: none; padding: 0; }}
+            QPushButton:hover {{ color: {hover}; }}
+            QPushButton:pressed {{ padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }}
+        """)
 
     def paintEvent(self, e):
         from PyQt5.QtWidgets import QStyleOption, QStyle
@@ -1710,6 +1730,7 @@ class TaskRow(QWidget):
             self.btn_star.setIcon(QIcon())
             self.btn_star.setText(MI.STAR_BORDER)
             self.btn_star.setFont(mi_font(int(15 * self._scale)))
+            self._plain_star_color = None
             self.btn_star.setStyleSheet(f"""
                 QPushButton {{ color: {tc("rgba(0,0,0,0.25)")}; border: none; padding: 0; }}
                 QPushButton:hover {{ color: {tc("rgba(0,0,0,0.5)")}; }}

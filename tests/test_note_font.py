@@ -281,3 +281,25 @@ def test_narrow_is_own_choice_and_bold_uses_narrow_bold(env, monkeypatch):
     assert f2.styleName().endswith('Bold')
     g = common.set_note_bold(common.note_font(12, 'pretendard'))
     assert g.bold() and not g.styleName()
+
+
+def test_plain_star_blinks_orange_with_side_line(env):
+    """주황 세로줄이 반짝이는 보통 업무는 빈 별도 같은 주황색 · 같은 박자로. 중요 업무는 금색 그대로."""
+    from datetime import date, timedelta
+    from ui import motion
+    make, db, common = env
+    wid = db.get_first_window_id()
+    soon = (date.today() + timedelta(days=2)).isoformat()
+    far = (date.today() + timedelta(days=20)).isoformat()
+    db.add_task(wid, '곧 마감', soon)
+    db.add_task(wid, '먼 마감', far)
+    w = make()
+    rows = {r.task['name']: r for r in w._task_rows()}
+    cfg = dict(motion.load(), enabled=True)
+    for r in rows.values():
+        r._apply_star_motion(motion.urgency(r.task, cfg=cfg), cfg)
+    near = rows['곧 마감']
+    assert near._plain_star_color == '#EA580C' and near.btn_star.graphicsEffect() is not None
+    assert '#EA580C'.lower() in near.btn_star.styleSheet().lower()
+    assert near._line_style(motion.urgency(near.task, cfg=cfg), cfg)[0] == '#EA580C'   # 세로줄과 같은 색
+    assert getattr(rows['먼 마감'], '_plain_star_color', None) is None                  # 먼 마감은 회색 그대로
