@@ -1442,7 +1442,7 @@ class DocumentEditorWindow(QMainWindow):
         if not self.title_input.text().strip():
             self.title_input.setFocus()
             self.title_input.setStyleSheet(f'QLineEdit {{ border: 1px solid {C.WARN}; }}')
-            QTimer.singleShot(900, lambda: self.title_input.setStyleSheet(''))
+            self._later(900, lambda: self.title_input.setStyleSheet(''))
             return
         if self._mode == 'edit':
             self.generate_draft()                    # 다시 초안 (쓴 글이 있으면 바꾸기 전에 물어봄)
@@ -2079,6 +2079,16 @@ class DocumentEditorWindow(QMainWindow):
         QApplication.clipboard().setText(title)
         self._flash_copied(self.btn_copy_title, '제목 복사')
 
+    def _later(self, ms, fn, owner=None):
+        """잠시 뒤 fn — 창(또는 owner)에 딸린 타이머라 창이 먼저 닫히면 같이 사라진다
+        (QTimer.singleShot + lambda는 닫힌 창을 건드려 Windows에서 앱이 죽을 수 있음)."""
+        t = QTimer(owner or self)
+        t.setSingleShot(True)
+        t.timeout.connect(fn)
+        t.timeout.connect(t.deleteLater)
+        t.start(ms)
+        return t
+
     def _flash_copied(self, btn, label):
         """복사 단추를 잠깐 「✓ 복사됨」으로."""
         icon = btn.icon()
@@ -2097,7 +2107,7 @@ class DocumentEditorWindow(QMainWindow):
                 btn.style().polish(btn)
             except RuntimeError:
                 pass
-        QTimer.singleShot(1500, back)
+        self._later(1500, back, owner=btn)
 
     def _copy_ref(self):
         """관련 번호(받은 공문 번호)를 클립보드에 복사."""
@@ -2107,7 +2117,7 @@ class DocumentEditorWindow(QMainWindow):
             return
         QApplication.clipboard().setText(ref)
         self.statusBar().showMessage('관련 번호가 클립보드에 복사되었습니다.')
-        QTimer.singleShot(1500, lambda: self.statusBar().showMessage(''))
+        self._later(1500, lambda: self.statusBar().showMessage(''))
 
     def _copy_body(self):
         """본문 텍스트를 클립보드에 복사."""
@@ -2365,13 +2375,13 @@ class DocumentEditorWindow(QMainWindow):
                     doc.get('doc_number', '') == doc_number and
                     doc.get('content', '') == content):
                 self.statusBar().showMessage('같은 내용이 저장되어 있습니다.')
-                QTimer.singleShot(1000, lambda: self.statusBar().showMessage(''))
+                self._later(1000, lambda: self.statusBar().showMessage(''))
                 return
 
         # 저장한 공문은 다음 자동 초안 때 '내 공문' 예시로 쓰인다 (doc_style)
         save_official_document(title, doc_number, content, self._current_doc_type())
         self.statusBar().showMessage('저장되었습니다.')
-        QTimer.singleShot(1000, lambda: self.statusBar().showMessage(''))
+        self._later(1000, lambda: self.statusBar().showMessage(''))
 
         return True
 
@@ -2462,7 +2472,7 @@ class DocumentEditorWindow(QMainWindow):
         if not getattr(self, '_state_ready', False):
             if getattr(self, '_restore_maximized', False):
                 self.showMaximized()
-            QTimer.singleShot(0, lambda: setattr(self, '_state_ready', True))
+            self._later(0, lambda: setattr(self, '_state_ready', True))
 
     def moveEvent(self, event):
         super().moveEvent(event)
@@ -2492,7 +2502,7 @@ class DocumentEditorWindow(QMainWindow):
             w.hide()
         self.hide()
         QApplication.processEvents()
-        QTimer.singleShot(250, self._show_capture_overlay)
+        self._later(250, self._show_capture_overlay)
 
     def _show_capture_overlay(self):
         from capture import grab_fullscreen, ScreenCaptureOverlay
