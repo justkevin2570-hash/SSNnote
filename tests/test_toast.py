@@ -12,15 +12,18 @@ def d(n):
     return (date.today() + timedelta(days=n)).isoformat()
 
 
-@pytest.mark.parametrize('task, level, label', [
-    ({'deadline': d(0) + ' 23:59', 'notice': '2시간 후 마감'}, 'now', '2시간 후'),
-    ({'deadline': d(0)}, 'now', 'D-day'),
-    ({'deadline': d(1)}, 'soon', 'D-1'),
-    ({'deadline': d(2)}, 'soon', 'D-2'),
-    ({'deadline': d(4)}, 'later', 'D-4'),
+# 날짜는 시험을 돌리는 순간에 만든다 (모을 때 만들면 자정을 넘겨 돌 때 하루씩 어긋남)
+@pytest.mark.parametrize('days, extra, level, label', [
+    (0, {'time': ' 23:59', 'notice': '2시간 후 마감'}, 'now', '2시간 후'),
+    (0, {}, 'now', 'D-day'),
+    (1, {}, 'soon', 'D-1'),
+    (2, {}, 'soon', 'D-2'),
+    (4, {}, 'later', 'D-4'),
 ])
-def test_toast_level(task, level, label):
+def test_toast_level(days, extra, level, label):
     from ui.chrome import toast_level
+    extra = dict(extra)
+    task = {'deadline': d(days) + extra.pop('time', ''), **extra}
     assert toast_level(task) == (level, label)
 
 
