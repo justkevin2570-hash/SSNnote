@@ -1326,7 +1326,7 @@ class DocumentEditorWindow(QMainWindow):
         if text is None:
             kbd = (f'<span style="background:{C.HOVER}; border:1px solid {C.BORDER}; border-radius:3px; '
                    f'color:{C.BODY}; font-weight:600;">&nbsp;%s&nbsp;</span>')
-            text = '받은 공문 캡처&nbsp; ' + '+'.join(kbd % k for k in ('Ctrl', 'Shift', 'X'))
+            text = '공문 캡처&nbsp; ' + '+'.join(kbd % k for k in ('Ctrl', 'Shift', 'X'))
             color = C.MUTED
         else:
             color = {'busy': C.ACCENT, 'done': '#047857', 'error': C.WARN}.get(state, C.MUTED)

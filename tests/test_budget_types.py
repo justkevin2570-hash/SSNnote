@@ -73,3 +73,11 @@ def test_defaults_from_edufine_list():
     for n in ('학습준비물', '도서구입비', '기간제직원법정부담금', '일반회계전출금', '기간제근로자법정부담금'):
         assert n in bt.DEFAULTS
     assert not any('(' in n for n in bt.DEFAULTS)
+
+
+def test_short_names_and_icons_for_frequent_costs():
+    assert set(bt.COST_STYLE) == set(bt.PRIORITY)                     # 자주 쓰는 11개 모두
+    assert bt.short_name('일반업무추진비') == '업추비' and bt.short_name('교육운영비') == '교육운영'
+    assert bt.short_name(' 일반 수용비 ') == '수용비'                   # 띄어쓰기가 달라도
+    assert bt.short_name('전기요금') == '전기요금' and bt.cost_style('전기요금') is None
+    assert bt.cost_style('여비')[1] == 'mdi6.bus-side'                 # 버스 옆모습

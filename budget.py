@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
     QInputDialog, QCheckBox
 )
 from PyQt5.QtCore import Qt, QEvent, QSize, QBuffer, QIODevice, QPoint, QRect, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QImage, QPixmap
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QImage, QPixmap, QIcon
 
 from db import (get_budget_categories, add_budget_category, rename_budget_category,
                 delete_budget_category, get_budget_items, add_budget_item,
@@ -847,7 +847,75 @@ def _cost_totals(items):
 
 
 def _cost_chip_text(cost, budget, spent):
-    return f'{cost}  {_pct(spent, budget):.0f}%'
+    from budget_types import short_name
+    return f'{short_name(cost)}  {_pct(spent, budget):.0f}%'
+
+
+COST_ICON_PX = 17          # 비목 아이콘 크기 (꼬리표 · 칩, 100% 화면 기준)
+_COST_PM_CACHE = {}
+
+
+def _cost_pixmap(cost, size):
+    """비목 아이콘을 size 칸에 꽉 차게 (아이콘마다 그림 여백이 달라도 보이는 크기가 같도록
+    실제 그림 부분만 잘라 같은 크기로 맞춘다). 화면 배율만큼 크게 그려 선명하게."""
+    from budget_types import cost_style
+    st = cost_style(cost)
+    if not st:
+        return None
+    app = QApplication.instance()
+    dpr = max(1.0, app.devicePixelRatio()) if app else 1.0
+    key = (st[1], st[2], size, dpr)
+    if key in _COST_PM_CACHE:
+        return _COST_PM_CACHE[key]
+    big = 128
+    img = qta.icon(st[1], color=st[2]).pixmap(big, big).toImage()
+    img.setDevicePixelRatio(1.0)                     # 픽셀 그대로 다룬다 (화면 배율은 마지막에)
+    # 그림이 있는 부분(투명하지 않은 픽셀)의 테두리
+    xs, ys = [], []
+    for y in range(img.height()):
+        for x in range(img.width()):
+            if (img.pixel(x, y) >> 24) & 0xFF > 24:
+                xs.append(x)
+                ys.append(y)
+    from PyQt5.QtCore import QRect
+    from PyQt5.QtGui import QPainter
+    out_px = int(round(size * dpr))
+    pm = QPixmap(out_px, out_px)
+    pm.fill(Qt.transparent)
+    if xs:
+        box = QRect(min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
+        part = QPixmap.fromImage(img.copy(box))
+        part.setDevicePixelRatio(1.0)
+        part = part.scaled(out_px, out_px, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        p = QPainter(pm)
+        p.drawPixmap((out_px - part.width()) // 2, (out_px - part.height()) // 2, part)
+        p.end()
+    pm.setDevicePixelRatio(dpr)
+    _COST_PM_CACHE[key] = pm
+    return pm
+
+
+def _cost_icon(cost, size=None):
+    """자주 쓰는 비목의 색 아이콘 (아니면 빈 아이콘)."""
+    pm = _cost_pixmap(cost, size or px(_sz(COST_ICON_PX - 1)))
+    return QIcon(pm) if pm is not None else QIcon()
+
+
+def _cost_icon_html(cost, size=None):
+    size = size or px(_sz(COST_ICON_PX - 1))
+    pm = _cost_pixmap(cost, size)
+    if pm is None:
+        return ''
+    import os
+    import tempfile
+    from budget_types import cost_style
+    st = cost_style(cost)
+    path = os.path.join(tempfile.gettempdir(),
+                        f"ssnnote_cost_{st[1].replace('.', '_')}_{st[2].strip('#')}_{size}.png")
+    if not os.path.exists(path):
+        pm.save(path)
+    path = path.replace('\\', '/')
+    return f'<img src="{path}" width="{size}" height="{size}" align="middle">&nbsp;'
 
 
 def _cost_chip_tip(cost, budget, spent, n):
@@ -1889,6 +1957,8 @@ class BudgetWindow(QMainWindow):
                 b = QPushButton()
                 b.setCheckable(True)
                 b.setCursor(Qt.PointingHandCursor)
+                b.setIcon(_cost_icon(cost))
+                b.setIconSize(QSize(px(_sz(COST_ICON_PX - 1)), px(_sz(COST_ICON_PX - 1))))
                 b.clicked.connect(lambda _, cid=cat['id'], c=cost: self._toggle_cost_filter(cid, c))
                 flow.addWidget(b)
                 chips[cost] = b
@@ -2066,7 +2136,7 @@ class BudgetWindow(QMainWindow):
         for cost, lb in getattr(self, '_overview_chips', {}).items():
             try:
                 b, s, n = totals.get(cost, (0, 0, 0))
-                lb.setText(_cost_chip_text(cost, b, s))
+                lb.setText(_cost_icon_html(cost) + _cost_chip_text(cost, b, s))
                 lb.setToolTip(_cost_chip_tip(cost, b, s, n))
                 lb.setStyleSheet(_cost_chip_qss(b, s, 'QLabel'))
             except RuntimeError:          # 이미 지운 칩
@@ -2895,6 +2965,64 @@ class _ImportPreviewDialog(QDialog):
 
 
 # ── 예산 항목 추가/수정 다이얼로그 ────────────────────────────────
+class _EntryRow(QWidget):
+    """사용 내역 한 줄. 마우스를 올린 동안만 고치기 · 지우기 단추를 보인다."""
+
+    def __init__(self):
+        super().__init__()
+        self.buttons = []
+        self.setAttribute(Qt.WA_StyledBackground, False)
+
+    def show_buttons(self, on):
+        for b in self.buttons:
+            b.setVisible(on)
+
+    def enterEvent(self, e):
+        self.show_buttons(True)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        # 줄 안의 단추 · 글자로 옮겨 가도 '떠남'이 오므로, 마우스가 정말 줄 밖으로 나갔을 때만 숨긴다
+        from PyQt5.QtGui import QCursor
+        if not self.rect().contains(self.mapFromGlobal(QCursor.pos())):
+            self.show_buttons(False)
+        super().leaveEvent(e)
+
+
+class _CostTag(QFrame):
+    """산출내역 옆 원가통계비목 꼬리표. 자주 쓰는 11개는 색 아이콘 + 줄임말(옅은 같은 색 바탕),
+    나머지는 원래 이름을 회색으로. 마우스를 올리면 원래 이름."""
+
+    def __init__(self, cost=''):
+        super().__init__()
+        from budget_types import cost_style
+        self.cost = cost
+        st = cost_style(cost)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(5 if st else 6, 1, 7 if st else 6, 1)
+        h.setSpacing(4)
+        self.icon = QLabel()
+        self.label = QLabel(st[0] if st else cost)
+        fs = f'font-size: {_pt(10)}pt;'
+        if st:
+            ip = px(_sz(COST_ICON_PX))
+            self.icon.setPixmap(_cost_pixmap(cost, ip))
+            self.icon.setFixedSize(ip, ip)
+            h.addWidget(self.icon)
+            r, g, b = (int(st[2][i:i + 2], 16) for i in (1, 3, 5))      # Qt는 #RRGGBBAA를 못 읽어서 rgba로
+            self.setStyleSheet(f'QFrame {{ background: rgba({r},{g},{b},0.12); border-radius: {C.R_TAG + 2}px; }}'
+                               f'QLabel {{ background: transparent; color: {st[2]}; font-weight: 600; {fs} }}')
+        else:
+            self.icon.hide()
+            self.setStyleSheet(f'QFrame {{ background: {C.TAG_BG}; border-radius: {C.R_TAG}px; }}'
+                               f'QLabel {{ background: transparent; color: {C.MUTED}; {fs} }}')
+        h.addWidget(self.label)
+        self.setToolTip(cost)
+
+    def text(self):
+        return self.label.text()
+
+
 class _RowIconButton(QPushButton):
     """사용 내역 줄의 작은 선 아이콘 단추 (연필 · 휴지통). 벡터 아이콘이라 화면 배율이 커도 선명.
     평소엔 옅은 회색, 마우스를 올리면 옅은 바탕의 둥근 네모와 진한 색 아이콘."""
@@ -3027,10 +3155,7 @@ class _DescCell(QWidget):
         name_row.addWidget(self.btn_toggle)
         name_row.addWidget(self.lbl_name)
         name_row.addSpacing(4)
-        self.lbl_cost = QLabel(item.get('cost_type') or '')       # 원가통계비목 꼬리표 (운영비 · 재료비 …)
-        self.lbl_cost.setObjectName('CostTag')
-        self.lbl_cost.setStyleSheet(f'background: {C.TAG_BG}; color: {C.MUTED}; border-radius: 4px; '
-                                    f'padding: 1px 6px; font-size: {_pt(10)}pt;')   # 칸의 투명 바탕보다 먼저
+        self.lbl_cost = _CostTag(item.get('cost_type') or '')    # 원가통계비목 꼬리표 (자주 쓰는 비목은 아이콘 + 줄임말)
         name_row.addWidget(self.lbl_cost)                          # 칸에 넣은 뒤에 숨겨야 따로 창으로 뜨지 않음
         if not item.get('cost_type'):
             self.lbl_cost.hide()
@@ -3101,12 +3226,12 @@ class _DescCell(QWidget):
     def _rebuild_detail(self, unassigned):
         self._clear_layout(self._dv)
         if unassigned > 0:
-            self._dv.addLayout(self._entry_row('', '명목 없음', unassigned,
+            self._dv.addWidget(self._entry_row('', '명목 없음', unassigned,
                                                ex={'id': None, 'amount': unassigned, 'purpose': '', 'spent_on': ''}))
         more = bool(self._state.get('more'))
         shown = self._expenses if more else self._expenses[:self.SHOW]
         for ex in shown:
-            self._dv.addLayout(self._entry_row(ex['spent_on'] or '-', ex['purpose'], ex['amount'], ex['id'], ex))
+            self._dv.addWidget(self._entry_row(ex['spent_on'] or '-', ex['purpose'], ex['amount'], ex['id'], ex))
         if len(self._expenses) > self.SHOW:
             left = len(self._expenses) - self.SHOW
             btn = QPushButton('접기' if more else f'더 보기 ({left}건 더)')
@@ -3123,8 +3248,11 @@ class _DescCell(QWidget):
             self._dv.addWidget(warn)
 
     def _entry_row(self, date, purpose, amount, eid=None, ex=None):
-        """사용 내역 한 줄: 날짜 · 쓴 곳 · 금액 · [연필] [휴지통]. 글자는 드래그해서 복사, 줄을 더블클릭하면 고치기."""
-        row = QHBoxLayout()
+        """사용 내역 한 줄: 날짜 · 쓴 곳 · [연필] [휴지통] ······ 금액.
+        단추는 쓴 곳 바로 오른쪽, 그 줄에 마우스를 올렸을 때만. 글자는 드래그해서 복사, 줄을 더블클릭하면 고치기."""
+        row_w = _EntryRow()
+        row = QHBoxLayout(row_w)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         d = QLabel(date)
         d.setFixedWidth(_sz(88))
@@ -3137,13 +3265,13 @@ class _DescCell(QWidget):
         for lb in (d, p, a):
             _make_selectable(lb)
         row.addWidget(d)
-        row.addWidget(p, 1)
-        row.addWidget(a)
+        row.addWidget(p)
         btns = QHBoxLayout()                          # 아이콘 단추 둘은 조금 붙여서
         btns.setSpacing(px(4))
         row.addLayout(btns)
-        editable = ex is not None and self._on_edit is not None
-        if editable:
+        row.addStretch(1)
+        row.addWidget(a)
+        if ex is not None and self._on_edit is not None:
             for lb in (d, p, a):
                 lb.installEventFilter(self)
                 lb.setProperty('expense', ex)
@@ -3151,19 +3279,16 @@ class _DescCell(QWidget):
                                '쓴 곳 · 날짜 적기 (기록으로 남겨요)' if eid is None else '이 사용 내역 고치기')
             e.clicked.connect(lambda _, ex=ex: self._on_edit(ex))
             btns.addWidget(e)
-        else:
-            spacer = QWidget()
-            spacer.setFixedSize(_RowIconButton.side(), _RowIconButton.side())
-            btns.addWidget(spacer)
-        if eid is None:                              # 명목 없음: 지우기 자리는 비워 아이콘 줄을 맞춤
-            spacer = QWidget()
-            spacer.setFixedSize(_RowIconButton.side(), _RowIconButton.side())
-            btns.addWidget(spacer)
-            return row
-        x = _RowIconButton('ph.trash', C.NEG, C.OVER_SOFT, '이 사용 내역 지우기 (집행액도 그만큼 줄어요)')
-        x.clicked.connect(lambda _, eid=eid: self._on_delete(eid))
-        btns.addWidget(x)
-        return row
+            row_w.buttons.append(e)
+        if eid is not None:
+            x = _RowIconButton('ph.trash', C.NEG, C.OVER_SOFT, '이 사용 내역 지우기 (집행액도 그만큼 줄어요)')
+            x.clicked.connect(lambda _, eid=eid: self._on_delete(eid))
+            btns.addWidget(x)
+            row_w.buttons.append(x)
+        h = _RowIconButton.side()                     # 단추가 숨어도 줄 높이는 그대로
+        row_w.setMinimumHeight(h)
+        row_w.show_buttons(False)
+        return row_w
 
     def eventFilter(self, obj, e):
         # 사용 내역 줄 글자를 더블클릭하면 고치기 (낱말 고르기 대신)
@@ -3230,7 +3355,7 @@ class _SpendDialog(QDialog):
         v.addWidget(sub)
         v.addSpacing(6)
 
-        v.addWidget(_ItemDialog._label('이번에 쓴 금액' if expense is None else '쓴 금액'))
+        v.addWidget(_ItemDialog._label('이번에 쓴 금액' if expense is None else '사용 금액'))
         self.edit_spend_now = QLineEdit()                 # 왼쪽 정렬 (다른 칸과 같은 방향, 커서가 왼쪽에서 시작)
         self.edit_spend_now.setPlaceholderText('0')
         self.edit_spend_now.setStyleSheet(
@@ -3240,7 +3365,14 @@ class _SpendDialog(QDialog):
         v.addWidget(self.edit_spend_now)
 
         v.addSpacing(4)
-        v.addWidget(_ItemDialog._label('쓴 곳 · 날짜'))
+        # 이름표: 왼쪽 「사용 내역」(쓴 곳 칸 위) · 오른쪽 「날짜」(날짜 칸 위에 맞춤)
+        labels = QHBoxLayout()
+        labels.setSpacing(8)
+        labels.addWidget(_ItemDialog._label('사용 내역'), 1)
+        lbl_date = _ItemDialog._label('날짜')
+        lbl_date.setFixedWidth(px(_sz(120)))
+        labels.addWidget(lbl_date)
+        v.addLayout(labels)
         where = QHBoxLayout()
         where.setSpacing(8)
         self.edit_purpose = QLineEdit()

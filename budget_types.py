@@ -29,7 +29,32 @@ DEFAULTS = PRIORITY + (
     '예비비', '반환금', '전출금', '일반회계전출금',
     '기간제근로자법정부담금',          # 예전 목록에 있던 이름 (지금 표의 기간제직원법정부담금과 비슷)
 )
-LIST_VERSION = '2'                     # 목록을 새 기본 순서로 한 번 정리했는지
+LIST_VERSION = '2'
+
+# 자주 쓰는 비목의 화면용 줄임말 · 아이콘 · 색 (데이터는 원래 이름 그대로, 보여 줄 때만)
+COST_STYLE = {
+    '일반수용비':        ('수용비', 'ph.package-bold', '#2563EB'),
+    '운영수당':          ('수당', 'ph.money-bold', '#059669'),
+    '여비':              ('여비', 'mdi6.bus-side', '#0891B2'),
+    '교직원복지비':      ('교직복지', 'ph.coffee-bold', '#B45309'),
+    '교육운영비':        ('교육운영', 'ph.chalkboard-teacher-bold', '#7C3AED'),
+    '학습준비물':        ('준비물', 'ph.scissors-bold', '#DB2777'),
+    '학생복지비':        ('학생복지', 'ph.smiley-bold', '#EA580C'),
+    '일반업무추진비':    ('업추비', 'ph.handshake-bold', '#4F46E5'),
+    '목적사업업무추진비': ('목적업추', 'ph.target-bold', '#DC2626'),
+    '비품구입비':        ('비품', 'ph.monitor-bold', '#475569'),
+    '도서구입비':        ('도서', 'ph.books-bold', '#65A30D'),
+}
+
+
+def cost_style(cost):
+    """(줄임말, 아이콘, 색) 또는 None (자주 쓰는 비목이 아니면 원래 이름 그대로 보여 줌)."""
+    return COST_STYLE.get(_clean(cost).replace(' ', ''))
+
+
+def short_name(cost) -> str:
+    st = cost_style(cost)
+    return st[0] if st else _clean(cost)                     # 목록을 새 기본 순서로 한 번 정리했는지
 VERSION_KEY = 'budget_cost_types_version'
 
 
