@@ -300,6 +300,16 @@ def test_plain_star_blinks_orange_with_side_line(env):
         r._apply_star_motion(motion.urgency(r.task, cfg=cfg), cfg)
     near = rows['곧 마감']
     assert near._plain_star_color == '#EA580C' and near.btn_star.graphicsEffect() is not None
-    assert '#EA580C'.lower() in near.btn_star.styleSheet().lower()
+    assert not near.btn_star.icon().isNull() and near.btn_star.text() == ''           # 주황으로 채운 별
     assert near._line_style(motion.urgency(near.task, cfg=cfg), cfg)[0] == '#EA580C'   # 세로줄과 같은 색
     assert getattr(rows['먼 마감'], '_plain_star_color', None) is None                  # 먼 마감은 회색 그대로
+
+
+def test_star_blinks_once_every_ten_line_breaths():
+    from ui import motion
+    period = 3.0
+    vals = [motion.star_blink(t / 10, period) for t in range(0, int(period * 10 * 10))]   # 세로선 10번 동안
+    assert min(vals) < 0.05                                   # 한 번은 거의 사라졌다
+    first, rest = vals[:int(period * 10)], vals[int(period * 10):]
+    assert min(first) < 0.05 and min(rest) == 1.0             # 첫 박자에만 깜빡이고 나머지 9번은 또렷
+    assert motion.star_blink(1.0, 0) == 1.0

@@ -890,7 +890,7 @@ class TaskRow(QWidget):
             self.btn_star.setIconSize(QSize(int(self._star_sz * 0.8), int(self._star_sz * 0.8)))
             self.btn_star.setToolTip('중요한 업무인데 기한이 지났어요')
             return
-        # 보통 업무: 주황 세로줄이 반짝이면 빈 별도 같은 주황색 · 같은 박자로 (중요 업무는 금색 그대로)
+        # 보통 업무: 주황 세로줄이 반짝이면 별을 주황으로 채움 (중요 업무는 금색 그대로)
         orange = (not starred and not self._overdue and not self.task.get('strikethrough')
                   and self._line_style(u, cfg) is not None)
         if not starred:
@@ -901,10 +901,10 @@ class TaskRow(QWidget):
             period = u['breathe'] or 3.0
             btn = self.btn_star
 
-            def glow(t, eff=eff, period=period, btn=btn):   # 세로선과 같은 박자로 0%까지 옅어졌다 돌아옴
+            def glow(t, eff=eff, period=period, btn=btn):   # 세로선 10번에 한 번만 깜빡임 (정신없지 않게)
                 try:
                     # 마우스를 올리면 멈추고 또렷하게 (누를 곳이 보이게)
-                    eff.setOpacity(1.0 if btn.underMouse() else motion.breath(t, period))
+                    eff.setOpacity(1.0 if btn.underMouse() else motion.star_blink(t, period))
                 except RuntimeError:
                     pass
             motion.clock().register(self.btn_star, glow)
@@ -914,15 +914,25 @@ class TaskRow(QWidget):
                 self.btn_star.setGraphicsEffect(None)
 
     def _set_plain_star_color(self, color=None):
-        """빈 별(중요 표시 안 한 업무) 색: color가 없으면 평소 회색."""
+        """중요 표시 안 한 업무의 별: color가 있으면 그 색으로 채운 별, 없으면 평소 회색 빈 별."""
         if color == getattr(self, '_plain_star_color', None):
             return
         self._plain_star_color = color
-        c = tc(color) if color else tc("rgba(0,0,0,0.25)")
-        hover = tc(color) if color else tc("rgba(0,0,0,0.5)")
+        if color:
+            self.btn_star.setText('')
+            self.btn_star.setIcon(_svg_icon(self._star_svg, tc(color), self._star_sz))
+            self.btn_star.setIconSize(QSize(self._star_sz, self._star_sz))
+            self.btn_star.setStyleSheet("""
+                QPushButton { border: none; padding: 0; }
+                QPushButton:pressed { padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }
+            """)
+            return
+        self.btn_star.setIcon(QIcon())
+        self.btn_star.setText(MI.STAR_BORDER)
+        self.btn_star.setFont(mi_font(int(15 * self._scale)))
         self.btn_star.setStyleSheet(f"""
-            QPushButton {{ color: {c}; border: none; padding: 0; }}
-            QPushButton:hover {{ color: {hover}; }}
+            QPushButton {{ color: {tc("rgba(0,0,0,0.25)")}; border: none; padding: 0; }}
+            QPushButton:hover {{ color: {tc("rgba(0,0,0,0.5)")}; }}
             QPushButton:pressed {{ padding-top: 2px; padding-left: 1px; padding-bottom: 0px; padding-right: 0px; }}
         """)
 
