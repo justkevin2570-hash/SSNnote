@@ -1238,8 +1238,7 @@ class DocumentEditorWindow(QMainWindow):
         for w in (sep, self.btn_start_capture, self.btn_past):
             bar.addWidget(w)
         bar.addStretch(1)
-        bar.addWidget(self.btn_ai_dot)
-        bar.addSpacing(4)
+        self.btn_ai_dot.hide()                       # AI 상태는 머리줄의 [AI …] 단추로
         bar.addWidget(self.btn_start_go)
         v.addLayout(bar)
         page.hide()
@@ -1296,7 +1295,11 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_doc_type.setFixedHeight(30)
         self.btn_attach.setFixedHeight(30)
         self._update_doc_type_chip()
-        self._header.hide()
+        # 시작 창 머리줄: 공문 작성 · AI 상태 단추만 (새 공문 · 캡처 · 도움말은 작성 화면에서)
+        self._header.show()
+        self._header.layout().setContentsMargins(12, 8, 10, 8)      # 아래 칸과 왼쪽 줄 맞춤
+        for b in (self.btn_new, self.btn_capture, self.btn_panel, self.btn_help):
+            b.hide()
         self.splitter.hide()
         self.statusBar().hide()
         self.start_page.show()
@@ -1304,7 +1307,7 @@ class DocumentEditorWindow(QMainWindow):
         self._update_ai_dot()
         self._update_start_button()
         self.adjustSize()
-        h = self.start_page.sizeHint().height()
+        h = self.start_page.sizeHint().height() + self._header.sizeHint().height()
         g = self.geometry()
         if first or not g.isValid():
             screen = QApplication.desktop().availableGeometry(self)
@@ -1313,7 +1316,7 @@ class DocumentEditorWindow(QMainWindow):
         else:                                    # 작성 화면이 있던 자리 위쪽 가운데
             x = g.x() + max(0, (g.width() - self.START_W) // 2)
             y = g.y()
-        w = max(self.START_W, self.start_page.minimumSizeHint().width())
+        w = max(self.START_W, self.start_page.minimumSizeHint().width(), self._header.minimumSizeHint().width())
         self.setGeometry(x, y, w, h)
         self.title_input.setFocus()
 
@@ -1337,6 +1340,10 @@ class DocumentEditorWindow(QMainWindow):
         self._update_doc_type_chip()
         self.start_page.hide()
         self._header.show()
+        self._header.layout().setContentsMargins(20, 10, 14, 10)
+        for b in (self.btn_new, self.btn_capture, self.btn_help):
+            b.show()
+        self.btn_panel.setVisible(not self.panel.isVisible() and self.panel.has_content())
         self.splitter.show()
         self.statusBar().show()
         self.setMinimumSize(700, 460)
