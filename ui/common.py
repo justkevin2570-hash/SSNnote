@@ -327,17 +327,30 @@ def themed_pixmap(path) -> QPixmap:
     return tinted
 
 
+def _render_svg(data: str, size: int) -> 'QIcon':
+    """SVG를 화면 배율(devicePixelRatio)만큼 크게, 가장자리를 부드럽게(안티에일리어싱) 그린 아이콘.
+    예전에는 1배 크기로 거칠게 그려 별이 깨져 보였다 (200% 화면에서는 늘려서 흐릿)."""
+    from PyQt5.QtWidgets import QApplication
+    renderer = QSvgRenderer(data.encode('utf-8'))
+    app = QApplication.instance()
+    dpr = max(1.0, app.devicePixelRatio()) if app else 1.0
+    big = int(round(size * dpr * 2))                 # 두 배로 그린 뒤 부드럽게 줄임
+    pm = QPixmap(big, big)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setRenderHint(QPainter.SmoothPixmapTransform)
+    renderer.render(p)
+    p.end()
+    pm = pm.scaled(int(round(size * dpr)), int(round(size * dpr)), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    pm.setDevicePixelRatio(dpr)
+    return QIcon(pm)
+
+
 def _svg_icon(svg_path, color, size) -> 'QIcon':
     with open(svg_path, 'r', encoding='utf-8') as f:
         data = f.read()
-    data = data.replace('#000000', color)
-    renderer = QSvgRenderer(data.encode('utf-8'))
-    pm = QPixmap(size, size)
-    pm.fill(Qt.transparent)
-    p = QPainter(pm)
-    renderer.render(p)
-    p.end()
-    return QIcon(pm)
+    return _render_svg(data.replace('#000000', color), size)
 
 
 _STAR_BODY = ('M9.104 2.9c0.367-0.744 1.427-0.744 1.794 0l1.93 3.91 4.317 0.628c0.82 0.12 1.148 1.127 0.554 '
@@ -351,18 +364,7 @@ def outline_star_icon(color, size, stroke=2.5) -> 'QIcon':
     data = (f'<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="-1 -1 22 22">'
             f'<path d="{_STAR_BODY}" fill="none" stroke="{color}" stroke-width="{stroke}" '
             f'stroke-linejoin="round"/></svg>')
-    renderer = QSvgRenderer(data.encode('utf-8'))
-    app = QApplication.instance()
-    dpr = max(1.0, app.devicePixelRatio()) if app else 1.0
-    pm = QPixmap(int(size * dpr * 2), int(size * dpr * 2))
-    pm.fill(Qt.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.Antialiasing)
-    renderer.render(p)
-    p.end()
-    pm = pm.scaled(int(size * dpr), int(size * dpr), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-    pm.setDevicePixelRatio(dpr)
-    return QIcon(pm)
+    return _render_svg(data, size)
 
 
 # ── 화면 크기에 맞추기 ───────────────────────────────────────────
