@@ -1314,8 +1314,8 @@ class DocumentEditorWindow(QMainWindow):
         self.ref_input.setPlaceholderText('관련 공문번호 (선택)')
         self._start_fields.addWidget(self.title_input)
         self._start_fields.addWidget(self.ref_input)
-        self.title_input.setFixedHeight(38)
-        self.ref_input.setFixedHeight(34)
+        for f in (self.title_input, self.ref_input):     # 제목 · 관련 번호 칸 높이를 똑같이
+            f.setFixedHeight(36)
         for b in (self.btn_doc_type, self.btn_attach):
             b.setFixedHeight(30)
         self._root.insertWidget(1, page)
