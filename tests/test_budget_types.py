@@ -76,7 +76,7 @@ def test_defaults_from_edufine_list():
 
 
 def test_short_names_and_icons_for_frequent_costs():
-    assert set(bt.COST_STYLE) == set(bt.PRIORITY)                     # 자주 쓰는 11개 모두
+    assert set(bt.PRIORITY) <= set(bt.COST_STYLE) and set(bt.COST_STYLE) - set(bt.PRIORITY) == {'기간제교원법정부담금'}   # 자주 쓰는 11개 + 기간제부담금
     assert bt.short_name('일반업무추진비') == '업추비' and bt.short_name('교육운영비') == '교육운영'
     assert bt.short_name(' 일반 수용비 ') == '수용비'                   # 띄어쓰기가 달라도
     assert bt.short_name('전기요금') == '전기요금' and bt.cost_style('전기요금') is None

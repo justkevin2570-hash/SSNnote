@@ -452,7 +452,7 @@ class TitleBar(QWidget):
         self.btn_mode.clicked.connect(parent._toggle_memo_mode)
         # 예산·AI 대화는 아래 줄로 옮기고, 지난 기록을 제목줄로 (자주 쓰는 기능은 손 가까이)
         self.btn_history = self._icon_button('ph.clock-counter-clockwise-bold',
-                                             '지난 기록 — 지난 업무(지운 업무 되살리기) · 작성 공문')
+                                             '지난 기록 — 지난 업무(지운 업무 되살리기) · 저장 공문')
         self.btn_history.setObjectName('btn_history')
         self.btn_history.clicked.connect(lambda: parent._show_history())
 
