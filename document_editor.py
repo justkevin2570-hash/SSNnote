@@ -2256,7 +2256,7 @@ class DocumentEditorWindow(QMainWindow):
             self.btn_apikey.setText(f'{PROVIDER_LABELS[mode]} · {model}')
             self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.OK))
             self.btn_apikey.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · Claude 구독)')
-            self.ai_input.setPlaceholderText('AI에게 요청  (예: 장소를 시청각실로 바꾸고 일시는 11월 10일로 해줘)')
+            self.ai_input.setPlaceholderText('AI에게 요청')
             return
         self.btn_apikey.setIcon(qta.icon('fa5s.circle', color=C.OFF))
         legacy = legacy_ai_name()
