@@ -128,6 +128,12 @@ _STYLE_TEMPLATE = f"""
     QPushButton#TypeChip {{ padding: 0 10px; text-align: left; font-weight: 600; color: {C.TEXT}; }}
     QPushButton#TypeChip[guess="true"] {{ color: {C.BODY}; font-weight: 600; }}
     QFrame#StartPage {{ background: {C.SURFACE}; }}
+    QWidget#Fold {{ background: {C.SURFACE}; }}
+    QLabel#StartHint {{ font-size: 9pt; padding: 0 2px; }}
+    QFrame#RecvCard {{ background: {C.BG}; border: 1px solid {C.BORDER}; border-radius: 8px; }}
+    QPushButton#RecvToggle {{ background: transparent; border: none; text-align: left; padding: 7px 12px;
+        font-weight: 600; color: {C.BODY}; }}
+    QPushButton#RecvToggle:hover {{ color: {C.ACCENT}; }}
     QFrame#StartSep {{ background: {C.BORDER}; border: none; }}
     QPushButton#StartIcon {{ padding: 0; min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; }}
     QPushButton#StartChip {{ padding: 0 10px; min-height: 30px; max-height: 30px; font-weight: 600; color: {C.TEXT}; }}
@@ -945,13 +951,11 @@ class DocumentEditorWindow(QMainWindow):
         hl.addWidget(self.btn_panel)
         self.btn_new = QPushButton('새 공문')
         self.btn_new.setObjectName('Ghost')
-        self.btn_new.setIcon(qta.icon('fa5s.chevron-left', color=C.MUTED))
+        self.btn_new.setIcon(qta.icon('fa5s.plus', color=C.MUTED))
         self.btn_new.setIconSize(QSize(10, 10))
         self.btn_new.setCursor(Qt.PointingHandCursor)
         self.btn_new.setToolTip('처음 화면으로 (새 공문 쓰기)')
         self.btn_new.clicked.connect(self._new_document)
-        hl.insertWidget(0, self.btn_new)
-        hl.insertSpacing(1, 4)
         self.btn_capture = QPushButton('공문 캡처')
         self.btn_capture.setIcon(qta.icon('fa5s.crop-alt', color=C.TEXT))
         self.btn_capture.setIconSize(QSize(13, 13))
@@ -961,6 +965,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_capture.clicked.connect(lambda: self._start_capture())
         hl.addWidget(self.btn_capture)
         hl.addSpacing(4)
+        hl.addWidget(self.btn_new)                    # 펼쳤을 때만 보임 (머리줄 왼쪽은 그대로 두기 위해 오른쪽에)
         self.btn_apikey = QPushButton("AI 설정")
         self.btn_apikey.setObjectName('Chip')
         self.btn_apikey.setCursor(Qt.PointingHandCursor)
@@ -1201,10 +1206,10 @@ class DocumentEditorWindow(QMainWindow):
         page = QFrame()
         page.setObjectName('StartPage')
         v = QVBoxLayout(page)
-        v.setContentsMargins(10, 10, 10, 10)
+        v.setContentsMargins(12, 10, 12, 8)
         v.setSpacing(7)
         self._start_fields = QVBoxLayout()
-        self._start_fields.setSpacing(8)
+        self._start_fields.setSpacing(7)
         v.addLayout(self._start_fields)
         bar = QHBoxLayout()
         bar.setSpacing(4)
@@ -1217,56 +1222,124 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_start_capture.setObjectName('StartIcon')
         self.btn_start_capture.setIcon(qta.icon('fa5s.crop-alt', color=C.MUTED))
         self.btn_start_capture.setIconSize(QSize(14, 14))
-        self.btn_start_capture.setToolTip('받은 공문 캡처')
+        self.btn_start_capture.setToolTip('받은 공문 캡처 (Ctrl+Shift+X)')
         self.btn_start_capture.setCursor(Qt.PointingHandCursor)
         self.btn_start_capture.clicked.connect(lambda: self._start_capture())
         self.btn_past = QPushButton('지난 공문')
         self.btn_past.setObjectName('StartChip')
         self.btn_past.setCursor(Qt.PointingHandCursor)
         self.btn_past.clicked.connect(self._open_past_documents)
-        self.btn_ai_dot = QPushButton()
-        self.btn_ai_dot.setObjectName('AiDot')
-        self.btn_ai_dot.setFixedSize(16, 16)
-        self.btn_ai_dot.setCursor(Qt.PointingHandCursor)
-        self.btn_ai_dot.clicked.connect(self._show_ai_settings_menu)
+        self.btn_ai_dot = QPushButton()               # (예전 AI 점 — 이제 머리줄 AI 단추를 씀)
+        self.btn_ai_dot.hide()
         self.btn_start_go = QPushButton('공문 작성')
         self.btn_start_go.setObjectName('Primary')
         self.btn_start_go.setCursor(Qt.PointingHandCursor)
         self.btn_start_go.setMinimumHeight(32)
         self.btn_start_go.setStyleSheet('QPushButton { padding: 0 14px; }')
         self.btn_start_go.clicked.connect(self._start_go)
+        bar.addWidget(self.btn_doc_type)
+        bar.addWidget(self.btn_attach)
         for w in (sep, self.btn_start_capture, self.btn_past):
             bar.addWidget(w)
         bar.addStretch(1)
-        self.btn_ai_dot.hide()                       # AI 상태는 머리줄의 [AI …] 단추로
         bar.addWidget(self.btn_start_go)
         v.addLayout(bar)
-        page.hide()
-        self._root.addWidget(page)
+        # 안내 줄: 평소엔 캡처 단축키, 캡처한 공문을 읽는 동안 · 다 읽은 뒤에는 진행 상태
+        self.lbl_hint = QLabel()
+        self.lbl_hint.setObjectName('StartHint')
+        self.lbl_hint.setTextFormat(Qt.RichText)
+        v.addWidget(self.lbl_hint)
+        self._set_hint()
+        # 제목 · 관련 번호 칸은 늘 이 위쪽에 (작성 화면으로 펼쳐도 그대로)
+        self.title_input.setPlaceholderText('공문 제목')
+        self.ref_input.setPlaceholderText('관련 공문번호 (선택)')
+        self._start_fields.addWidget(self.title_input)
+        self._start_fields.addWidget(self.ref_input)
+        self.title_input.setFixedHeight(38)
+        self.ref_input.setFixedHeight(34)
+        for b in (self.btn_doc_type, self.btn_attach):
+            b.setFixedHeight(30)
+        self._root.insertWidget(1, page)
         self.start_page = page
-        self._update_ai_dot()
+        self._build_fold()
+        # 예전 작성 화면 틀(제목 카드 · 좌우 칸)은 쓰지 않는다 — 위 칸과 아래 펼침으로 대신
+        self.splitter.hide()
+        self.btn_capture.hide()
+        self.btn_panel.hide()
+        self.btn_draft.hide()
+        self.panel.status_changed.connect(self._on_panel_status)
+
+    def _build_fold(self):
+        """[공문 작성]을 누르면 아래로 펼쳐지는 부분: 받은 공문 요약(접는 카드) · 본문 · AI 요청 · 아래 단추."""
+        fold = QWidget()
+        fold.setObjectName('Fold')
+        v = QVBoxLayout(fold)
+        v.setContentsMargins(12, 2, 12, 10)
+        v.setSpacing(8)
+        # 받은 공문 요약: 캡처했을 때만 보이는 접는 카드
+        card = QFrame()
+        card.setObjectName('RecvCard')
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(0)
+        self.btn_recv = QPushButton()
+        self.btn_recv.setObjectName('RecvToggle')
+        self.btn_recv.setCursor(Qt.PointingHandCursor)
+        self.btn_recv.clicked.connect(lambda: self._show_panel(not self.panel.isVisible()))
+        cl.addWidget(self.btn_recv)
+        self.panel.setParent(None)
+        self.panel.setMinimumWidth(0)
+        self.panel.setMaximumHeight(260)
+        self.panel.btn_collapse.hide()
+        cl.addWidget(self.panel)
+        self.panel.hide()
+        card.hide()
+        self.recv_card = card
+        v.addWidget(card)
+        for w in (self.editor, self.ai_answer, self.ai_confirm, self.ai_frame):
+            w.setParent(None)
+        v.addWidget(self.editor, 1)
+        v.addWidget(self.ai_answer)
+        v.addWidget(self.ai_confirm)
+        v.addWidget(self.ai_frame)
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        for b in (self.btn_copy_title, self.btn_copy):
+            b.setParent(None)
+            row.addWidget(b)
+        row.addStretch()
+        self.btn_save_exit.setParent(None)
+        row.addWidget(self.btn_save_exit)
+        v.addLayout(row)
+        self.ai_answer.hide()
+        fold.hide()
+        self._root.insertWidget(2, fold, 1)
+        self.fold = fold
+        self._update_recv_toggle()
+
+    # ── 안내 줄 ──
+    def _set_hint(self, text=None, state=''):
+        if text is None:
+            kbd = (f'<span style="background:{C.HOVER}; border:1px solid {C.BORDER}; border-radius:3px; '
+                   f'color:{C.BODY}; font-weight:600;">&nbsp;%s&nbsp;</span>')
+            text = '받은 공문 캡처&nbsp; ' + '+'.join(kbd % k for k in ('Ctrl', 'Shift', 'X'))
+            color = C.MUTED
+        else:
+            color = {'busy': C.ACCENT, 'done': '#047857', 'error': C.WARN}.get(state, C.MUTED)
+        self.lbl_hint.setText(f'<span style="color:{color}">{text}</span>')
+
+    def _on_panel_status(self, text, state):
+        if state == 'done':
+            if self._mode == 'start':
+                self._set_hint('✓ 제목 · 공문번호를 채웠어요. 요약은 [공문 작성]을 누르면 보여요', 'done')
+            else:
+                self._set_hint('✓ 받은 공문을 읽었어요. 요약은 본문 위 「받은 공문 요약」에', 'done')
+        elif state == 'error':
+            self._set_hint('⚠ 공문을 읽지 못했어요. 다시 캡처해 보세요', 'error')
+        self._update_recv_toggle()
 
     def _update_ai_dot(self):
-        if not hasattr(self, 'btn_ai_dot'):
-            return
-        on = load_ai_mode() != 'none'
-        self.btn_ai_dot.setToolTip('AI 켜짐' if on else 'AI 꺼짐')
-        color = C.OK if on else C.OFF
-        self.btn_ai_dot.setStyleSheet(
-            f'QPushButton#AiDot {{ background: transparent; border: none; }}'
-            f'QPushButton#AiDot::menu-indicator {{ image: none; }}')
-        from PyQt5.QtGui import QPixmap, QPainter, QIcon
-        pm = QPixmap(32, 32)
-        pm.setDevicePixelRatio(2)
-        pm.fill(Qt.transparent)
-        p = QPainter(pm)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setBrush(QColor(color))
-        p.setPen(Qt.NoPen)
-        p.drawEllipse(4, 4, 8, 8)
-        p.end()
-        self.btn_ai_dot.setIcon(QIcon(pm))
-        self.btn_ai_dot.setIconSize(QSize(16, 16))
+        pass
 
     def _place(self, widget, layout, index=None, stretch=0):
         if index is None:
@@ -1274,89 +1347,95 @@ class DocumentEditorWindow(QMainWindow):
         else:
             layout.insertWidget(index, widget, stretch)
 
+    # ── 시작(접힘) ↔ 작성(펼침) ──
+    START_W = 600
+
+    def _start_height(self):
+        self.start_page.adjustSize()
+        return self._header.sizeHint().height() + self.start_page.sizeHint().height()
+
     def _enter_start(self, first=False):
-        """작은 시작 창으로: 제목 · 관련 번호 칸과 종류 · 붙임 단추를 시작 화면으로 옮긴다."""
+        """접기: 위쪽(제목 · 관련 번호 · 도구줄)만 남은 작은 창으로."""
         if self._mode == 'start' and not first:
             return
         if not first and self._mode == 'edit':
             self._save_window_state()
             if self.isMaximized():
                 self.showNormal()
-            self._show_panel(False)
         self._mode = 'start'
-        self.title_input.setPlaceholderText('공문 제목')
-        self.ref_input.setPlaceholderText('관련 공문번호 (선택)')
-        self._place(self.title_input, self._start_fields)
-        self._place(self.ref_input, self._start_fields)
-        self.title_input.setFixedHeight(38)
-        self.ref_input.setFixedHeight(34)
-        self._place(self.btn_doc_type, self._start_bar, 0)
-        self._place(self.btn_attach, self._start_bar, 1)
-        self.btn_doc_type.setFixedHeight(30)
-        self.btn_attach.setFixedHeight(30)
-        self._update_doc_type_chip()
-        # 시작 창 머리줄: 공문 작성 · AI 상태 단추만 (새 공문 · 캡처 · 도움말은 작성 화면에서)
-        self._header.show()
-        self._header.layout().setContentsMargins(12, 8, 10, 8)      # 아래 칸과 왼쪽 줄 맞춤
-        for b in (self.btn_new, self.btn_capture, self.btn_panel, self.btn_help):
-            b.hide()
-        self.splitter.hide()
+        self.fold.hide()
         self.statusBar().hide()
-        self.start_page.show()
+        for b in (self.btn_new, self.btn_help):
+            b.hide()
+        self._header.layout().setContentsMargins(14, 8, 12, 8)
+        self.btn_start_go.setText('공문 작성')
+        self.btn_start_go.setToolTip('본문을 아래로 펼치고 초안을 넣어요 (Enter)')
+        self._update_doc_type_chip()
+        self._set_hint()
         self.setMinimumSize(0, 0)
-        self._update_ai_dot()
-        self._update_start_button()
-        self.adjustSize()
-        h = self.start_page.sizeHint().height() + self._header.sizeHint().height()
+        h = self._start_height()
         g = self.geometry()
-        if first or not g.isValid():
+        w = getattr(self, '_saved_w', 0) or self.START_W
+        if first:
+            sx, sy = getattr(self, '_saved_pos', (None, None))
             screen = QApplication.desktop().availableGeometry(self)
-            x = screen.x() + (screen.width() - self.START_W) // 2
-            y = screen.y() + int(screen.height() * 0.28)
-        else:                                    # 작성 화면이 있던 자리 위쪽 가운데
-            x = g.x() + max(0, (g.width() - self.START_W) // 2)
-            y = g.y()
-        w = max(self.START_W, self.start_page.minimumSizeHint().width(), self._header.minimumSizeHint().width())
+            if sx is None:
+                sx = screen.x() + (screen.width() - w) // 2
+                sy = screen.y() + int(screen.height() * 0.2)
+            x, y = sx, sy
+        else:
+            x, y, w = g.x(), g.y(), g.width()
         self.setGeometry(x, y, w, h)
+        self.setFixedHeight(h)                       # 접혀 있는 동안은 높이를 끌어 바꾸지 않음
         self.title_input.setFocus()
 
     def _enter_edit(self, generate=True):
-        """[공문 작성]: 작성 화면으로 펼친다. generate면 본문이 비었을 때 자동 초안을 넣는다."""
+        """[공문 작성]: 같은 가로폭으로 아래가 스르륵 펼쳐진다. generate면 본문이 비었을 때 자동 초안."""
         if self._mode == 'edit':
             if generate and not self.editor.toPlainText().strip():
                 self.generate_draft()
             return
-        g0 = self.geometry()
         self._mode = 'edit'
-        self.title_input.setPlaceholderText('공문 제목')
-        self.ref_input.setPlaceholderText('관련 공문번호 (선택)')
-        _h = 36
-        for w, hgt in ((self.title_input, _h), (self.ref_input, _h), (self.btn_doc_type, _h), (self.btn_attach, _h)):
-            w.setFixedHeight(hgt)
-        self._grid.addWidget(self.title_input, 0, 1, 1, 6)
-        self._grid.addWidget(self.ref_input, 1, 1)
-        self._grid.addWidget(self.btn_attach, 1, 3, 1, 2)
-        self._grid.addWidget(self.btn_doc_type, 1, 5)
-        self._update_doc_type_chip()
-        self.start_page.hide()
-        self._header.show()
-        self._header.layout().setContentsMargins(20, 10, 14, 10)
-        for b in (self.btn_new, self.btn_capture, self.btn_help):
+        g = self.geometry()
+        start_h = g.height()
+        screen = QApplication.desktop().availableGeometry(self)
+        target_h = getattr(self, '_saved_h', 0) or int(screen.height() * 0.7)
+        target_h = max(460, min(target_h, screen.height() - 20))
+        y = g.y()
+        if y + target_h > screen.bottom():           # 아래 자리가 모자라면 창을 조금 올림
+            y = max(screen.y(), screen.bottom() - target_h)
+        for b in (self.btn_new, self.btn_help):
             b.show()
-        self.btn_panel.setVisible(not self.panel.isVisible() and self.panel.has_content())
-        self.splitter.show()
+        self.btn_start_go.setText('다시 초안')
+        self.btn_start_go.setToolTip('제목 · 종류에 맞춰 초안을 다시 넣어요')
+        self.setMinimumHeight(0)
+        self.setMaximumHeight(16777215)
+        self.fold.show()
         self.statusBar().show()
-        self.setMinimumSize(700, 460)
-        eg = getattr(self, '_edit_geom', None)
-        if eg is not None:
-            self.setGeometry(*eg)
+        self._update_recv_toggle()
+        self._set_hint()
+        if self.panel.has_content():
+            self._show_panel(True)
+        try:
+            from ui import motion
+            animate = motion.load()['enabled'] and self.isVisible()
+        except Exception:
+            animate = False
+        from PyQt5.QtCore import QRect
+        end = QRect(g.x(), y, g.width(), target_h)
+        if animate:
+            from PyQt5.QtCore import QPropertyAnimation, QEasingCurve
+            anim = QPropertyAnimation(self, b'geometry', self)
+            anim.setDuration(260)
+            anim.setStartValue(QRect(g.x(), y, g.width(), start_h))
+            anim.setEndValue(end)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim.finished.connect(lambda: self.setMinimumSize(420, 420))
+            self._fold_anim = anim
+            anim.start()
         else:
-            w, h = default_geometry(900, 680)[2:]
-            screen = QApplication.desktop().availableGeometry(self)
-            x = min(max(screen.x(), g0.x() - (w - g0.width()) // 2), screen.right() - w)
-            self.setGeometry(max(screen.x(), x), max(screen.y(), g0.y()), w, h)
-        if getattr(self, '_edit_maximized', False):
-            self.showMaximized()
+            self.setGeometry(end)
+            self.setMinimumSize(420, 420)
         if generate and not self.editor.toPlainText().strip():
             self.generate_draft()
         self.editor.setFocus()
@@ -1367,14 +1446,16 @@ class DocumentEditorWindow(QMainWindow):
             self.title_input.setStyleSheet(f'QLineEdit {{ border: 1px solid {C.WARN}; }}')
             QTimer.singleShot(900, lambda: self.title_input.setStyleSheet(''))
             return
+        if self._mode == 'edit':
+            self.generate_draft()                    # 다시 초안 (쓴 글이 있으면 바꾸기 전에 물어봄)
+            return
         self._enter_edit(generate=True)
 
     def _update_start_button(self):
-        if hasattr(self, 'btn_start_go'):
-            self.btn_start_go.setEnabled(True)
+        pass
 
     def _on_return(self):
-        """제목 · 관련 번호 칸에서 Enter: 시작 화면이면 작성 화면으로, 작성 화면이면 자동 초안."""
+        """제목 · 관련 번호 칸에서 Enter: 접혀 있으면 펼치고 초안, 펼쳐져 있으면 자동 초안."""
         if self._mode == 'start':
             self._start_go()
         else:
@@ -1426,7 +1507,7 @@ class DocumentEditorWindow(QMainWindow):
         """시작 창에서는 종류 · 붙임 단추를 글자 길이만큼만 (작성 화면에서는 종류 칸 폭을 고정)."""
         if not hasattr(self, 'btn_attach'):
             return
-        start = self._mode == 'start'
+        start = True                              # 종류 · 붙임 단추는 늘 위쪽 도구줄에 (글자 길이만큼)
         for b in (self.btn_doc_type, self.btn_attach):
             b.ensurePolished()
             need = b.fontMetrics().horizontalAdvance(b.text()) + (20 if start else 26)
@@ -1927,6 +2008,8 @@ class DocumentEditorWindow(QMainWindow):
             self._update_draft_button()   # 입력값 기반으로 복원
         else:
             self.btn_draft.setEnabled(False)  # AI 실행 중엔 무조건 비활성
+        if hasattr(self, 'btn_start_go'):
+            self.btn_start_go.setEnabled(enabled)
 
     def _update_draft_button(self):
         """제목이 있어야 초안을 만들 수 있다 (관련 번호만으로는 만들 수 없음)."""
@@ -1949,8 +2032,7 @@ class DocumentEditorWindow(QMainWindow):
         manual = self._doc_type_manual is not None
         # 아무 키워드도 안 맞아 '일반'으로 간 경우는 흐리게 — 추측한 것
         guess = not manual and doc_type == 'general'
-        label = _DOC_TYPE_SHORT.get(doc_type, _DOC_TYPE_LABELS[doc_type]) if self._mode == 'start' \
-            else _DOC_TYPE_LABELS[doc_type]
+        label = _DOC_TYPE_SHORT.get(doc_type, _DOC_TYPE_LABELS[doc_type])
         self.btn_doc_type.setText(f"{label}  ▾")
         if manual:
             tip = '직접 고른 공문 종류 — 눌러서 바꾸거나 [자동]으로 되돌리기'
@@ -2320,33 +2402,33 @@ class DocumentEditorWindow(QMainWindow):
     _saved_panel_w = 0
 
     def _restore_window_state(self):
+        """창 위치 · 가로폭(접힘 · 펼침 같음) · 펼친 높이를 되살린다."""
         import json
         try:
             with open(self._STATE_FILE, 'r', encoding='utf-8') as f:
                 s = json.load(f)
-            self.setGeometry(*fit_to_screen(s['x'], s['y'], s['width'], s['height'], min_w=560, min_h=420))
-            self._edit_geom = (self.x(), self.y(), self.width(), self.height())
-            self._edit_maximized = bool(s.get('maximized'))
-            self._restore_maximized = False         # 처음엔 작은 시작 창 (작성 화면을 펼칠 때 최대화)
+            x, y, w, h = fit_to_screen(s['x'], s['y'], s['width'], s.get('height') or 600, min_w=420, min_h=300)
+            self._saved_pos, self._saved_w = (x, y), w
+            self._saved_h = int(s.get('fold_h') or 0)
             self._saved_panel_w = int(s.get('panel_w') or 0)
         except Exception:
-            self.setGeometry(*default_geometry(900, 680))   # 처음엔 화면 크기에 맞춘 크기로
+            self._saved_pos, self._saved_w, self._saved_h = (None, None), 0, 0
+        self._restore_maximized = False
+        self._edit_geom = None
 
     def _save_window_state(self):
         import json, os
-        if not getattr(self, '_state_ready', False) or self._mode != 'edit':
-            return                                   # 시작 창 크기는 기억하지 않음 (작성 화면 크기만)
+        if not getattr(self, '_state_ready', False):
+            return
         try:
             os.makedirs(os.path.dirname(self._STATE_FILE), exist_ok=True)
             g = self.normalGeometry() if self.isMaximized() else self.geometry()
-            if self.panel.isVisible():
-                self._saved_panel_w = self.splitter.sizes()[0]
-            self._edit_geom = (g.x(), g.y(), g.width() - (self._panel_extra if self.panel.isVisible() else 0), g.height())
-            self._edit_maximized = self.isMaximized()
-            data = {'x': g.x(), 'y': g.y(),
-                    'width': g.width() - (self._panel_extra if self.panel.isVisible() else 0),
-                    'height': g.height(), 'maximized': self.isMaximized(),
-                    'panel_w': self._saved_panel_w}
+            self._saved_pos, self._saved_w = (g.x(), g.y()), g.width()
+            anim = getattr(self, '_fold_anim', None)
+            if self._mode == 'edit' and (anim is None or anim.state() == 0):   # 펼치는 중이 아닐 때만
+                self._saved_h = g.height()
+            data = {'x': g.x(), 'y': g.y(), 'width': g.width(), 'height': g.height(),
+                    'fold_h': getattr(self, '_saved_h', 0), 'panel_w': self._saved_panel_w}
             tmp = self._STATE_FILE + '.tmp'
             with open(tmp, 'w', encoding='utf-8') as f:
                 json.dump(data, f)
@@ -2364,20 +2446,18 @@ class DocumentEditorWindow(QMainWindow):
         t.start()
 
     def reset_layout(self):
-        """「화면 배치 기본값으로」: 창 크기·위치·받은 공문 칸 폭을 처음 상태로 (쓰던 글은 그대로)."""
-        if self._mode == 'start':                # 시작 창이면 다음에 펼칠 크기만 처음으로
-            self._edit_geom, self._edit_maximized, self._saved_panel_w = None, False, 0
-            try:
-                os.remove(self._STATE_FILE)
-            except OSError:
-                pass
-            return
-        self.showNormal()
-        self._show_panel(False)
-        self._saved_panel_w = 0
-        self.setGeometry(*default_geometry(900, 680))
-        self._edit_geom, self._edit_maximized = None, False
-        self._save_window_state()
+        """「화면 배치 기본값으로」: 창 위치 · 가로폭 · 펼친 높이를 처음 상태로 (쓰던 글은 그대로)."""
+        self._saved_pos, self._saved_w, self._saved_h, self._saved_panel_w = (None, None), 0, 0, 0
+        try:
+            os.remove(self._STATE_FILE)
+        except OSError:
+            pass
+        if self._mode == 'edit':
+            self.showNormal()
+            screen = QApplication.desktop().availableGeometry(self)
+            h = int(screen.height() * 0.7)
+            self.setGeometry(screen.x() + (screen.width() - self.START_W) // 2, screen.y() + int(screen.height() * 0.12),
+                             self.START_W, h)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -2463,10 +2543,11 @@ class DocumentEditorWindow(QMainWindow):
         if load_ai_mode() == 'none':
             self._ocr_fallback(pixmap, self._capture_target())
             return
-        if self._mode == 'start':
-            self._enter_edit(generate=False)       # 받은 공문 칸이 들어갈 자리를 위해 작성 화면으로
-        self._show_panel(True)
+        if self._mode == 'edit':
+            self._show_panel(True)                 # 펼쳐져 있으면 본문 위 요약 카드를 연다 (접혀 있으면 그대로)
         self.panel.add_capture(pixmap)
+        self._update_recv_toggle()
+        self._set_hint('⏳ 받은 공문을 읽는 중…', 'busy')
         n = self.panel.capture_count()
         self.statusBar().showMessage(
             f'캡처 {n}장을 합쳐서 AI가 다시 읽는 중… (다른 공문은 왼쪽 [새 공문])' if n > 1
@@ -2477,33 +2558,25 @@ class DocumentEditorWindow(QMainWindow):
     _panel_extra = 0          # 칸을 펼치면서 넓힌 창 폭
 
     def _show_panel(self, show: bool):
-        if show == self.panel.isVisible():
-            return
+        """받은 공문 요약 카드 펼치기/접기 (본문 위, 창 폭은 그대로)."""
         if show:
-            # 칸 폭은 화면 크기에 비례 (노트북처럼 좁은 화면에선 좁게)
-            screen = QApplication.desktop().availableGeometry(self)
-            need = self.panel.content_min_width()
-            self.panel.setMinimumWidth(need)
-            w = max(need, min(340, int(screen.width() * 0.22)))
-            if self._saved_panel_w:                      # 지난번에 끌어서 맞춘 칸 폭
-                w = max(need, min(self._saved_panel_w, int(screen.width() * 0.5)))
-            self.panel.show()
-            self.splitter.setSizes([w, max(self.width(), 600)])
-            # 칸만큼 창을 넓힌다. 오른쪽에 자리가 없으면 창을 왼쪽으로 옮긴다 (화면 밖으로 안 나가게)
-            g = self.frameGeometry()
-            grow = max(0, min(w, screen.width() - g.width()))
-            shift = max(0, min(g.right() + grow - screen.right(), g.left() - screen.left()))
-            self._panel_extra = grow
-            if grow:
-                if shift:
-                    self.move(self.x() - shift, self.y())
-                self.resize(self.width() + grow, self.height())
-        else:
-            self.panel.hide()
-            if self._panel_extra:
-                self.resize(self.width() - self._panel_extra, self.height())
-            self._panel_extra = 0
-        self.btn_panel.setVisible(not show and self.panel.has_content())
+            self.recv_card.show()
+        self.panel.setVisible(show)
+        self._update_recv_toggle()
+
+    def _update_recv_toggle(self):
+        if not hasattr(self, 'recv_card'):
+            return
+        has = self.panel.has_content() or self.panel.capture_count() > 0
+        self.recv_card.setVisible(has and self._mode == 'edit')
+        open_ = self.panel.isVisible()
+        deadline = ''
+        try:
+            a = getattr(self.panel, '_analysis', {}) or {}
+            deadline = (a.get('deadline') or '').strip()
+        except Exception:
+            pass
+        self.btn_recv.setText(('▾  ' if open_ else '▸  ') + '받은 공문 요약' + (f'  ·  기한 {deadline}' if deadline else ''))
 
     def _fill_from_capture(self, title: str, doc_number: str):
         """캡처 분석 결과를 오른쪽 제목·관련 번호 칸에도 넣는다. 찾은 값만 넣고, 칸이 비어 있거나

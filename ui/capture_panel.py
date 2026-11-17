@@ -53,6 +53,7 @@ class CapturePanel(QFrame):
     collapse_requested = pyqtSignal()
     message = pyqtSignal(str)
     analyzed = pyqtSignal(str, str)
+    status_changed = pyqtSignal(str, str)     # (글, 상태: '' · 'done' · 'error') — 공문 작성 창 안내 줄용
 
     MUTED = '#64748B'
     ACCENT = '#4F46E5'
@@ -190,6 +191,7 @@ class CapturePanel(QFrame):
         self.lbl_status.setProperty('state', state)
         self.lbl_status.style().unpolish(self.lbl_status)
         self.lbl_status.style().polish(self.lbl_status)
+        self.status_changed.emit(text, state)
 
     def _on_summary_edited(self):
         if not self._filling:
