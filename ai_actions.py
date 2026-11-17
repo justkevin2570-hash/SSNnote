@@ -30,7 +30,7 @@ SIZE_VALUES = {'기본': 1.0, '크게': 1.1, '더 크게': 1.2}
 GAP_VALUES = (0, 5, 10, 15)
 REPEATS = {'none': '반복 없음', 'weekly': '매주', 'biweekly': '격주', 'monthly': '매월', 'yearly': '매년'}
 OPEN_TARGETS = {'calendar': '달력', 'dashboard': '오늘 한눈에 보기', 'history': '지난 기록(지난 업무)',
-                'documents': '지난 기록(작성 공문)', 'document': '공문 작성', 'budget': '예산 관리'}
+                'documents': '지난 기록(저장 공문)', 'document': '공문 작성', 'budget': '예산 관리'}
 ALARM_MINUTES = (0, 30, 60, 180)
 CHAT_SIDES = {'inside': '업무창 안', 'left': '왼쪽', 'right': '오른쪽', 'bottom': '아래쪽'}
 

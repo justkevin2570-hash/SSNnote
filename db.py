@@ -551,7 +551,7 @@ def get_official_documents():
 
 
 def update_official_document(doc_id, title, doc_number, content):
-    """저장한 공문 고치기 (지난 기록 → 작성 공문 → 수정). 종류(doc_type)는 그대로 둔다."""
+    """저장한 공문 고치기 (지난 기록 → 저장 공문 → 수정). 종류(doc_type)는 그대로 둔다."""
     with _connect() as conn:
         conn.execute('UPDATE official_documents SET title=?, doc_number=?, content=? WHERE id=?',
                      (title, doc_number, content, doc_id))

@@ -1,7 +1,7 @@
-"""ui/history_dialog.py — 「지난 기록」 창: 지난 업무 · 작성 공문 두 칸.
+"""ui/history_dialog.py — 「지난 기록」 창: 지난 업무 · 저장 공문 두 칸.
 
 지난 업무: 삭제한 업무를 마감 달별로 묶어 보여주고, 되살리기(마감이 지나지 않은 것만)·완전 삭제·메모 보기.
-작성 공문: 공문 작성 창에서 「저장 후 나가기」로 저장한 공문 — 목록 + 내용 보기, 제목·본문 복사, 삭제.
+저장 공문: 공문 작성 창에서 「저장 후 나가기」로 저장한 공문 — 목록 + 내용 보기, 제목·본문 복사, 삭제.
 처음엔 「지난 업무」로 열리고, 그다음부터는 마지막에 본 칸으로 열린다.
 """
 
@@ -33,7 +33,7 @@ def _short_date(iso: str) -> str:
 
 
 class _Segment(QWidget):
-    """위쪽 전환 버튼 [지난 업무 3] [작성 공문 5]."""
+    """위쪽 전환 버튼 [지난 업무 3] [저장 공문 5]."""
 
     def __init__(self, labels, on_change, parent=None):
         super().__init__(parent)
@@ -105,7 +105,7 @@ class HistoryDialog(QDialog):
         title.setFont(_ui_font(15, QFont.Bold))
         head.addWidget(title)
         head.addStretch()
-        self._seg = _Segment(['지난 업무', '작성 공문'], self.show_tab)
+        self._seg = _Segment(['지난 업무', '저장 공문'], self.show_tab)
         head.addWidget(self._seg)
         root.addLayout(head)
 
@@ -303,7 +303,7 @@ class HistoryDialog(QDialog):
         delete_task_history(r['id'])
         self._gone(wrap, group, count_lbl)
 
-    # ── 작성 공문 ───────────────────────────────────────────────
+    # ── 저장 공문 ───────────────────────────────────────────────
     def _build_doc_page(self):
         lay = QVBoxLayout(self._doc_page)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -393,7 +393,7 @@ class HistoryDialog(QDialog):
     def _reload_docs(self, keep_id=None):
         from db import get_official_documents
         docs = get_official_documents()
-        self._seg.set_label(1, f'작성 공문  {len(docs)}' if docs else '작성 공문')
+        self._seg.set_label(1, f'저장 공문  {len(docs)}' if docs else '저장 공문')
         self._doc_list.clear()
         self._doc_empty.setVisible(not docs)
         self._doc_split.setVisible(bool(docs))

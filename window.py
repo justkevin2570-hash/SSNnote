@@ -1027,7 +1027,7 @@ class MemoWindow(QMainWindow):
             Command('₩ 예산 관리', self._open_budget_window, '', 'budget money 돈 집행'),
             Command('📅 월간 달력', self._show_monthly_calendar, '', 'calendar 일정 캘린더'),
             Command('📜 지난 업무', lambda: self._show_history(0), '', 'history 지난 기록 삭제 되살리기 복원'),
-            Command('🗂 작성 공문', lambda: self._show_history(1), '', 'document 공문 저장 기록 지난 기록'),
+            Command('🗂 저장 공문', lambda: self._show_history(1), '', 'document 공문 저장 기록 지난 기록'),
             Command('📌 항상 위에 ' + ('고정 끄기' if on_top else '고정'), self.toggle_always_on_top,
                     'Ctrl+Shift+F', 'pin top 핀'),
             Command('↕️ 업무창 접기/펼치기', self.toggle_shade, 'Ctrl+Shift+R', 'shade fold collapse'),
@@ -1393,7 +1393,7 @@ class MemoWindow(QMainWindow):
             menu.close()
 
     def _show_history(self, tab=None):
-        """지난 기록 창 (지난 업무 · 작성 공문). tab: 0 지난 업무, 1 작성 공문, None이면 마지막에 본 칸."""
+        """지난 기록 창 (지난 업무 · 저장 공문). tab: 0 지난 업무, 1 저장 공문, None이면 마지막에 본 칸."""
         from ui.history_dialog import HistoryDialog
 
         def restore(r):
