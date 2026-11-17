@@ -780,3 +780,12 @@ def test_cost_text_badge(win):
     assert g.text() == '전기요금' and g.icon.isHidden() and not g.label.isHidden()
     assert budget._cost_chip_text('여비', 100, 50) == '50%'
     assert budget._cost_chip_text('전기요금', 100, 50) == '전기요금  50%'
+
+
+def test_cost_badge_six_letters(win):
+    """기간제교원법정부담금은 「기간제 / 부담금」 두 줄 글자 아이콘 (자홍)."""
+    import budget
+    from budget_types import cost_style
+    assert cost_style('기간제교원법정부담금')[0] == '기간제부담금' and cost_style('기간제교원법정부담금')[2] == '#A21CAF'
+    t = budget._CostTag('기간제교원법정부담금')
+    assert t.text() == '기간제부담금' and not t.icon.isHidden() and t.toolTip() == '기간제교원법정부담금'
