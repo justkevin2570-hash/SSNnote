@@ -1,4 +1,4 @@
-"""공문 작성: 작은 시작 창(제목 · 관련 번호 · 종류 · 붙임 · 캡처 · 지난 공문 · [공문 작성]) → 작성 화면으로 펼치기."""
+"""공문 작성: 작은 시작 창(제목 · 관련 번호 · 종류 · 붙임 · 저장한 공문 · [공문 작성]) → 작성 화면으로 펼치기."""
 import sys
 
 import pytest
@@ -35,8 +35,8 @@ def test_opens_as_small_start_window(ed):
     assert w._mode == 'start' and w.start_page.isVisible() and not w.fold.isVisible()
     assert w.width() <= 620 and w.height() < 260
     assert w.title_input.placeholderText() == '공문 제목'
-    assert w.btn_start_go.text() == '공문 작성' and w.btn_past.text() == '지난 공문'
-    assert w.btn_start_capture.text() == '' and 'Ctrl+Shift+X' in w.btn_start_capture.toolTip()
+    assert w.btn_start_go.text() == '공문 작성' and w.btn_past.text() == '저장한 공문'
+    assert w.btn_start_capture.isHidden() and w.btn_past.objectName() == 'SavedDocs'   # 캡처 단추 없음 (단축키로)
     assert 'Ctrl' in w.lbl_hint.text() and 'Shift' in w.lbl_hint.text()          # 안내 줄: 캡처 단축키
     assert w.title_input.parent() is w.start_page
 

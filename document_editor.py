@@ -137,6 +137,9 @@ _STYLE_TEMPLATE = f"""
     QFrame#StartSep {{ background: {C.BORDER}; border: none; }}
     QPushButton#StartIcon {{ padding: 0; min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; }}
     QPushButton#StartChip {{ padding: 0 10px; min-height: 30px; max-height: 30px; font-weight: 600; color: {C.TEXT}; }}
+    QPushButton#SavedDocs {{ padding: 0 12px; min-height: 30px; max-height: 30px; font-weight: 700;
+        background: #E6F6F3; border: 1px solid #A7DED4; color: #0F766E; }}
+    QPushButton#SavedDocs:hover {{ background: #D3EFE9; border-color: #5EC4B3; }}
     QPushButton[copied="true"] {{ background: #ECFDF5; border-color: #A7F3D0; color: #047857; }}
     QListWidget#PastList {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 4px; }}
     QListWidget#PastList::item {{ padding: 8px 8px; border-radius: 6px; color: {C.TEXT}; }}
@@ -856,12 +859,12 @@ def _school_year_bump(text):
 
 
 class PastDocumentsDialog(QDialog):
-    """「지난 공문」: 저장한 공문을 제목으로 찾아 고르는 작은 창. 고른 공문은 chosen."""
+    """「저장한 공문」: 저장한 공문을 제목으로 찾아 고르는 작은 창. 고른 공문은 chosen."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         from PyQt5.QtWidgets import QListWidget, QListWidgetItem
-        self.setWindowTitle('지난 공문')
+        self.setWindowTitle('저장한 공문')
         self.setStyleSheet(_style())
         self.setMinimumSize(460, 420)
         self.chosen = None
@@ -1220,7 +1223,7 @@ class DocumentEditorWindow(QMainWindow):
         self._build_start_page()
         self._enter_start(first=True)
 
-    # ── 시작 화면 (작은 창: 제목 · 관련 번호 · 종류 · 붙임 · 캡처 · 지난 공문 · [공문 작성]) ──
+    # ── 시작 화면 (작은 창: 제목 · 관련 번호 · 종류 · 붙임 · 저장한 공문 · [공문 작성]) ──
     _mode = 'edit'
     START_W = 460
 
@@ -1247,8 +1250,9 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_start_capture.setToolTip('받은 공문 캡처 (Ctrl+Shift+X)')
         self.btn_start_capture.setCursor(Qt.PointingHandCursor)
         self.btn_start_capture.clicked.connect(lambda: self._start_capture())
-        self.btn_past = QPushButton('지난 공문')
-        self.btn_past.setObjectName('StartChip')
+        self.btn_start_capture.hide()                 # 캡처는 단축키(Ctrl+Shift+X)로 — 안내 줄에 적혀 있음
+        self.btn_past = QPushButton('저장한 공문')
+        self.btn_past.setObjectName('SavedDocs')        # 옅은 청록 바탕 (보라 [공문 작성]과 구분)
         self.btn_past.setCursor(Qt.PointingHandCursor)
         self.btn_past.clicked.connect(self._open_past_documents)
         self.btn_ai_dot = QPushButton()               # (예전 AI 점 — 이제 머리줄 AI 단추를 씀)
@@ -1261,7 +1265,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_start_go.clicked.connect(self._start_go)
         bar.addWidget(self.btn_doc_type)
         bar.addWidget(self.btn_attach)
-        for w in (sep, self.btn_start_capture, self.btn_past):
+        for w in (sep, self.btn_past):
             bar.addWidget(w)
         bar.addStretch(1)
         bar.addWidget(self.btn_start_go)
@@ -1539,7 +1543,7 @@ class DocumentEditorWindow(QMainWindow):
         title, ref, body = d.get('title', ''), d.get('doc_number', '') or '', d.get('content', '') or ''
         old, new = _school_year_bump(title + '\n' + body)
         if old and new:
-            ans = QMessageBox.question(self, '지난 공문 불러오기',
+            ans = QMessageBox.question(self, '저장한 공문 불러오기',
                                        f'「{old}학년도」를 「{new}학년도」로 바꿔서 불러올까요?',
                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
             if ans == QMessageBox.Yes:
@@ -1553,7 +1557,7 @@ class DocumentEditorWindow(QMainWindow):
         self._enter_edit(generate=False)
         self._replace_body(body)
         self._last_draft = self.editor.toPlainText()
-        self.statusBar().showMessage('지난 공문을 불러왔어요. 고쳐 쓴 뒤 저장하면 새 공문으로 남아요.')
+        self.statusBar().showMessage('저장한 공문을 불러왔어요. 고쳐 쓴 뒤 저장하면 새 공문으로 남아요.')
 
     # ── 선택 부분 다듬기 ──
     def _show_editor_menu(self, pos):
