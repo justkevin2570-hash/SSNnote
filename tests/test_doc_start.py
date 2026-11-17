@@ -123,8 +123,22 @@ def test_capture_in_start_stays_folded(ed, monkeypatch):
     monkeypatch.setattr(w, '_restore_after_capture', lambda: None)
     w._on_capture_complete(QPixmap(20, 20))
     assert w._mode == 'start' and not w.fold.isVisible() and '읽는 중' in w.lbl_hint.text()
+    w._quick_fill_from_ocr('수신 각 학교장\n제목 2학기 진로교육 운영 계획 제출\n진로교육과-1234 (2026. 11. 10.)')
+    assert w.title_input.text() == '2학기 진로교육 운영 계획 제출'           # AI를 기다리지 않고 바로
+    assert w.ref_input.text() == '진로교육과-1234(2026. 11. 10.)' and w._mode == 'start'
+    w._on_analyzed('2학기 진로교육 운영 계획 제출(정정)', '진로교육과-1234(2026. 11. 10.)')
+    assert w.title_input.text() == '2학기 진로교육 운영 계획 제출(정정)'      # AI 결과로 고침
+    w._quick_fill_from_ocr('제목 늦게 온 글자 인식')                       # AI가 먼저 끝났으면 덮지 않음
+    assert w.title_input.text() == '2학기 진로교육 운영 계획 제출(정정)'
     w.panel._set_status('분석 완료', 'done')
     assert '채웠어요' in w.lbl_hint.text() and w._mode == 'start'
-    w.title_input.setText('제출 공문')
     w._start_go()
-    assert w._mode == 'edit' and w.recv_card.isVisible()          # 펼치면 본문 위에 받은 공문 요약
+    assert w._mode == 'edit' and not w.panel.isVisible()            # 받은 공문 요약 칸은 없음
+
+
+def test_quick_fields():
+    import document_editor as de
+    assert de._quick_fields('') == ('', '')
+    t, n = de._quick_fields('제목: 학부모 상담 주간 운영 안내\n중 등 교 육 과-56 7 8(2026.3.2.)')
+    assert t == '학부모 상담 주간 운영 안내' and n == '중등교육과-5678(2026. 3. 2.)'
+    assert de._quick_fields('아무 글자')[0] == ''                       # 「제목」 줄이 없으면 제목은 비움

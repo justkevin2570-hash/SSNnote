@@ -821,6 +821,28 @@ from ui.ai_connect import PROVIDERS as _PROVIDERS  # noqa: E402,F401 (테스트�
 from ui import ai_connect  # noqa: E402
 
 
+def _quick_fields(text):
+    """캡처 글자에서 (제목, 공문번호)를 빠르게 찾는다 (못 찾으면 빈 글자). 「제목」 줄이 있으면 그 뒤를 제목으로."""
+    from capture import _normalize_doc_number
+    lines = [re.sub(r'\s+', ' ', l).strip() for l in (text or '').splitlines()]
+    lines = [l for l in lines if l]
+    number = ''
+    for l in lines:
+        m = re.search(r'[가-힣](?:\s?[가-힣])+\s*[-—–]\s*[\dOolI|SBZ][\dOolI|SBZ ]+', l)
+        if m:
+            cand = _normalize_doc_number(l[m.start():])
+            if re.search(r'-\d', cand):
+                number = cand
+                break
+    title = ''
+    for l in lines:
+        m = re.match(r'^제\s*목\s*[:：]?\s*(.+)$', l)
+        if m and len(m.group(1)) >= 2:
+            title = m.group(1).strip()
+            break
+    return title[:120], number
+
+
 def _school_year_bump(text):
     """글 속 가장 최근 「20XX학년도」가 올해 학년도보다 이르면 (그 해, 올해 학년도)를 돌려준다. 아니면 (None, None)."""
     from datetime import date
@@ -998,7 +1020,7 @@ class DocumentEditorWindow(QMainWindow):
         self.panel.header_source = lambda: (self.title_input.text().strip(), self.ref_input.text().strip())
         self.panel.collapse_requested.connect(lambda: self._show_panel(False))
         self.panel.message.connect(self.statusBar().showMessage)
-        self.panel.analyzed.connect(self._fill_from_capture)
+        self.panel.analyzed.connect(self._on_analyzed)
         self.splitter.addWidget(self.panel)
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -1276,26 +1298,9 @@ class DocumentEditorWindow(QMainWindow):
         v = QVBoxLayout(fold)
         v.setContentsMargins(12, 2, 12, 10)
         v.setSpacing(8)
-        # 받은 공문 요약: 캡처했을 때만 보이는 접는 카드
-        card = QFrame()
-        card.setObjectName('RecvCard')
-        cl = QVBoxLayout(card)
-        cl.setContentsMargins(0, 0, 0, 0)
-        cl.setSpacing(0)
-        self.btn_recv = QPushButton()
-        self.btn_recv.setObjectName('RecvToggle')
-        self.btn_recv.setCursor(Qt.PointingHandCursor)
-        self.btn_recv.clicked.connect(lambda: self._show_panel(not self.panel.isVisible()))
-        cl.addWidget(self.btn_recv)
-        self.panel.setParent(None)
-        self.panel.setMinimumWidth(0)
-        self.panel.setMaximumHeight(260)
-        self.panel.btn_collapse.hide()
-        cl.addWidget(self.panel)
+        # 받은 공문 칸(요약)은 화면에 두지 않는다 — 캡처 분석은 안 보이게 남겨 두고 초안 · AI 요청의 참고로만 쓴다
+        self.panel.setParent(fold)
         self.panel.hide()
-        card.hide()
-        self.recv_card = card
-        v.addWidget(card)
         for w in (self.editor, self.ai_answer, self.ai_confirm, self.ai_frame):
             w.setParent(None)
         v.addWidget(self.editor, 1)
@@ -1315,7 +1320,6 @@ class DocumentEditorWindow(QMainWindow):
         fold.hide()
         self._root.insertWidget(2, fold, 1)
         self.fold = fold
-        self._update_recv_toggle()
 
     # ── 안내 줄 ──
     def _set_hint(self, text=None, state=''):
@@ -1330,13 +1334,9 @@ class DocumentEditorWindow(QMainWindow):
 
     def _on_panel_status(self, text, state):
         if state == 'done':
-            if self._mode == 'start':
-                self._set_hint('✓ 제목 · 공문번호를 채웠어요. 요약은 [공문 작성]을 누르면 보여요', 'done')
-            else:
-                self._set_hint('✓ 받은 공문을 읽었어요. 요약은 본문 위 「받은 공문 요약」에', 'done')
+            self._set_hint('✓ 제목 · 공문번호를 채웠어요', 'done')
         elif state == 'error':
             self._set_hint('⚠ 공문을 읽지 못했어요. 다시 캡처해 보세요', 'error')
-        self._update_recv_toggle()
 
     def _update_ai_dot(self):
         pass
@@ -1412,10 +1412,8 @@ class DocumentEditorWindow(QMainWindow):
         self.setMaximumHeight(16777215)
         self.fold.show()
         self.statusBar().show()
-        self._update_recv_toggle()
-        self._set_hint()
-        if self.panel.has_content():
-            self._show_panel(True)
+        if not self.panel._worker or not self.panel._worker.isRunning():
+            self._set_hint()
         try:
             from ui import motion
             animate = motion.load()['enabled'] and self.isVisible()
@@ -2543,11 +2541,10 @@ class DocumentEditorWindow(QMainWindow):
         if load_ai_mode() == 'none':
             self._ocr_fallback(pixmap, self._capture_target())
             return
-        if self._mode == 'edit':
-            self._show_panel(True)                 # 펼쳐져 있으면 본문 위 요약 카드를 연다 (접혀 있으면 그대로)
+        self._ai_filled = False
         self.panel.add_capture(pixmap)
-        self._update_recv_toggle()
         self._set_hint('⏳ 받은 공문을 읽는 중…', 'busy')
+        self._quick_ocr(pixmap)                    # AI를 기다리지 않고 PC 글자 인식으로 먼저 칸을 채움
         n = self.panel.capture_count()
         self.statusBar().showMessage(
             f'캡처 {n}장을 합쳐서 AI가 다시 읽는 중… (다른 공문은 왼쪽 [새 공문])' if n > 1
@@ -2558,25 +2555,36 @@ class DocumentEditorWindow(QMainWindow):
     _panel_extra = 0          # 칸을 펼치면서 넓힌 창 폭
 
     def _show_panel(self, show: bool):
-        """받은 공문 요약 카드 펼치기/접기 (본문 위, 창 폭은 그대로)."""
-        if show:
-            self.recv_card.show()
-        self.panel.setVisible(show)
-        self._update_recv_toggle()
+        """(예전 「받은 공문」 칸) 이제 화면에 보이지 않는다 — 분석 내용은 초안 · AI 요청 참고로만."""
+        self.panel.hide()
 
     def _update_recv_toggle(self):
-        if not hasattr(self, 'recv_card'):
-            return
-        has = self.panel.has_content() or self.panel.capture_count() > 0
-        self.recv_card.setVisible(has and self._mode == 'edit')
-        open_ = self.panel.isVisible()
-        deadline = ''
+        pass
+
+    # ── 캡처 직후 바로 채우기 (PC 글자 인식) ──
+    def _quick_ocr(self, pixmap):
         try:
-            a = getattr(self.panel, '_analysis', {}) or {}
-            deadline = (a.get('deadline') or '').strip()
-        except Exception:
-            pass
-        self.btn_recv.setText(('▾  ' if open_ else '▸  ') + '받은 공문 요약' + (f'  ·  기한 {deadline}' if deadline else ''))
+            import winrt  # noqa: F401  (Windows 10 이상 글자 인식)
+        except ImportError:
+            return
+        from capture import run_ocr
+        self._quick_worker = run_ocr(pixmap, self._quick_fill_from_ocr, lambda _m: None)
+
+    def _quick_fill_from_ocr(self, text):
+        """PC 글자 인식 결과에서 공문번호 · 제목으로 보이는 줄을 찾아 먼저 넣는다.
+        AI가 먼저 끝났으면 넣지 않고, AI 결과가 오면 이 값을 더 정확한 값으로 바꾼다."""
+        if getattr(self, '_ai_filled', False):
+            return
+        title, number = _quick_fields(text)
+        if not (title or number):
+            return
+        self._fill_from_capture(title, number)
+        if self.panel._worker is not None and self.panel._worker.isRunning():
+            self._set_hint('✓ 제목 · 공문번호를 넣었어요 · AI가 다듬는 중…', 'busy')
+
+    def _on_analyzed(self, title, doc_number):
+        self._ai_filled = True
+        self._fill_from_capture(title, doc_number)
 
     def _fill_from_capture(self, title: str, doc_number: str):
         """캡처 분석 결과를 오른쪽 제목·관련 번호 칸에도 넣는다. 찾은 값만 넣고, 칸이 비어 있거나
