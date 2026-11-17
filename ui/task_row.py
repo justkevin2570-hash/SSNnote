@@ -901,7 +901,7 @@ class TaskRow(QWidget):
             period = u['breathe'] or 3.0
             btn = self.btn_star
 
-            def glow(t, eff=eff, period=period, btn=btn):   # 세로선 10번에 한 번만 깜빡임 (정신없지 않게)
+            def glow(t, eff=eff, period=period, btn=btn):   # 세로선 5번에 한 번만 깜빡임 (정신없지 않게)
                 try:
                     # 마우스를 올리면 멈추고 또렷하게 (누를 곳이 보이게)
                     eff.setOpacity(1.0 if btn.underMouse() else motion.star_blink(t, period))
@@ -921,7 +921,7 @@ class TaskRow(QWidget):
         if color:
             self.btn_star.setText('')
             from .common import outline_star_icon
-            self.btn_star.setIcon(outline_star_icon(tc(color), self._star_sz, stroke=2.5))
+            self.btn_star.setIcon(outline_star_icon(tc(color), self._star_sz, stroke=1.9))
             self.btn_star.setIconSize(QSize(self._star_sz, self._star_sz))
             self.btn_star.setStyleSheet("""
                 QPushButton { border: none; padding: 0; }

@@ -305,11 +305,12 @@ def test_plain_star_blinks_orange_with_side_line(env):
     assert getattr(rows['먼 마감'], '_plain_star_color', None) is None                  # 먼 마감은 회색 그대로
 
 
-def test_star_blinks_once_every_ten_line_breaths():
+def test_star_blinks_once_every_five_line_breaths():
     from ui import motion
+    assert motion.STAR_EVERY == 5
     period = 3.0
-    vals = [motion.star_blink(t / 10, period) for t in range(0, int(period * 10 * 10))]   # 세로선 10번 동안
+    vals = [motion.star_blink(t / 10, period) for t in range(0, int(period * 10 * 5))]    # 세로선 5번 동안
     assert min(vals) < 0.05                                   # 한 번은 거의 사라졌다
     first, rest = vals[:int(period * 10)], vals[int(period * 10):]
-    assert min(first) < 0.05 and min(rest) == 1.0             # 첫 박자에만 깜빡이고 나머지 9번은 또렷
+    assert min(first) < 0.05 and min(rest) == 1.0             # 첫 박자에만 깜빡이고 나머지 4번은 또렷
     assert motion.star_blink(1.0, 0) == 1.0
