@@ -962,7 +962,7 @@ class _BudgetTable(QTableWidget):
         return r - (r % 2) if (r - (r % 2)) in self.row_items else -1
 
     def set_hover_row(self, r):
-        """마우스를 올린 줄: 바탕을 옅게 칠해 어느 줄을 우클릭할지 보이게."""
+        """마우스를 올린 줄: 바탕을 옅게 칠하고, 그 줄의 아이콘(＋ · ✓)만 보이게."""
         if r == self._hover_row:
             return
         self.viewport().update()
@@ -2199,6 +2199,10 @@ class BudgetWindow(QMainWindow):
         for wdg in (dcell, wrap):                        # 칸 속 위젯 위에 있어도 그 줄을 '마우스 올린 줄'로
             t.watch_row(wdg)
         t.row_items[r] = item['id']
+        # 줄 아이콘(＋ 쓴 돈 추가 · ✓ 완료 / ↺ 완료 취소)은 마우스를 올린 줄에만 (set_hover_row)
+        t.action_buttons[r] = tuple(dcell.row_buttons.values())
+        for b in t.action_buttons[r]:
+            b.setVisible(r == t._hover_row)
         if C.OFFICE and _level(pct, done) == 'warn':        # 사무형: 거의 다 쓴 줄은 연한 주황 바탕
             t.tint_rows[r] = C.WARN_BG
         t.setRowHeight(r, sz['row_h'])
