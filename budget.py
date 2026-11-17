@@ -891,14 +891,16 @@ def _cost_pixmap(cost, size):
     rad = max(4.0, size * 0.24)
     p.drawRoundedRect(QRectF(0, 0, w, size), rad, rad)
     text = st[0]
-    two = len(text) == 4
+    two = len(text) >= 4                         # 4글자 이상은 두 줄 (교육/운영, 기간제/부담금)
     if two:
-        text = text[:2] + '\n' + text[2:]
+        half = (len(text) + 1) // 2
+        text = text[:half] + '\n' + text[half:]
+    wide = two and len(text) > 5                 # 한 줄에 3글자면 조금 작게
     _load_pretendard()
     f = QFont()
     f.setFamilies(list(_UI_FONTS))
     f.setWeight(QFont.Bold)
-    f.setPixelSize(max(7, int(round(size * (0.37 if two else 0.4)))))
+    f.setPixelSize(max(7, int(round(size * (0.32 if wide else 0.37 if two else 0.4)))))
     f.setLetterSpacing(QFont.PercentageSpacing, 94)
     p.setFont(f)
     p.setPen(col)
