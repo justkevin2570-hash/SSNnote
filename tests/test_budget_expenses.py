@@ -170,7 +170,7 @@ def test_row_is_collapsed_by_default_without_summary(win):
     assert cell._table.rowHeight(cell._row) == budget._sizes()['row_h']   # 항목 줄 높이는 그대로
     cell._state['open'] = True
     cell.set_expenses(cell._expenses)
-    first = cell._dv.itemAt(0).layout()                          # 맨 위 줄 = 명목 없음 (날짜 없이)
+    first = cell._dv.itemAt(0).widget().layout()                 # 맨 위 줄 = 명목 없음 (날짜 없이)
     first_labels = [first.itemAt(i).widget().text() for i in range(first.count())
                     if isinstance(first.itemAt(i).widget(), type(cell.lbl_sum))]
     assert first_labels == ['', '명목 없음', '150,000원']
@@ -434,3 +434,35 @@ def test_name_is_selectable_click_toggles_and_copy(win):
     app.clipboard().clear()
     QTest.keyClick(name, Qt.Key_C, Qt.ControlModifier)                     # Ctrl+C → 복사
     assert app.clipboard().text() == '2학기 방과후 강사 수당'
+
+
+def test_expense_row_buttons_next_to_purpose_and_only_on_hover(win):
+    w, db, budget, app = win
+    from PyQt5.QtCore import QEvent
+    iid = _open_one_item(w, db, spent=0)
+    db.add_budget_expense(iid, 150000, '체육대회', '2026-09-12')
+    w._expense_ui[iid] = {'open': True}
+    w.refresh()
+    w.show()
+    app.processEvents()
+    cell = _cell(w, iid)
+    row = next(r for r in cell.detail.findChildren(budget._EntryRow))
+    assert row.buttons and not any(b.isVisible() for b in row.buttons)          # 평소엔 숨김
+    row.enterEvent(QEvent(QEvent.Enter))
+    assert all(b.isVisible() for b in row.buttons)                              # 마우스를 올리면
+    lay = row.layout()
+    order = [lay.itemAt(i) for i in range(lay.count())]
+    purpose_i = next(i for i, it in enumerate(order) if it.widget() and it.widget().text() == '체육대회')
+    amount_i = next(i for i, it in enumerate(order) if it.widget() and it.widget().text() == '150,000원')
+    assert order[purpose_i + 1].layout() is not None and amount_i > purpose_i + 1   # 쓴 곳 바로 오른쪽, 금액은 끝
+
+
+def test_edit_dialog_labels(win):
+    w, db, budget, app = win
+    from PyQt5.QtWidgets import QLabel
+    item = {'id': 1, 'category_id': 1, 'cost_type': '여비', 'description': '인솔 여비',
+            'budget': 1000, 'spent': 500, 'completed': 0}
+    dlg = budget._SpendDialog(item, [], w, expense={'id': 3, 'amount': 500, 'purpose': '버스', 'spent_on': '2026-11-01'})
+    texts = [lb.text() for lb in dlg.findChildren(QLabel)]
+    assert '사용 금액' in texts and '사용 내역' in texts and '날짜' in texts and '쓴 곳 · 날짜' not in texts
+    dlg.close()

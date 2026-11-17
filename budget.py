@@ -2917,6 +2917,30 @@ class _ImportPreviewDialog(QDialog):
 
 
 # ── 예산 항목 추가/수정 다이얼로그 ────────────────────────────────
+class _EntryRow(QWidget):
+    """사용 내역 한 줄. 마우스를 올린 동안만 고치기 · 지우기 단추를 보인다."""
+
+    def __init__(self):
+        super().__init__()
+        self.buttons = []
+        self.setAttribute(Qt.WA_StyledBackground, False)
+
+    def show_buttons(self, on):
+        for b in self.buttons:
+            b.setVisible(on)
+
+    def enterEvent(self, e):
+        self.show_buttons(True)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        # 줄 안의 단추 · 글자로 옮겨 가도 '떠남'이 오므로, 마우스가 정말 줄 밖으로 나갔을 때만 숨긴다
+        from PyQt5.QtGui import QCursor
+        if not self.rect().contains(self.mapFromGlobal(QCursor.pos())):
+            self.show_buttons(False)
+        super().leaveEvent(e)
+
+
 class _CostTag(QFrame):
     """산출내역 옆 원가통계비목 꼬리표. 자주 쓰는 11개는 색 아이콘 + 줄임말(옅은 같은 색 바탕),
     나머지는 원래 이름을 회색으로. 마우스를 올리면 원래 이름."""
@@ -3154,12 +3178,12 @@ class _DescCell(QWidget):
     def _rebuild_detail(self, unassigned):
         self._clear_layout(self._dv)
         if unassigned > 0:
-            self._dv.addLayout(self._entry_row('', '명목 없음', unassigned,
+            self._dv.addWidget(self._entry_row('', '명목 없음', unassigned,
                                                ex={'id': None, 'amount': unassigned, 'purpose': '', 'spent_on': ''}))
         more = bool(self._state.get('more'))
         shown = self._expenses if more else self._expenses[:self.SHOW]
         for ex in shown:
-            self._dv.addLayout(self._entry_row(ex['spent_on'] or '-', ex['purpose'], ex['amount'], ex['id'], ex))
+            self._dv.addWidget(self._entry_row(ex['spent_on'] or '-', ex['purpose'], ex['amount'], ex['id'], ex))
         if len(self._expenses) > self.SHOW:
             left = len(self._expenses) - self.SHOW
             btn = QPushButton('접기' if more else f'더 보기 ({left}건 더)')
@@ -3176,8 +3200,11 @@ class _DescCell(QWidget):
             self._dv.addWidget(warn)
 
     def _entry_row(self, date, purpose, amount, eid=None, ex=None):
-        """사용 내역 한 줄: 날짜 · 쓴 곳 · 금액 · [연필] [휴지통]. 글자는 드래그해서 복사, 줄을 더블클릭하면 고치기."""
-        row = QHBoxLayout()
+        """사용 내역 한 줄: 날짜 · 쓴 곳 · [연필] [휴지통] ······ 금액.
+        단추는 쓴 곳 바로 오른쪽, 그 줄에 마우스를 올렸을 때만. 글자는 드래그해서 복사, 줄을 더블클릭하면 고치기."""
+        row_w = _EntryRow()
+        row = QHBoxLayout(row_w)
+        row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
         d = QLabel(date)
         d.setFixedWidth(_sz(88))
@@ -3190,13 +3217,13 @@ class _DescCell(QWidget):
         for lb in (d, p, a):
             _make_selectable(lb)
         row.addWidget(d)
-        row.addWidget(p, 1)
-        row.addWidget(a)
+        row.addWidget(p)
         btns = QHBoxLayout()                          # 아이콘 단추 둘은 조금 붙여서
         btns.setSpacing(px(4))
         row.addLayout(btns)
-        editable = ex is not None and self._on_edit is not None
-        if editable:
+        row.addStretch(1)
+        row.addWidget(a)
+        if ex is not None and self._on_edit is not None:
             for lb in (d, p, a):
                 lb.installEventFilter(self)
                 lb.setProperty('expense', ex)
@@ -3204,19 +3231,16 @@ class _DescCell(QWidget):
                                '쓴 곳 · 날짜 적기 (기록으로 남겨요)' if eid is None else '이 사용 내역 고치기')
             e.clicked.connect(lambda _, ex=ex: self._on_edit(ex))
             btns.addWidget(e)
-        else:
-            spacer = QWidget()
-            spacer.setFixedSize(_RowIconButton.side(), _RowIconButton.side())
-            btns.addWidget(spacer)
-        if eid is None:                              # 명목 없음: 지우기 자리는 비워 아이콘 줄을 맞춤
-            spacer = QWidget()
-            spacer.setFixedSize(_RowIconButton.side(), _RowIconButton.side())
-            btns.addWidget(spacer)
-            return row
-        x = _RowIconButton('ph.trash', C.NEG, C.OVER_SOFT, '이 사용 내역 지우기 (집행액도 그만큼 줄어요)')
-        x.clicked.connect(lambda _, eid=eid: self._on_delete(eid))
-        btns.addWidget(x)
-        return row
+            row_w.buttons.append(e)
+        if eid is not None:
+            x = _RowIconButton('ph.trash', C.NEG, C.OVER_SOFT, '이 사용 내역 지우기 (집행액도 그만큼 줄어요)')
+            x.clicked.connect(lambda _, eid=eid: self._on_delete(eid))
+            btns.addWidget(x)
+            row_w.buttons.append(x)
+        h = _RowIconButton.side()                     # 단추가 숨어도 줄 높이는 그대로
+        row_w.setMinimumHeight(h)
+        row_w.show_buttons(False)
+        return row_w
 
     def eventFilter(self, obj, e):
         # 사용 내역 줄 글자를 더블클릭하면 고치기 (낱말 고르기 대신)
@@ -3283,7 +3307,7 @@ class _SpendDialog(QDialog):
         v.addWidget(sub)
         v.addSpacing(6)
 
-        v.addWidget(_ItemDialog._label('이번에 쓴 금액' if expense is None else '쓴 금액'))
+        v.addWidget(_ItemDialog._label('이번에 쓴 금액' if expense is None else '사용 금액'))
         self.edit_spend_now = QLineEdit()                 # 왼쪽 정렬 (다른 칸과 같은 방향, 커서가 왼쪽에서 시작)
         self.edit_spend_now.setPlaceholderText('0')
         self.edit_spend_now.setStyleSheet(
@@ -3293,7 +3317,14 @@ class _SpendDialog(QDialog):
         v.addWidget(self.edit_spend_now)
 
         v.addSpacing(4)
-        v.addWidget(_ItemDialog._label('쓴 곳 · 날짜'))
+        # 이름표: 왼쪽 「사용 내역」(쓴 곳 칸 위) · 오른쪽 「날짜」(날짜 칸 위에 맞춤)
+        labels = QHBoxLayout()
+        labels.setSpacing(8)
+        labels.addWidget(_ItemDialog._label('사용 내역'), 1)
+        lbl_date = _ItemDialog._label('날짜')
+        lbl_date.setFixedWidth(px(_sz(120)))
+        labels.addWidget(lbl_date)
+        v.addLayout(labels)
         where = QHBoxLayout()
         where.setSpacing(8)
         self.edit_purpose = QLineEdit()
