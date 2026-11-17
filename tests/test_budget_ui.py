@@ -58,7 +58,8 @@ def test_columns_name_first_no_spent_and_total_row(win):
     assert w.stat['spent'].text() == '700원' and w.stat['remaining'].text() == '800원'
     assert table.item(0, 2).text() == '300' and '700' in table.item(0, 2).toolTip()   # 집행액은 잔액에 마우스를 올리면
     cell = table.cellWidget(0, 0)
-    assert cell.lbl_name.text() == '강사 수당' and cell.lbl_cost.text() == item['cost_type']
+    from budget_types import short_name
+    assert cell.lbl_name.text() == '강사 수당' and cell.lbl_cost.text() == short_name(item['cost_type'])
     total = w._sec_refs[item['category_id']]['total']
     assert total.item(0, 0).text() == '합계'
     assert total.item(0, 2).text() == _fmt_sum(db, item['category_id'])
@@ -262,11 +263,12 @@ def test_cost_chips_totals_and_filter(win):
     app.processEvents()
     assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 한 줄
     assert w._overview_chips['교육운영비'].isVisible()
-    assert w._overview_chips['교육운영비'].text() == '교육운영비  60%'   # 900 / 1500
+    assert w._overview_chips['교육운영비'].text().endswith('교육운영  60%')   # 900 / 1500 (줄임말 + 아이콘)
+    assert '<img' in w._overview_chips['교육운영비'].text()
     cid = w.categories[0]['id']
     chips = w._sec_refs[cid]['chips']
     assert list(chips) == ['교육운영비', '운영수당']
-    assert chips['교육운영비'].text() == '교육운영비  60%' and '잔액 600원' in chips['교육운영비'].toolTip()
+    assert chips['교육운영비'].text() == '교육운영  60%' and not chips['교육운영비'].icon().isNull() and '잔액 600원' in chips['교육운영비'].toolTip()
     table = w._sec_refs[cid]['tables'][0]
     h_all = table.height()
     chips['운영수당'].click()                                    # 운영수당 줄만

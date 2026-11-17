@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
     QInputDialog, QCheckBox
 )
 from PyQt5.QtCore import Qt, QEvent, QSize, QBuffer, QIODevice, QPoint, QRect, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QImage, QPixmap
+from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QImage, QPixmap, QIcon
 
 from db import (get_budget_categories, add_budget_category, rename_budget_category,
                 delete_budget_category, get_budget_items, add_budget_item,
@@ -847,7 +847,27 @@ def _cost_totals(items):
 
 
 def _cost_chip_text(cost, budget, spent):
-    return f'{cost}  {_pct(spent, budget):.0f}%'
+    from budget_types import short_name
+    return f'{short_name(cost)}  {_pct(spent, budget):.0f}%'
+
+
+def _cost_icon(cost, size=13):
+    """자주 쓰는 비목의 색 아이콘 (아니면 빈 아이콘)."""
+    from budget_types import cost_style
+    st = cost_style(cost)
+    if not st:
+        return QIcon()
+    return qta.icon(st[1], color=st[2])
+
+
+def _cost_icon_html(cost, size=13):
+    from budget_types import cost_style
+    st = cost_style(cost)
+    if not st:
+        return ''
+    from ui.common import icon_png
+    path = icon_png(st[1], st[2], size * 2)
+    return f'<img src="{path}" width="{size}" height="{size}" align="middle">&nbsp;' if path else ''
 
 
 def _cost_chip_tip(cost, budget, spent, n):
@@ -1889,6 +1909,8 @@ class BudgetWindow(QMainWindow):
                 b = QPushButton()
                 b.setCheckable(True)
                 b.setCursor(Qt.PointingHandCursor)
+                b.setIcon(_cost_icon(cost))
+                b.setIconSize(QSize(px(_sz(13)), px(_sz(13))))
                 b.clicked.connect(lambda _, cid=cat['id'], c=cost: self._toggle_cost_filter(cid, c))
                 flow.addWidget(b)
                 chips[cost] = b
@@ -2066,7 +2088,7 @@ class BudgetWindow(QMainWindow):
         for cost, lb in getattr(self, '_overview_chips', {}).items():
             try:
                 b, s, n = totals.get(cost, (0, 0, 0))
-                lb.setText(_cost_chip_text(cost, b, s))
+                lb.setText(_cost_icon_html(cost, px(_sz(13))) + _cost_chip_text(cost, b, s))
                 lb.setToolTip(_cost_chip_tip(cost, b, s, n))
                 lb.setStyleSheet(_cost_chip_qss(b, s, 'QLabel'))
             except RuntimeError:          # 이미 지운 칩
@@ -2895,6 +2917,40 @@ class _ImportPreviewDialog(QDialog):
 
 
 # ── 예산 항목 추가/수정 다이얼로그 ────────────────────────────────
+class _CostTag(QFrame):
+    """산출내역 옆 원가통계비목 꼬리표. 자주 쓰는 11개는 색 아이콘 + 줄임말(옅은 같은 색 바탕),
+    나머지는 원래 이름을 회색으로. 마우스를 올리면 원래 이름."""
+
+    def __init__(self, cost=''):
+        super().__init__()
+        from budget_types import cost_style
+        self.cost = cost
+        st = cost_style(cost)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(5 if st else 6, 1, 7 if st else 6, 1)
+        h.setSpacing(4)
+        self.icon = QLabel()
+        self.label = QLabel(st[0] if st else cost)
+        fs = f'font-size: {_pt(10)}pt;'
+        if st:
+            ip = px(_sz(14))
+            self.icon.setPixmap(qta.icon(st[1], color=st[2]).pixmap(ip, ip))
+            self.icon.setFixedSize(ip, ip)
+            h.addWidget(self.icon)
+            r, g, b = (int(st[2][i:i + 2], 16) for i in (1, 3, 5))      # Qt는 #RRGGBBAA를 못 읽어서 rgba로
+            self.setStyleSheet(f'QFrame {{ background: rgba({r},{g},{b},0.12); border-radius: {C.R_TAG + 2}px; }}'
+                               f'QLabel {{ background: transparent; color: {st[2]}; font-weight: 600; {fs} }}')
+        else:
+            self.icon.hide()
+            self.setStyleSheet(f'QFrame {{ background: {C.TAG_BG}; border-radius: {C.R_TAG}px; }}'
+                               f'QLabel {{ background: transparent; color: {C.MUTED}; {fs} }}')
+        h.addWidget(self.label)
+        self.setToolTip(cost)
+
+    def text(self):
+        return self.label.text()
+
+
 class _RowIconButton(QPushButton):
     """사용 내역 줄의 작은 선 아이콘 단추 (연필 · 휴지통). 벡터 아이콘이라 화면 배율이 커도 선명.
     평소엔 옅은 회색, 마우스를 올리면 옅은 바탕의 둥근 네모와 진한 색 아이콘."""
@@ -3027,10 +3083,7 @@ class _DescCell(QWidget):
         name_row.addWidget(self.btn_toggle)
         name_row.addWidget(self.lbl_name)
         name_row.addSpacing(4)
-        self.lbl_cost = QLabel(item.get('cost_type') or '')       # 원가통계비목 꼬리표 (운영비 · 재료비 …)
-        self.lbl_cost.setObjectName('CostTag')
-        self.lbl_cost.setStyleSheet(f'background: {C.TAG_BG}; color: {C.MUTED}; border-radius: 4px; '
-                                    f'padding: 1px 6px; font-size: {_pt(10)}pt;')   # 칸의 투명 바탕보다 먼저
+        self.lbl_cost = _CostTag(item.get('cost_type') or '')    # 원가통계비목 꼬리표 (자주 쓰는 비목은 아이콘 + 줄임말)
         name_row.addWidget(self.lbl_cost)                          # 칸에 넣은 뒤에 숨겨야 따로 창으로 뜨지 않음
         if not item.get('cost_type'):
             self.lbl_cost.hide()
