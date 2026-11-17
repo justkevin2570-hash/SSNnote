@@ -851,23 +851,71 @@ def _cost_chip_text(cost, budget, spent):
     return f'{short_name(cost)}  {_pct(spent, budget):.0f}%'
 
 
-def _cost_icon(cost, size=13):
+COST_ICON_PX = 17          # 비목 아이콘 크기 (꼬리표 · 칩, 100% 화면 기준)
+_COST_PM_CACHE = {}
+
+
+def _cost_pixmap(cost, size):
+    """비목 아이콘을 size 칸에 꽉 차게 (아이콘마다 그림 여백이 달라도 보이는 크기가 같도록
+    실제 그림 부분만 잘라 같은 크기로 맞춘다). 화면 배율만큼 크게 그려 선명하게."""
+    from budget_types import cost_style
+    st = cost_style(cost)
+    if not st:
+        return None
+    app = QApplication.instance()
+    dpr = max(1.0, app.devicePixelRatio()) if app else 1.0
+    key = (st[1], st[2], size, dpr)
+    if key in _COST_PM_CACHE:
+        return _COST_PM_CACHE[key]
+    big = 128
+    img = qta.icon(st[1], color=st[2]).pixmap(big, big).toImage()
+    img.setDevicePixelRatio(1.0)                     # 픽셀 그대로 다룬다 (화면 배율은 마지막에)
+    # 그림이 있는 부분(투명하지 않은 픽셀)의 테두리
+    xs, ys = [], []
+    for y in range(img.height()):
+        for x in range(img.width()):
+            if (img.pixel(x, y) >> 24) & 0xFF > 24:
+                xs.append(x)
+                ys.append(y)
+    from PyQt5.QtCore import QRect
+    from PyQt5.QtGui import QPainter
+    out_px = int(round(size * dpr))
+    pm = QPixmap(out_px, out_px)
+    pm.fill(Qt.transparent)
+    if xs:
+        box = QRect(min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
+        part = QPixmap.fromImage(img.copy(box))
+        part.setDevicePixelRatio(1.0)
+        part = part.scaled(out_px, out_px, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        p = QPainter(pm)
+        p.drawPixmap((out_px - part.width()) // 2, (out_px - part.height()) // 2, part)
+        p.end()
+    pm.setDevicePixelRatio(dpr)
+    _COST_PM_CACHE[key] = pm
+    return pm
+
+
+def _cost_icon(cost, size=None):
     """자주 쓰는 비목의 색 아이콘 (아니면 빈 아이콘)."""
-    from budget_types import cost_style
-    st = cost_style(cost)
-    if not st:
-        return QIcon()
-    return qta.icon(st[1], color=st[2])
+    pm = _cost_pixmap(cost, size or px(_sz(COST_ICON_PX - 1)))
+    return QIcon(pm) if pm is not None else QIcon()
 
 
-def _cost_icon_html(cost, size=13):
-    from budget_types import cost_style
-    st = cost_style(cost)
-    if not st:
+def _cost_icon_html(cost, size=None):
+    size = size or px(_sz(COST_ICON_PX - 1))
+    pm = _cost_pixmap(cost, size)
+    if pm is None:
         return ''
-    from ui.common import icon_png
-    path = icon_png(st[1], st[2], size * 2)
-    return f'<img src="{path}" width="{size}" height="{size}" align="middle">&nbsp;' if path else ''
+    import os
+    import tempfile
+    from budget_types import cost_style
+    st = cost_style(cost)
+    path = os.path.join(tempfile.gettempdir(),
+                        f"ssnnote_cost_{st[1].replace('.', '_')}_{st[2].strip('#')}_{size}.png")
+    if not os.path.exists(path):
+        pm.save(path)
+    path = path.replace('\\', '/')
+    return f'<img src="{path}" width="{size}" height="{size}" align="middle">&nbsp;'
 
 
 def _cost_chip_tip(cost, budget, spent, n):
@@ -1910,7 +1958,7 @@ class BudgetWindow(QMainWindow):
                 b.setCheckable(True)
                 b.setCursor(Qt.PointingHandCursor)
                 b.setIcon(_cost_icon(cost))
-                b.setIconSize(QSize(px(_sz(13)), px(_sz(13))))
+                b.setIconSize(QSize(px(_sz(COST_ICON_PX - 1)), px(_sz(COST_ICON_PX - 1))))
                 b.clicked.connect(lambda _, cid=cat['id'], c=cost: self._toggle_cost_filter(cid, c))
                 flow.addWidget(b)
                 chips[cost] = b
@@ -2088,7 +2136,7 @@ class BudgetWindow(QMainWindow):
         for cost, lb in getattr(self, '_overview_chips', {}).items():
             try:
                 b, s, n = totals.get(cost, (0, 0, 0))
-                lb.setText(_cost_icon_html(cost, px(_sz(13))) + _cost_chip_text(cost, b, s))
+                lb.setText(_cost_icon_html(cost) + _cost_chip_text(cost, b, s))
                 lb.setToolTip(_cost_chip_tip(cost, b, s, n))
                 lb.setStyleSheet(_cost_chip_qss(b, s, 'QLabel'))
             except RuntimeError:          # 이미 지운 칩
@@ -2957,8 +3005,8 @@ class _CostTag(QFrame):
         self.label = QLabel(st[0] if st else cost)
         fs = f'font-size: {_pt(10)}pt;'
         if st:
-            ip = px(_sz(14))
-            self.icon.setPixmap(qta.icon(st[1], color=st[2]).pixmap(ip, ip))
+            ip = px(_sz(COST_ICON_PX))
+            self.icon.setPixmap(_cost_pixmap(cost, ip))
             self.icon.setFixedSize(ip, ip)
             h.addWidget(self.icon)
             r, g, b = (int(st[2][i:i + 2], 16) for i in (1, 3, 5))      # Qt는 #RRGGBBAA를 못 읽어서 rgba로
