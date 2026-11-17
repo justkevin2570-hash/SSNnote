@@ -3029,7 +3029,14 @@ class _CostTag(QFrame):
         h.setSpacing(0)
         self.icon = QLabel()
         self.label = QLabel(cost)
-        if st:
+        if not (cost or '').strip():                 # 비목 없음: 아이콘 폭만큼 빈 칸 (이름 시작을 맞춤)
+            hh = px(_sz(COST_ICON_PX))
+            h.setContentsMargins(0, 0, 0, 0)
+            self.icon.hide()
+            self.label.hide()
+            self.setFixedSize(_cost_badge_w(hh), hh)
+            self.setStyleSheet('QFrame { background: transparent; }')
+        elif st:
             hh = px(_sz(COST_ICON_PX))
             h.setContentsMargins(0, 0, 0, 0)
             self.icon.setPixmap(_cost_pixmap(cost, hh))
@@ -3044,7 +3051,9 @@ class _CostTag(QFrame):
             self.setStyleSheet(f'QFrame {{ background: {C.TAG_BG}; border-radius: {C.R_TAG}px; }}'
                                f'QLabel {{ background: transparent; color: {C.MUTED}; font-size: {_pt(10)}pt; }}')
             h.addWidget(self.label)
-        self.setToolTip(cost)
+            self.setMinimumWidth(_cost_badge_w(px(_sz(COST_ICON_PX))))
+        if cost:
+            self.setToolTip(cost)
 
     def text(self):
         return self._short
@@ -3180,13 +3189,13 @@ class _DescCell(QWidget):
         self.lbl_sum.setStyleSheet(f'color: {C.MUTED}; font-size: {_pt(10)}pt; background: transparent;')
         name_row.setSpacing(2)
         name_row.addWidget(self.btn_toggle)
+        # 원가통계비목은 이름 왼쪽: 자주 쓰는 비목의 글자 아이콘은 고정 폭이라 이름 시작이 줄마다 같고,
+        # 비목이 없는 줄은 같은 폭의 빈 칸, 나머지 비목은 회색 이름 꼬리표
+        self.lbl_cost = _CostTag(item.get('cost_type') or '')
+        name_row.addWidget(self.lbl_cost)
+        name_row.addSpacing(6)
         name_row.addWidget(self.lbl_name)
-        name_row.addSpacing(4)
-        self.lbl_cost = _CostTag(item.get('cost_type') or '')    # 원가통계비목 꼬리표 (자주 쓰는 비목은 아이콘 + 줄임말)
-        name_row.addWidget(self.lbl_cost)                          # 칸에 넣은 뒤에 숨겨야 따로 창으로 뜨지 않음
-        if not item.get('cost_type'):
-            self.lbl_cost.hide()
-        # 비목 꼬리표 오른쪽: [+ 쓴 돈 추가] [✓ 완료] (완료한 항목은 [↺ 완료 취소]만)
+        # 이름 오른쪽: [+ 쓴 돈 추가] [✓ 완료] (완료한 항목은 [↺ 완료 취소]만)
         # 수정 · 삭제는 우클릭 메뉴, 복사는 이름을 드래그(또는 더블클릭)한 뒤 Ctrl+C
         actions = actions or {}
         self.row_buttons = {}
