@@ -358,7 +358,7 @@ _STAR_BODY = ('M9.104 2.9c0.367-0.744 1.427-0.744 1.794 0l1.93 3.91 4.317 0.628c
               '-0.238-1.45-1.055l0.737-4.299-3.124-3.044C1.71 8.565 2.037 7.557 2.857 7.438l4.317-0.627 1.93-3.912z')
 
 
-def outline_star_icon(color, size, stroke=2.5) -> 'QIcon':
+def outline_star_icon(color, size, stroke=1.9) -> 'QIcon':
     """삐침 없는 빈 별 (테두리만, 굵기 stroke · 둥근 모서리). 화면 배율만큼 크게 그려 선명하게."""
     from PyQt5.QtWidgets import QApplication
     data = (f'<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="-1 -1 22 22">'

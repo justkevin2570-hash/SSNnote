@@ -143,7 +143,7 @@ def remaining_text(seconds: float) -> str:
 
 # ── 움직임 값 ────────────────────────────────────────────────────
 
-STAR_EVERY = 10        # 별은 세로선이 10번 숨쉴 때 한 번만 깜빡인다 (늘 켜져 있다가 잠깐 옅어졌다 돌아옴)
+STAR_EVERY = 5         # 별은 세로선이 5번 숨쉴 때 한 번만 깜빡인다 (늘 켜져 있다가 잠깐 옅어졌다 돌아옴)
 
 
 def star_blink(t: float, period: float, every: int = STAR_EVERY) -> float:
