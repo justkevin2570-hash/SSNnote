@@ -340,6 +340,31 @@ def _svg_icon(svg_path, color, size) -> 'QIcon':
     return QIcon(pm)
 
 
+_STAR_BODY = ('M9.104 2.9c0.367-0.744 1.427-0.744 1.794 0l1.93 3.91 4.317 0.628c0.82 0.12 1.148 1.127 0.554 '
+              '1.706l-3.124 3.044 0.738 4.3c0.14 0.816-0.717 1.44-1.451 1.054l-3.86-2.03-3.862 2.03c-0.733 0.385-1.59'
+              '-0.238-1.45-1.055l0.737-4.299-3.124-3.044C1.71 8.565 2.037 7.557 2.857 7.438l4.317-0.627 1.93-3.912z')
+
+
+def outline_star_icon(color, size, stroke=2.5) -> 'QIcon':
+    """삐침 없는 빈 별 (테두리만, 굵기 stroke · 둥근 모서리). 화면 배율만큼 크게 그려 선명하게."""
+    from PyQt5.QtWidgets import QApplication
+    data = (f'<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="-1 -1 22 22">'
+            f'<path d="{_STAR_BODY}" fill="none" stroke="{color}" stroke-width="{stroke}" '
+            f'stroke-linejoin="round"/></svg>')
+    renderer = QSvgRenderer(data.encode('utf-8'))
+    app = QApplication.instance()
+    dpr = max(1.0, app.devicePixelRatio()) if app else 1.0
+    pm = QPixmap(int(size * dpr * 2), int(size * dpr * 2))
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    renderer.render(p)
+    p.end()
+    pm = pm.scaled(int(size * dpr), int(size * dpr), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    pm.setDevicePixelRatio(dpr)
+    return QIcon(pm)
+
+
 # ── 화면 크기에 맞추기 ───────────────────────────────────────────
 # 노트북처럼 작은 화면이나, 큰 모니터에서 쓰던 창 크기·위치를 그대로 열 때 화면 밖으로 나가지 않게 한다.
 

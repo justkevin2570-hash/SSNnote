@@ -890,7 +890,7 @@ class TaskRow(QWidget):
             self.btn_star.setIconSize(QSize(int(self._star_sz * 0.8), int(self._star_sz * 0.8)))
             self.btn_star.setToolTip('중요한 업무인데 기한이 지났어요')
             return
-        # 보통 업무: 주황 세로줄이 반짝이면 별을 주황으로 채움 (중요 업무는 금색 그대로)
+        # 보통 업무: 주황 세로줄이 반짝이면 별을 굵은 주황 빈 별로 (중요 업무는 금색 그대로)
         orange = (not starred and not self._overdue and not self.task.get('strikethrough')
                   and self._line_style(u, cfg) is not None)
         if not starred:
@@ -914,13 +914,14 @@ class TaskRow(QWidget):
                 self.btn_star.setGraphicsEffect(None)
 
     def _set_plain_star_color(self, color=None):
-        """중요 표시 안 한 업무의 별: color가 있으면 그 색으로 채운 별, 없으면 평소 회색 빈 별."""
+        """중요 표시 안 한 업무의 별: color가 있으면 그 색의 굵은 빈 별(삐침 없음), 없으면 평소 회색 빈 별."""
         if color == getattr(self, '_plain_star_color', None):
             return
         self._plain_star_color = color
         if color:
             self.btn_star.setText('')
-            self.btn_star.setIcon(_svg_icon(self._star_svg, tc(color), self._star_sz))
+            from .common import outline_star_icon
+            self.btn_star.setIcon(outline_star_icon(tc(color), self._star_sz, stroke=2.5))
             self.btn_star.setIconSize(QSize(self._star_sz, self._star_sz))
             self.btn_star.setStyleSheet("""
                 QPushButton { border: none; padding: 0; }
