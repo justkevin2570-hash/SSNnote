@@ -263,12 +263,12 @@ def test_cost_chips_totals_and_filter(win):
     app.processEvents()
     assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 한 줄
     assert w._overview_chips['교육운영비'].isVisible()
-    assert w._overview_chips['교육운영비'].text().endswith('교육운영  60%')   # 900 / 1500 (줄임말 + 아이콘)
+    assert w._overview_chips['교육운영비'].text().endswith('60%')   # 900 / 1500 (글자 아이콘 + 집행률)
     assert '<img' in w._overview_chips['교육운영비'].text()
     cid = w.categories[0]['id']
     chips = w._sec_refs[cid]['chips']
     assert list(chips) == ['교육운영비', '운영수당']
-    assert chips['교육운영비'].text() == '교육운영  60%' and not chips['교육운영비'].icon().isNull() and '잔액 600원' in chips['교육운영비'].toolTip()
+    assert chips['교육운영비'].text() == '60%' and not chips['교육운영비'].icon().isNull() and '잔액 600원' in chips['교육운영비'].toolTip()
     table = w._sec_refs[cid]['tables'][0]
     h_all = table.height()
     chips['운영수당'].click()                                    # 운영수당 줄만
@@ -767,3 +767,16 @@ def test_row_icon_buttons_spend_and_done_only(win, monkeypatch):
     assert calls == [('spend', open_items[0]['id']), ('done', open_items[0]['id'])]
     done_cell = w._row_refs[first['id']]['desc']
     assert list(done_cell.row_buttons) == ['done'] and done_cell.row_buttons['done'].toolTip() == '완료 취소'
+
+
+def test_cost_text_badge(win):
+    """자주 쓰는 비목은 글자 아이콘 하나 (4글자는 두 줄), 나머지는 회색 이름."""
+    import budget
+    t = budget._CostTag('교육운영비')
+    assert t.text() == '교육운영' and not t.icon.isHidden() and t.label.isHidden() and t.toolTip() == '교육운영비'
+    pm = t.icon.pixmap()
+    assert pm is not None and pm.width() > pm.height()
+    g = budget._CostTag('전기요금')
+    assert g.text() == '전기요금' and g.icon.isHidden() and not g.label.isHidden()
+    assert budget._cost_chip_text('여비', 100, 50) == '50%'
+    assert budget._cost_chip_text('전기요금', 100, 50) == '전기요금  50%'

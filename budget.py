@@ -847,62 +847,87 @@ def _cost_totals(items):
 
 
 def _cost_chip_text(cost, budget, spent):
-    from budget_types import short_name
+    from budget_types import short_name, cost_style
+    if cost_style(cost):                       # 글자 아이콘이 이름을 보여 주므로 집행률만
+        return f'{_pct(spent, budget):.0f}%'
     return f'{short_name(cost)}  {_pct(spent, budget):.0f}%'
 
 
-COST_ICON_PX = 17          # 비목 아이콘 크기 (꼬리표 · 칩, 100% 화면 기준)
+COST_ICON_PX = 26          # 비목 글자 아이콘 높이 (꼬리표, 100% 화면 기준)
+COST_CHIP_PX = 24          # 칩 · 요약 줄에 쓰는 조금 작은 글자 아이콘 높이
 _COST_PM_CACHE = {}
 
 
+def _cost_badge_w(h):
+    return int(round(h * 1.32))
+
+
 def _cost_pixmap(cost, size):
-    """비목 아이콘을 size 칸에 꽉 차게 (아이콘마다 그림 여백이 달라도 보이는 크기가 같도록
-    실제 그림 부분만 잘라 같은 크기로 맞춘다). 화면 배율만큼 크게 그려 선명하게."""
+    """비목 글자 아이콘: 옅은 같은 색 바탕의 둥근 네모 안에 줄임말을 진한 색 굵은 글자로.
+    4글자는 두 줄(교육/운영), 2·3글자는 한 줄. size는 높이(논리 px), 너비는 비례.
+    화면 배율만큼 크게 직접 그려 선명하게."""
     from budget_types import cost_style
+    from PyQt5.QtCore import QRectF
+    from PyQt5.QtGui import QPainter, QFont
     st = cost_style(cost)
     if not st:
         return None
     app = QApplication.instance()
     dpr = max(1.0, app.devicePixelRatio()) if app else 1.0
-    key = (st[1], st[2], size, dpr)
+    key = (st[0], st[2], size, dpr)
     if key in _COST_PM_CACHE:
         return _COST_PM_CACHE[key]
-    big = 128
-    img = qta.icon(st[1], color=st[2]).pixmap(big, big).toImage()
-    img.setDevicePixelRatio(1.0)                     # 픽셀 그대로 다룬다 (화면 배율은 마지막에)
-    # 그림이 있는 부분(투명하지 않은 픽셀)의 테두리
-    xs, ys = [], []
-    for y in range(img.height()):
-        for x in range(img.width()):
-            if (img.pixel(x, y) >> 24) & 0xFF > 24:
-                xs.append(x)
-                ys.append(y)
-    from PyQt5.QtCore import QRect
-    from PyQt5.QtGui import QPainter
-    out_px = int(round(size * dpr))
-    pm = QPixmap(out_px, out_px)
-    pm.fill(Qt.transparent)
-    if xs:
-        box = QRect(min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1)
-        part = QPixmap.fromImage(img.copy(box))
-        part.setDevicePixelRatio(1.0)
-        part = part.scaled(out_px, out_px, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        p = QPainter(pm)
-        p.drawPixmap((out_px - part.width()) // 2, (out_px - part.height()) // 2, part)
-        p.end()
+    w = _cost_badge_w(size)
+    pm = QPixmap(int(round(w * dpr)), int(round(size * dpr)))
     pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHints(QPainter.Antialiasing | QPainter.TextAntialiasing)
+    col = QColor(st[2])
+    bg = QColor(col)
+    bg.setAlphaF(0.13)
+    p.setPen(Qt.NoPen)
+    p.setBrush(bg)
+    rad = max(4.0, size * 0.24)
+    p.drawRoundedRect(QRectF(0, 0, w, size), rad, rad)
+    text = st[0]
+    two = len(text) == 4
+    if two:
+        text = text[:2] + '\n' + text[2:]
+    _load_pretendard()
+    f = QFont()
+    f.setFamilies(list(_UI_FONTS))
+    f.setWeight(QFont.Bold)
+    f.setPixelSize(max(7, int(round(size * (0.37 if two else 0.4)))))
+    f.setLetterSpacing(QFont.PercentageSpacing, 94)
+    p.setFont(f)
+    p.setPen(col)
+    if two:
+        # 두 줄은 줄 간격을 좁혀 가운데에 모은다
+        lh = f.pixelSize() * 1.08
+        top = (size - lh * 2) / 2
+        for i, line in enumerate(text.split('\n')):
+            p.drawText(QRectF(0, top + lh * i, w, lh), Qt.AlignCenter, line)
+    else:
+        p.drawText(QRectF(0, 0, w, size), Qt.AlignCenter, text)
+    p.end()
     _COST_PM_CACHE[key] = pm
     return pm
 
 
 def _cost_icon(cost, size=None):
-    """자주 쓰는 비목의 색 아이콘 (아니면 빈 아이콘)."""
-    pm = _cost_pixmap(cost, size or px(_sz(COST_ICON_PX - 1)))
+    """자주 쓰는 비목의 글자 아이콘 (아니면 빈 아이콘)."""
+    pm = _cost_pixmap(cost, size or px(_sz(COST_CHIP_PX)))
     return QIcon(pm) if pm is not None else QIcon()
 
 
+def _cost_icon_size(size=None):
+    h = size or px(_sz(COST_CHIP_PX))
+    return QSize(_cost_badge_w(h), h)
+
+
 def _cost_icon_html(cost, size=None):
-    size = size or px(_sz(COST_ICON_PX - 1))
+    size = size or px(_sz(COST_CHIP_PX))
     pm = _cost_pixmap(cost, size)
     if pm is None:
         return ''
@@ -910,12 +935,13 @@ def _cost_icon_html(cost, size=None):
     import tempfile
     from budget_types import cost_style
     st = cost_style(cost)
+    dpr = pm.devicePixelRatio()
     path = os.path.join(tempfile.gettempdir(),
-                        f"ssnnote_cost_{st[1].replace('.', '_')}_{st[2].strip('#')}_{size}.png")
+                        f"ssnnote_costb_{st[2].strip('#')}_{len(st[0])}_{abs(hash(st[0])) % 99999}_{size}_{int(dpr * 100)}.png")
     if not os.path.exists(path):
         pm.save(path)
     path = path.replace('\\', '/')
-    return f'<img src="{path}" width="{size}" height="{size}" align="middle">&nbsp;'
+    return f'<img src="{path}" width="{_cost_badge_w(size)}" height="{size}" align="middle">&nbsp;'
 
 
 def _cost_chip_tip(cost, budget, spent, n):
@@ -1958,7 +1984,7 @@ class BudgetWindow(QMainWindow):
                 b.setCheckable(True)
                 b.setCursor(Qt.PointingHandCursor)
                 b.setIcon(_cost_icon(cost))
-                b.setIconSize(QSize(px(_sz(COST_ICON_PX - 1)), px(_sz(COST_ICON_PX - 1))))
+                b.setIconSize(_cost_icon_size())
                 b.clicked.connect(lambda _, cid=cat['id'], c=cost: self._toggle_cost_filter(cid, c))
                 flow.addWidget(b)
                 chips[cost] = b
@@ -2990,37 +3016,38 @@ class _EntryRow(QWidget):
 
 
 class _CostTag(QFrame):
-    """산출내역 옆 원가통계비목 꼬리표. 자주 쓰는 11개는 색 아이콘 + 줄임말(옅은 같은 색 바탕),
-    나머지는 원래 이름을 회색으로. 마우스를 올리면 원래 이름."""
+    """산출내역 옆 원가통계비목 꼬리표. 자주 쓰는 11개는 글자 아이콘(옅은 색 바탕 + 색 줄임말,
+    4글자는 두 줄), 나머지는 원래 이름을 회색으로. 마우스를 올리면 원래 이름."""
 
     def __init__(self, cost=''):
         super().__init__()
         from budget_types import cost_style
         self.cost = cost
         st = cost_style(cost)
+        self._short = st[0] if st else cost
         h = QHBoxLayout(self)
-        h.setContentsMargins(5 if st else 6, 1, 7 if st else 6, 1)
-        h.setSpacing(4)
+        h.setSpacing(0)
         self.icon = QLabel()
-        self.label = QLabel(st[0] if st else cost)
-        fs = f'font-size: {_pt(10)}pt;'
+        self.label = QLabel(cost)
         if st:
-            ip = px(_sz(COST_ICON_PX))
-            self.icon.setPixmap(_cost_pixmap(cost, ip))
-            self.icon.setFixedSize(ip, ip)
+            hh = px(_sz(COST_ICON_PX))
+            h.setContentsMargins(0, 0, 0, 0)
+            self.icon.setPixmap(_cost_pixmap(cost, hh))
+            self.icon.setFixedSize(_cost_badge_w(hh), hh)
+            self.icon.setStyleSheet('background: transparent;')
+            self.setStyleSheet('QFrame { background: transparent; }')
             h.addWidget(self.icon)
-            r, g, b = (int(st[2][i:i + 2], 16) for i in (1, 3, 5))      # Qt는 #RRGGBBAA를 못 읽어서 rgba로
-            self.setStyleSheet(f'QFrame {{ background: rgba({r},{g},{b},0.12); border-radius: {C.R_TAG + 2}px; }}'
-                               f'QLabel {{ background: transparent; color: {st[2]}; font-weight: 600; {fs} }}')
+            self.label.hide()
         else:
+            h.setContentsMargins(6, 1, 6, 1)
             self.icon.hide()
             self.setStyleSheet(f'QFrame {{ background: {C.TAG_BG}; border-radius: {C.R_TAG}px; }}'
-                               f'QLabel {{ background: transparent; color: {C.MUTED}; {fs} }}')
-        h.addWidget(self.label)
+                               f'QLabel {{ background: transparent; color: {C.MUTED}; font-size: {_pt(10)}pt; }}')
+            h.addWidget(self.label)
         self.setToolTip(cost)
 
     def text(self):
-        return self.label.text()
+        return self._short
 
 
 class _RowIconButton(QPushButton):
