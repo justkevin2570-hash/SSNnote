@@ -213,19 +213,20 @@ def test_editor_layout_remembered_and_reset(win):
     """공문 작성 창: 위치·크기·받은 공문 칸 폭을 기억하고, 「창 배치 기본값으로」로 되돌린다."""
     import json
     import document_editor as de
-    win._enter_edit(generate=False)                  # 작성 화면 크기를 기억한다 (시작 창은 기억하지 않음)
+    win._enter_edit(generate=False)
+    from PyQt5.QtTest import QTest
+    QTest.qWait(400)
     win._state_ready = True
-    win.setGeometry(120, 130, 950, 700)
-    win._saved_panel_w = 420
+    win.setGeometry(120, 130, 650, 700)
     win._save_window_state()
     s = json.load(open(de.DocumentEditorWindow._STATE_FILE, encoding='utf-8'))
-    assert (s['width'], s['height'], s['panel_w']) == (950, 700, 420)
+    assert (s['width'], s['fold_h']) == (650, 700)              # 가로폭 · 펼친 높이 기억
     w2 = de.DocumentEditorWindow()
-    assert w2._saved_panel_w == 420
-    w2._enter_edit(generate=False)
+    assert w2.width() == 650 and w2._saved_h == 700           # 다음에도 같은 폭으로 (접힌 채 시작)
     w2._state_ready = True
     w2.reset_layout()
-    assert json.load(open(de.DocumentEditorWindow._STATE_FILE, encoding='utf-8'))['panel_w'] == 0
+    import os
+    assert not os.path.exists(de.DocumentEditorWindow._STATE_FILE) and w2._saved_h == 0
     w2._polish = None
     w2.close()
 

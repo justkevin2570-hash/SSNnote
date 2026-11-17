@@ -32,11 +32,12 @@ def ed(tmp_path, monkeypatch):
 
 def test_opens_as_small_start_window(ed):
     w, de, db, app = ed
-    assert w._mode == 'start' and w.start_page.isVisible() and not w.splitter.isVisible()
-    assert w.width() <= 480 and w.height() < 200
+    assert w._mode == 'start' and w.start_page.isVisible() and not w.fold.isVisible()
+    assert w.width() <= 620 and w.height() < 260
     assert w.title_input.placeholderText() == '공문 제목'
     assert w.btn_start_go.text() == '공문 작성' and w.btn_past.text() == '지난 공문'
-    assert w.btn_start_capture.text() == '' and w.btn_start_capture.toolTip() == '받은 공문 캡처'
+    assert w.btn_start_capture.text() == '' and 'Ctrl+Shift+X' in w.btn_start_capture.toolTip()
+    assert 'Ctrl' in w.lbl_hint.text() and 'Shift' in w.lbl_hint.text()          # 안내 줄: 캡처 단축키
     assert w.title_input.parent() is w.start_page
 
 
@@ -45,10 +46,14 @@ def test_enter_with_title_expands_and_drafts(ed):
     w._on_return()                                    # 제목이 비면 펼치지 않음
     assert w._mode == 'start'
     w.title_input.setText('2026학년도 진로 특강 운영 계획')
+    width0, top0 = w.width(), w.y()
     w._on_return()
-    assert w._mode == 'edit' and w.splitter.isVisible() and not w.start_page.isVisible()
+    assert w._mode == 'edit' and w.fold.isVisible() and w.start_page.isVisible()   # 위쪽은 그대로, 아래가 펼쳐짐
     assert '진로 특강' in w.editor.toPlainText()          # 뼈대 초안이 들어감
-    assert w.width() >= 700
+    from PyQt5.QtTest import QTest
+    QTest.qWait(400)
+    assert w.width() == width0 and w.height() >= 420      # 같은 가로폭으로 아래로
+    assert w.btn_start_go.text() == '다시 초안'
 
 
 def test_new_document_returns_to_start(ed, monkeypatch):
@@ -71,7 +76,7 @@ def test_attach_button_and_copy_buttons(ed):
     assert w.btn_attach.text().startswith('붙임 2')
     w.title_input.setText('제목')
     w._start_go()
-    assert not w.btn_copy_ref.isVisible() and w.btn_copy_title.isVisible()
+    assert not w.btn_copy_ref.isVisible() and w.btn_copy_title.isVisible() and w.btn_copy.isVisible()
     w._copy_title()
     assert w.btn_copy_title.text() == '복사됨' and app.clipboard().text() == '제목'
 
@@ -106,3 +111,20 @@ def test_school_year_bump():
     assert de._school_year_bump('2099학년도') == (None, None)
     old, new = de._school_year_bump('2019학년도 · 2020학년도')
     assert old == 2020 and new > 2020
+
+
+def test_capture_in_start_stays_folded(ed, monkeypatch):
+    """접힌 시작 창에서 캡처해도 펼치지 않고, 안내 줄에 진행 상태만. [공문 작성]을 눌러야 펼쳐진다."""
+    w, de, db, app = ed
+    from PyQt5.QtGui import QPixmap
+    monkeypatch.setattr(de, 'load_ai_mode', lambda: 'claude')
+    monkeypatch.setattr(w.panel, '_analyze', lambda: None)
+    w._overlay = type('O', (), {'region_captured': type('S', (), {'disconnect': lambda self: None})()})()
+    monkeypatch.setattr(w, '_restore_after_capture', lambda: None)
+    w._on_capture_complete(QPixmap(20, 20))
+    assert w._mode == 'start' and not w.fold.isVisible() and '읽는 중' in w.lbl_hint.text()
+    w.panel._set_status('분석 완료', 'done')
+    assert '채웠어요' in w.lbl_hint.text() and w._mode == 'start'
+    w.title_input.setText('제출 공문')
+    w._start_go()
+    assert w._mode == 'edit' and w.recv_card.isVisible()          # 펼치면 본문 위에 받은 공문 요약
