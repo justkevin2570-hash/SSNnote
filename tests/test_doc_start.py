@@ -132,6 +132,7 @@ def test_capture_in_start_stays_folded(ed, monkeypatch):
     assert w.title_input.text() == '2학기 진로교육 운영 계획 제출(정정)'
     w.panel._set_status('분석 완료', 'done')
     assert '채웠어요' in w.lbl_hint.text() and w._mode == 'start'
+    monkeypatch.setattr(de, 'load_ai_mode', lambda: 'none')      # 초안은 AI 없이 (시험 중 AI 스레드를 띄우지 않게)
     w._start_go()
     assert w._mode == 'edit' and not w.panel.isVisible()            # 받은 공문 요약 칸은 없음
 
