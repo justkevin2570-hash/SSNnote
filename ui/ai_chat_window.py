@@ -421,6 +421,7 @@ class AiChatWindow(QWidget):
                          same_as_note=True)
         m.addSeparator()
         menu_style.add_action(m, '대화 지우기', self._clear_chat, icon='ph.eraser')
+        menu_style.add_action(m, 'AI 연결', self._open_ai_settings, icon='ph.key')
         self._last_menu = m
         m.exec_(self.btn_more.mapToGlobal(self.btn_more.rect().bottomLeft()))
 
@@ -732,7 +733,11 @@ class AiChatWindow(QWidget):
         except (AttributeError, RuntimeError):
             pass
 
-    # ── AI 연결 (설정은 업무창 메뉴 · 공문 작성 · 예산 창에서) ───────
+    # ── AI 연결 (⋯ → AI 연결, 업무창 메뉴 → 설정 → AI 연결과 같은 창) ───────
+    def _open_ai_settings(self):
+        from .ai_settings_window import open_ai_settings
+        open_ai_settings(self)
+
     def _ai_ready(self):
         try:
             from ai_client import load_ai_mode
@@ -746,7 +751,7 @@ class AiChatWindow(QWidget):
         self.input.setEnabled(not busy)               # AI가 꺼져 있어도 /clear는 되게
         self.btn_send.setEnabled(ready and not busy)
         self.input.setPlaceholderText('AI에게 물어보기 (Enter) · /clear 대화 지우기' if ready
-                                      else 'AI가 꺼져 있어요 — 메뉴 → 설정 → AI 연결에서 연결하세요')
+                                      else 'AI가 꺼져 있어요 — ⋯ → AI 연결')
 
     def _on_ai_changed(self):
         try:
@@ -775,7 +780,7 @@ class AiChatWindow(QWidget):
                 self._add_msg('error', f'모르는 명령이에요: {q} — /clear(대화 지우기)만 쓸 수 있어요.')
             return
         if not self._ai_ready():
-            self._add_msg('error', 'AI가 꺼져 있어요. 메뉴 → 설정 → AI 연결에서 연결하세요.')
+            self._add_msg('error', 'AI가 꺼져 있어요. ⋯ → AI 연결에서 연결하세요.')
             return
         import ai_actions
         app = ChatApp(self)
