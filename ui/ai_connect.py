@@ -1,6 +1,6 @@
 """AI 연결 — 공문 작성 창과 예산 관리 창이 함께 쓰는 연결 메뉴와 연결 순서.
 
-- show_menu(): [AI 설정] 버튼 아래 메뉴 (OpenCode · Claude · ChatGPT · Claude 구독 / AI 끄기 + 창별 추가 항목)
+- show_menu(): [AI 설정] 버튼 아래 메뉴 (구독 계정 연동 2개 / API 연동 3개 / AI 끄기 + 창별 추가 항목)
 - connect(mode): 고른 AI를 연결 (키 → 모델 → 연결 확인 → 저장). 성공하면 True
 - status(): 버튼에 쓸 글과 점 색
 - on_change(slot) / notify_changed(): 연결을 바꾸면 알림 → 열려 있는 다른 창도 버튼·입력칸을 바로 맞춘다
@@ -19,13 +19,16 @@ from ai_client import (PROVIDER_LABELS, load_ai_mode, save_ai_mode, legacy_ai_na
                        OPENCODE_PLANS, load_opencode_plan, save_opencode_plan,
                        fetch_opencode_models, save_opencode_model_info, test_opencode)
 
-MENU_ORDER = ('opencode', 'claude', 'openai', 'claude_code')
-TOOLTIP = 'AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · Claude 구독)'
+MENU_ORDER = ('claude_code', 'codex', None, 'opencode', 'claude', 'openai')     # None = 구분선
+MENU_LABELS = {'claude_code': 'Claude 구독 계정 연동', 'codex': 'ChatGPT 구독 계정 연동',
+               'opencode': 'OpenCode API 연동', 'claude': 'Claude API 연동', 'openai': 'ChatGPT API 연동'}
+TOOLTIP = 'AI 연결 바꾸기 (Claude · ChatGPT 구독 계정, OpenCode · Claude · ChatGPT API)'
 
 # AI 제공자별 설정 정보
 PROVIDERS = {
     'opencode': {'desc': '해당 API키 필요'},
     'claude_code': {'desc': '유료 구독 필요'},
+    'codex': {'desc': '유료 구독 필요'},
     'claude':   {'desc': '해당 API키 필요',
                  'key_label': 'Anthropic(Claude) API 키를 입력하세요.',
                  'load_key': load_claude_key, 'save_key': save_claude_key,
@@ -88,8 +91,11 @@ def show_menu(parent, anchor, style='', extra=()):
     title.setEnabled(False)
     acts = {}
     for key in MENU_ORDER:
+        if key is None:
+            menu.addSeparator()
+            continue
         mark = '✓  ' if mode == key else '     '
-        acts[menu.addAction(f'{mark}{PROVIDER_LABELS[key]}\t{PROVIDERS[key]["desc"]}')] = key
+        acts[menu.addAction(f'{mark}{MENU_LABELS[key]}')] = key
     menu.addSeparator()
     acts[menu.addAction(('✓  ' if mode == 'none' else '     ') + 'AI 끄기')] = 'none'
     if extra:
@@ -108,8 +114,8 @@ def turn_off():
 def connect(parent, mode, say=None):
     """mode 제공자를 연결한다. say(글): 진행·결과 안내 (상태 표시줄 등). 연결되면 True."""
     say = say or (lambda _m: None)
-    if mode == 'claude_code':
-        ok = _connect_claude_code(parent, say)
+    if mode in ('claude_code', 'codex'):
+        ok = _connect_subscription(parent, mode, say)
     elif mode == 'opencode':
         ok = _connect_opencode(parent, say)
     elif mode in ('claude', 'openai'):
@@ -171,13 +177,13 @@ def _connect_keyed(parent, mode, say):
     return True
 
 
-def _connect_claude_code(parent, say):
-    """Claude 구독: 이 PC의 Claude Code로 구독 사용 (설치·로그인·확인·저장은 대화상자 안에서)."""
+def _connect_subscription(parent, mode, say):
+    """구독 계정 연동: 이 PC의 Claude Code · Codex로 구독 사용 (설치·로그인·확인·저장은 대화상자 안에서)."""
     from document_editor import ClaudeCodeDialog
-    dlg = ClaudeCodeDialog(parent)
+    dlg = ClaudeCodeDialog(parent, kind=mode)
     if dlg.exec_() != QDialog.Accepted:
         return False
-    say(f'Claude 구독 · {load_external_model_name()} 연결 완료.')
+    say(f'{PROVIDER_LABELS[mode]} · {load_external_model_name()} 연결 완료.')
     return True
 
 

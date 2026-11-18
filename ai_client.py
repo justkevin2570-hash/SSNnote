@@ -1,7 +1,7 @@
 """
 ai_client.py — AI 제공자 추상화 레이어
 
-지원 제공자: OpenCode(Go·Zen), Claude(Anthropic), ChatGPT(OpenAI) — API 키로 연결. Claude 구독은 내 PC의 Claude Code로 연결.
+지원 제공자: OpenCode(Go·Zen), Claude(Anthropic), ChatGPT(OpenAI) — API 키로 연결. Claude 구독은 내 PC의 Claude Code, ChatGPT 구독은 Codex CLI로 연결.
   · OpenCode  : 모델마다 OpenAI(chat-completions) 또는 Claude(messages) 방식
   · Claude    : Anthropic Messages API
   · ChatGPT   : OpenAI Responses API
@@ -35,6 +35,8 @@ OPENCODE_VISION_FILE = os.path.join(APPDATA_DIR, 'opencode_vision_models.json')
 OPENCODE_MODELS_FILE = os.path.join(APPDATA_DIR, 'opencode_models.json')   # {id: {image, protocol}}
 CLAUDE_CODE_PATH_FILE  = os.path.join(APPDATA_DIR, 'claude_code_path.txt')  # 사용자가 지정한 claude 경로 (비우면 자동)
 CLAUDE_CODE_MODEL_FILE = os.path.join(APPDATA_DIR, 'claude_code_model.txt')
+CODEX_PATH_FILE   = os.path.join(APPDATA_DIR, 'codex_path.txt')      # 사용자가 지정한 codex 경로 (비우면 자동)
+CODEX_EFFORT_FILE = os.path.join(APPDATA_DIR, 'codex_effort.txt')    # 답 속도 (low · medium · high)
 
 # 접속 주소 (None = 각 SDK 기본 주소). 시험에서만 바꾼다.
 CLAUDE_BASE_URL = None
@@ -64,9 +66,9 @@ def _write_secret(path: str, val: str):
 _session_keys: dict[str, str] = {}
 
 # AI 모드
-_AI_MODES = ('none', 'claude', 'openai', 'opencode', 'claude_code')
+_AI_MODES = ('none', 'claude', 'openai', 'opencode', 'claude_code', 'codex')
 PROVIDER_LABELS = {'opencode': 'OpenCode', 'claude': 'Claude', 'openai': 'ChatGPT',
-                   'claude_code': 'Claude 구독'}
+                   'claude_code': 'Claude 구독', 'codex': 'ChatGPT 구독'}
 # 예전 버전에서 쓰던(지금은 지원하지 않는) 모드 → 안내용 이름
 _LEGACY_MODES = {'external': 'Gemini', 'gemini': 'Gemini', 'nvidia': 'NVIDIA', 'internal': 'Ollama(내부 AI)',
                  'exaone': 'EXAONE'}
@@ -297,7 +299,7 @@ def _read_mode_file() -> str:
 
 
 def load_ai_mode() -> str:
-    """'opencode' | 'claude' | 'openai' | 'claude_code' | 'none'. 지원하지 않는 예전 모드(Gemini·NVIDIA·Ollama·EXAONE)는 'none'."""
+    """'opencode' | 'claude' | 'openai' | 'claude_code' | 'codex' | 'none'. 지원하지 않는 예전 모드(Gemini·NVIDIA·Ollama·EXAONE)는 'none'."""
     mode = _read_mode_file()
     return mode if mode in _AI_MODES else 'none'
 
@@ -385,6 +387,29 @@ def load_claude_code_model() -> str:
 
 def save_claude_code_model(model: str):
     _save_text(CLAUDE_CODE_MODEL_FILE, model if model in ('sonnet', 'opus', 'haiku') else '')
+
+
+# ── ChatGPT 구독(Codex CLI) 설정 ─────────────────────────────────
+# 키가 없다: 로그인은 Codex가 자기 자리(~/.codex 또는 OS 자격 증명 저장소)에 보관한다.
+# 여기서는 실행 파일 경로와 답 속도(추론 노력)만 저장한다. 모델은 Codex 기본 모델.
+CODEX_EFFORTS = (('low', '빠르게'), ('medium', '보통'), ('high', '꼼꼼하게'))
+
+
+def load_codex_path() -> str:
+    return _load_text(CODEX_PATH_FILE, '')
+
+
+def save_codex_path(path: str):
+    _save_text(CODEX_PATH_FILE, path)
+
+
+def load_codex_effort() -> str:
+    v = _load_text(CODEX_EFFORT_FILE, 'low')
+    return v if v in dict(CODEX_EFFORTS) else 'low'
+
+
+def save_codex_effort(effort: str):
+    _save_text(CODEX_EFFORT_FILE, effort if effort in dict(CODEX_EFFORTS) else 'low')
 
 
 # ── ChatGPT 키·모델 ──────────────────────────────────────────────
@@ -646,7 +671,8 @@ def load_external_model_name() -> str:
     """현재 AI 제공자의 모델 이름 ('' = AI 꺼짐)."""
     return {'claude': load_claude_model, 'openai': load_openai_model,
             'opencode': load_opencode_model,
-            'claude_code': lambda: load_claude_code_model() or '기본 모델'}.get(load_ai_mode(), lambda: '')()
+            'claude_code': lambda: load_claude_code_model() or '기본 모델',
+            'codex': lambda: dict(CODEX_EFFORTS)[load_codex_effort()]}.get(load_ai_mode(), lambda: '')()
 
 
 def ai_status_text() -> str:
@@ -849,19 +875,26 @@ atexit.register(cancel_claude_code)
 def _run_claude(args, stdin_text=None, timeout=CLAUDE_CODE_TIMEOUT) -> subprocess.CompletedProcess:
     """claude를 앱 전용 빈 폴더에서 실행한다. 구독 로그인을 쓰도록 API 키 환경변수는 뺀다.
     실행 파일이 없거나 시간이 넘으면 ClaudeCodeError, 취소하면 취소 오류."""
-    exe = find_claude_cli()
+    return _run_cli(find_claude_cli(), args, stdin_text, timeout, _CLAUDE_DROP_ENV,
+                    _CLAUDE_MSG_NOT_INSTALLED, _CLAUDE_MSG_TIMEOUT, 'ssnnote_claude_')
+
+
+def _run_cli(exe, args, stdin_text, timeout, drop_env, msg_missing, msg_timeout, prefix,
+             on_workdir=None) -> subprocess.CompletedProcess:
+    """구독용 CLI(claude · codex)를 앱 전용 빈 폴더에서 숨김 창으로 실행한다.
+    on_workdir(폴더): 끝나기 전(폴더를 지우기 전)에 그 폴더의 결과 파일을 읽을 때."""
     if not exe:
-        raise ClaudeCodeError(_CLAUDE_MSG_NOT_INSTALLED)
-    env = {k: v for k, v in os.environ.items() if k not in _CLAUDE_DROP_ENV}
+        raise ClaudeCodeError(msg_missing)
+    env = {k: v for k, v in os.environ.items() if k not in drop_env}
     kw = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
-    workdir = tempfile.mkdtemp(prefix='ssnnote_claude_')     # 메모 DB 폴더·사용자 프로젝트 설정을 읽지 않도록
+    workdir = tempfile.mkdtemp(prefix=prefix)     # 메모 DB 폴더·사용자 프로젝트 설정을 읽지 않도록
     try:
         try:
             proc = subprocess.Popen([exe, *args], cwd=workdir, env=env, stdin=subprocess.PIPE,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     encoding='utf-8', errors='replace', **kw)
         except FileNotFoundError:
-            raise ClaudeCodeError(_CLAUDE_MSG_NOT_INSTALLED)
+            raise ClaudeCodeError(msg_missing)
         with _claude_lock:
             _claude_procs[proc] = False
         try:
@@ -869,13 +902,16 @@ def _run_claude(args, stdin_text=None, timeout=CLAUDE_CODE_TIMEOUT) -> subproces
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()
-            raise ClaudeCodeError(_CLAUDE_MSG_TIMEOUT)
+            raise ClaudeCodeError(msg_timeout)
         finally:
             with _claude_lock:
                 cancelled = _claude_procs.pop(proc, False)
         if cancelled:
             raise ClaudeCodeError(_CLAUDE_MSG_CANCEL)
-        return subprocess.CompletedProcess(args, proc.returncode, out or '', err or '')
+        result = subprocess.CompletedProcess(args, proc.returncode, out or '', err or '')
+        if on_workdir:
+            on_workdir(workdir, result)
+        return result
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -995,6 +1031,176 @@ def claude_code_logout():
     p = _run_claude(['auth', 'logout'], timeout=30)
     if p.returncode != 0:
         raise ClaudeCodeError('Claude 로그아웃에 실패했어요. ' + ((p.stderr or p.stdout or '').strip()[-200:]))
+
+
+# ── ChatGPT 구독 (Codex CLI) ─────────────────────────────────────
+# OpenAI 공식 Codex CLI에 ChatGPT 계정(Plus·Pro·Business·Edu)으로 로그인해 쓴다.
+# 출처: developers.openai.com/codex (cli/reference · noninteractive · auth)
+CODEX_TIMEOUT = 180                  # 한 번 묻는 제한 시간(초) — 프로그램이 매번 새로 켜져서 Claude보다 넉넉히
+CODEX_LOGIN_TIMEOUT = 600
+CODEX_INSTALL_PAGE = 'https://developers.openai.com/codex/cli'
+_CODEX_DROP_ENV = ('OPENAI_API_KEY', 'CODEX_API_KEY', 'CODEX_ACCESS_TOKEN', 'OPENAI_BASE_URL')
+_CODEX_MSG_NOT_INSTALLED = 'Codex가 설치돼 있지 않아요. AI 연결 → ChatGPT 구독 계정 연동 → [설치]를 눌러 주세요.'
+_CODEX_MSG_LOGIN = 'ChatGPT에 로그인돼 있지 않아요. [ChatGPT로 로그인]을 눌러 주세요.'
+_CODEX_MSG_LIMIT = 'ChatGPT 구독 사용 한도에 도달했어요. 잠시 후 다시 시도하세요.'
+_CODEX_MSG_TIMEOUT = 'ChatGPT 응답이 너무 오래 걸려요. 다시 시도해 주세요.'
+_CODEX_ANSWER_FILE = 'answer.txt'
+
+
+def find_codex_cli():
+    """codex 실행 파일 경로 (없으면 None). 지정 경로 → PATH → 공식 설치 위치 → npm 순."""
+    custom = load_codex_path()
+    if custom and os.path.isfile(custom):
+        return custom
+    found = shutil.which('codex')
+    if found:
+        return found
+    home = os.path.expanduser('~')
+    local = os.environ.get('LOCALAPPDATA', os.path.join(home, 'AppData', 'Local'))
+    appdata = os.environ.get('APPDATA', os.path.join(home, 'AppData', 'Roaming'))
+    codex_home = os.environ.get('CODEX_HOME') or os.path.join(home, '.codex')
+    for c in (os.path.join(local, 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'),
+              os.path.join(codex_home, 'packages', 'standalone', 'current', 'bin', 'codex.exe'),
+              os.path.join(codex_home, 'packages', 'standalone', 'current', 'codex.exe'),
+              os.path.join(appdata, 'npm', 'codex.cmd')):
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def _run_codex(args, stdin_text=None, timeout=CODEX_TIMEOUT, on_workdir=None) -> subprocess.CompletedProcess:
+    """codex를 앱 전용 빈 폴더에서 실행한다. ChatGPT 로그인을 쓰도록 API 키 환경변수는 뺀다."""
+    return _run_cli(find_codex_cli(), args, stdin_text, timeout, _CODEX_DROP_ENV,
+                    _CODEX_MSG_NOT_INSTALLED, _CODEX_MSG_TIMEOUT, 'ssnnote_codex_', on_workdir)
+
+
+def _codex_friendly(text: str) -> str:
+    """Codex 출력에서 알아볼 수 있는 오류(로그인·한도)를 찾는다. 모르면 ''."""
+    low = (text or '').lower()
+    if any(w in low for w in ('usage limit', 'rate limit', 'rate_limit', '429', 'limit reached', 'quota')):
+        return _CODEX_MSG_LIMIT
+    if any(w in low for w in ('not logged in', 'login', 'log in', 'sign in', 'authenticate', '401', 'unauthorized')):
+        return _CODEX_MSG_LOGIN
+    return ''
+
+
+def _codex_ask(system: str, prompt: str, effort: str = None, timeout: int = CODEX_TIMEOUT) -> str:
+    """질문 한 번 → 답 글. 질문(지침 포함)은 표준입력으로, 최종 답은 -o 파일에서 읽는다.
+    읽기 전용 · 빈 폴더 · 기록 안 남김(--ephemeral) — 파일을 고치거나 명령을 실행하지 못하게."""
+    effort = load_codex_effort() if effort is None else effort
+    args = ['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'read-only',
+            '--color', 'never', '-o', _CODEX_ANSWER_FILE]
+    if effort in dict(CODEX_EFFORTS):
+        args += ['-c', f'model_reasoning_effort={effort}']
+    args.append('-')                                  # 질문은 표준입력에서
+    stdin_text = ('[지침 — 파일을 읽거나 명령을 실행하지 말고, 아래 지침에 따라 글로만 답하세요]\n'
+                  + system + '\n\n[요청]\n' + prompt)
+    got = {}
+
+    def read_answer(workdir, _res):
+        path = os.path.join(workdir, _CODEX_ANSWER_FILE)
+        try:
+            with open(path, encoding='utf-8', errors='replace') as f:
+                got['text'] = f.read()
+        except OSError:
+            pass
+
+    p = _run_codex(args, stdin_text, timeout=timeout, on_workdir=read_answer)
+    answer = (got.get('text') or '').strip()
+    if p.returncode != 0 or not answer:
+        detail = (p.stderr or '').strip() or (p.stdout or '').strip()
+        raise ClaudeCodeError(_codex_friendly(detail) or f'ChatGPT 연결 실패: {detail[-300:] or "답이 비어 있어요"}')
+    return answer
+
+
+def test_codex(effort: str = None):
+    """짧은 질문 한 번으로 ChatGPT 구독 연결을 확인한다. (ok, 한국어 메시지)."""
+    import time
+    t0 = time.monotonic()
+    try:
+        _codex_ask('간단히 답하세요.', '안녕이라고만 답해', effort=effort, timeout=CODEX_TIMEOUT)
+        return True, f'연결 성공 ({time.monotonic() - t0:.1f}초)'
+    except ClaudeCodeError as e:
+        return False, str(e)
+    except Exception as e:
+        return False, f'연결 실패: {e}'
+
+
+class CodexAdapter:
+    """이 PC에 설치된 Codex CLI로 ChatGPT 구독을 쓴다. 본인 전용, 사용량은 구독 한도에서 차감."""
+    requires_api_key = False
+    supports_image = False       # 이미지는 보내지 않고 PC에서 읽은 글자로 대신 보낸다
+
+    @staticmethod
+    def get_api_key() -> str:
+        return 'subscription'
+
+    @classmethod
+    def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
+        return _codex_ask(system, prompt)
+
+    @classmethod
+    def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):
+        try:
+            full = cls.complete(system, prompt)
+        except ClaudeCodeError as e:
+            on_error(str(e))
+            return
+        except Exception as e:
+            on_error(f'ChatGPT 구독 연결에 실패했어요: {e}')
+            return
+        if full:
+            on_chunk(full)
+        on_done(full)
+
+
+def codex_status() -> dict:
+    """{'installed', 'logged_in', 'email', 'plan', 'path'}. codex login status 결과로 판단 (토큰은 읽지 않음).
+    ChatGPT 계정 로그인일 때만 logged_in (API 키 로그인은 구독이 아니므로 제외)."""
+    path = find_codex_cli()
+    st = {'installed': bool(path), 'logged_in': False, 'email': '', 'plan': '', 'path': path or ''}
+    if not path:
+        return st
+    try:
+        p = _run_codex(['login', 'status'], timeout=30)
+    except ClaudeCodeError:
+        return st
+    text = ((p.stdout or '') + '\n' + (p.stderr or '')).lower()
+    if p.returncode == 0 and 'chatgpt' in text and 'not logged in' not in text:
+        st['logged_in'] = True
+    return st
+
+
+def install_codex():
+    """Codex CLI 공식 Windows 설치 명령(PowerShell)을 숨김 창에서 실행하고 끝날 때까지 기다린다.
+    출처: github.com/openai/codex README — irm https://chatgpt.com/codex/install.ps1 | iex"""
+    kw = {'creationflags': subprocess.CREATE_NO_WINDOW} if sys.platform == 'win32' else {}
+    try:
+        p = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+                            'irm https://chatgpt.com/codex/install.ps1 | iex'],
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                           encoding='utf-8', errors='replace', timeout=900, **kw)
+    except FileNotFoundError:
+        raise ClaudeCodeError('PowerShell을 찾지 못했어요. 공식 설치 안내를 보고 직접 설치해 주세요.')
+    except subprocess.TimeoutExpired:
+        raise ClaudeCodeError('설치가 너무 오래 걸려요. 인터넷 연결을 확인하고 다시 시도해 주세요.')
+    if p.returncode != 0 or not find_codex_cli():
+        tail = ((p.stderr or p.stdout or '').strip())[-200:]
+        raise ClaudeCodeError('설치에 실패했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.'
+                              + (f'\n{tail}' if tail else ''))
+
+
+def codex_login():
+    """codex login: 브라우저에서 ChatGPT 공식 페이지로 로그인한다. 끝날 때까지 기다린다 (뒤 스레드에서 호출)."""
+    p = _run_codex(['login'], timeout=CODEX_LOGIN_TIMEOUT)
+    if p.returncode != 0:
+        raise ClaudeCodeError('ChatGPT 로그인이 끝나지 않았어요. 브라우저에서 로그인했는지 확인하고 다시 시도해 주세요.')
+
+
+def codex_logout():
+    p = _run_codex(['logout'], timeout=30)
+    if p.returncode != 0:
+        raise ClaudeCodeError('ChatGPT 로그아웃에 실패했어요. ' + ((p.stderr or p.stdout or '').strip()[-200:]))
 
 
 # ── OpenAIAdapter (ChatGPT, Responses API) ───────────────────────
@@ -1120,7 +1326,7 @@ class OpenCodeAdapter:
 # ── 어댑터 선택 ──────────────────────────────────────────────────
 
 _ADAPTERS = {'claude': ClaudeAdapter, 'openai': OpenAIAdapter, 'opencode': OpenCodeAdapter,
-             'claude_code': ClaudeCodeAdapter}
+             'claude_code': ClaudeCodeAdapter, 'codex': CodexAdapter}
 
 
 def get_adapter():
@@ -1168,7 +1374,7 @@ class AiStreamThread(QThread):
 
     def stop(self):
         self._is_running = False
-        cancel_claude_code()      # Claude 구독을 쓰는 중이면 실행 중인 claude도 끊는다
+        cancel_claude_code()      # 구독(Claude · ChatGPT)을 쓰는 중이면 실행 중인 claude · codex도 끊는다
 
     def _retry_prompt(self, error_msg: str) -> str:
         return (
@@ -1181,7 +1387,7 @@ class AiStreamThread(QThread):
     def run(self):
         adapter = get_adapter()
         if adapter is None:
-            self.error_signal.emit("AI가 꺼져 있습니다. [AI 설정]에서 OpenCode·Claude·ChatGPT·Claude 구독 중 하나를 연결하세요.")
+            self.error_signal.emit("AI가 꺼져 있습니다. [AI 설정]에서 구독 계정이나 API 중 하나를 연결하세요.")
             return
         if not adapter.get_api_key():
             self.error_signal.emit("API 키가 설정되지 않았습니다. [AI 설정]을 눌러 키를 입력하세요.")
