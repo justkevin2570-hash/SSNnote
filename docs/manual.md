@@ -224,14 +224,18 @@
 공문 캡처, 자동 초안, 공문 작성 창의 AI 대화, 예산 창의 'AI에게 묻기', 업무창 옆 AI 대화에 쓸 AI를 고릅니다.
 메뉴 **설정 → AI 연결** (공문 작성 창·예산 창·AI 대화 창 위쪽의 **AI 상태 버튼**과 같음)
 
-지원하는 AI는 네 가지입니다. OpenCode·Claude·ChatGPT는 API 키를 받아 넣고 쓴 만큼 요금이 나가며 공문 한 건은 보통 몇 원 수준입니다. **Claude 구독**은 API 키 없이 가지고 계신 Claude Pro/Max 구독으로 씁니다 ([아래 절](#claude-구독으로-ai-쓰기)).
+메뉴는 두 묶음입니다.
+
+- **구독 계정 연동** (위): **Claude 구독 계정 연동** · **ChatGPT 구독 계정 연동** — API 키 없이 가지고 계신 유료 구독으로 씁니다 ([아래 절](#구독-계정으로-ai-쓰기)).
+- **API 연동** (아래): **OpenCode API 연동** · **Claude API 연동** · **ChatGPT API 연동** — API 키를 받아 넣고 쓴 만큼 요금이 나가며 공문 한 건은 보통 몇 원 수준입니다.
 
 | AI | 필요한 것 | 키 받는 곳 |
 |---|---|---|
 | **OpenCode** | OpenCode Go(월 구독) 또는 Zen(충전식) | opencode.ai → 콘솔 → API Keys |
 | **Claude** | Anthropic API 키 (Claude 구독과 별도) | console.anthropic.com → API Keys |
 | **ChatGPT** | OpenAI API 키 (ChatGPT 구독과 별도) | platform.openai.com → API keys |
-| **Claude 구독** | Claude Pro 또는 Max 구독 (API 키 없음, 이 PC에 Claude Code 설치) | 설정 창의 [설치] · [Claude로 로그인] |
+| **Claude 구독 계정** | Claude Pro 또는 Max 구독 (API 키 없음, 이 PC에 Claude Code 설치) | 설정 창의 [설치] · [Claude로 로그인] |
+| **ChatGPT 구독 계정** | ChatGPT Plus · Pro · Business · Edu 구독 (API 키 없음, 이 PC에 Codex 설치) | 설정 창의 [설치] · [ChatGPT로 로그인] |
 
 > 예전 버전에서 Gemini·NVIDIA·내부 AI(Ollama)를 쓰셨다면 AI가 꺼진 상태로 바뀝니다. 공문 작성 창 위의 **[AI 다시 연결 필요]**를 눌러 하나를 연결하세요.
 
@@ -245,14 +249,14 @@
    - **⚠ 지역 설정 필요**(DeepSeek) — OpenCode 기본 설정(유럽·미국)에서는 막혀 있습니다. 쓰지 않는 것을 권장합니다.
 4. 자동으로 **연결 확인**을 합니다. 성공하면 키·모델이 저장되고 공문 작성 창 위에 「OpenCode · claude-haiku-5-5」처럼 표시됩니다. 실패하면 이유(키 오류, 잔액 부족, 사용 한도 등)를 알려주고 **설정을 바꾸지 않습니다**.
 
-### Claude 구독으로 AI 쓰기
+### 구독 계정으로 AI 쓰기
 
-Pro 또는 Max 구독이 있으면 API 키 없이 쓸 수 있습니다. 이 PC에 설치된 공식 **Claude Code**를 서서니 노트가 대신 실행합니다.
+Claude Pro/Max 또는 ChatGPT Plus·Pro·Business·Edu 구독이 있으면 API 키 없이 쓸 수 있습니다. 이 PC에 설치된 공식 프로그램(Claude는 **Claude Code**, ChatGPT는 OpenAI **Codex**)을 서서니 노트가 대신 실행합니다. 아래는 Claude 기준이고, ChatGPT도 순서가 같습니다(차이는 아래 「ChatGPT 구독 계정」).
 
 > **사용량 안내**: 구독 사용량에서 차감됩니다 (Claude 채팅·Claude Code와 같은 한도). **본인만 사용하세요.**
 > **로그인 정보**: 로그인은 Claude Code가 자기 자리에 보관합니다. 서서니 노트는 로그인 정보를 저장하지 않습니다. 토큰도 읽지 않습니다.
 
-1. **설정 → AI 연결 → Claude 구독** (공문 작성 창의 AI 상태 버튼)을 누릅니다.
+1. **설정 → AI 연결 → Claude 구독 계정 연동** (공문 작성 창의 AI 상태 버튼)을 누릅니다.
 2. **[설치]**: Claude Code가 없으면 공식 설치 명령을 숨김 창에서 실행합니다. 1~2분 걸릴 수 있어요. 안 되면 창에 있는 공식 설치 안내 주소를 보세요.
 3. **[Claude로 로그인]**: 브라우저가 열리면 Claude 공식 페이지에서 로그인하고 승인하세요. 끝나면 창의 상태가 「✓ 로그인됨 (이메일 · Pro 구독)」으로 바뀝니다. 로그아웃은 같은 자리의 [로그아웃]입니다.
 4. **모델**: 기본 모델을 그대로 두거나 Sonnet·Opus·Haiku 중 고릅니다.
@@ -263,6 +267,12 @@ Pro 또는 Max 구독이 있으면 API 키 없이 쓸 수 있습니다. 이 PC�
 - 캡처한 공문 이미지는 보내지 않고, PC에서 읽은 글자만 보냅니다.
 - 개인정보 보호 모드를 따릅니다 (켜져 있으면 가려서 보냄).
 - 정책이 바뀌어 구독 방식을 쓸 수 없게 되면 API 키 방식(Claude·ChatGPT·OpenCode)으로 바로 바꿀 수 있습니다.
+
+**ChatGPT 구독 계정**
+- **[설치]**는 OpenAI 공식 Codex 설치 명령을 실행합니다. **[ChatGPT로 로그인]**은 브라우저에서 ChatGPT 계정으로 로그인합니다 (API 키로 로그인된 Codex는 구독으로 치지 않음).
+- 모델 대신 **답 속도**를 고릅니다: 빠르게(기본) · 보통 · 꼼꼼하게. 꼼꼼할수록 느리고 구독 사용량을 더 씁니다.
+- Codex는 질문할 때마다 새로 켜져서 답이 몇 초 늦을 수 있습니다. 빈 임시 폴더에서 **읽기 전용**으로 실행하고 기록을 남기지 않아, 내 파일을 건드리지 않습니다.
+- 사용량은 ChatGPT 구독 한도에서 차감됩니다. 로그인 정보는 Codex가 보관하고 서서니 노트는 저장하지 않습니다.
 
 AI를 끄려면 같은 메뉴에서 **AI 끄기**. 꺼져 있어도 자동 초안은 공문 뼈대를 넣어 줍니다.
 

@@ -353,7 +353,7 @@ class TaskAskWorker(QThread):
             from ai_client import get_adapter
             adapter = get_adapter()
             if adapter is None:
-                self.failed.emit('AI가 꺼져 있어요. 위의 AI 연결 버튼에서 OpenCode·Claude·ChatGPT·Claude 구독 중 하나를 연결하세요.')
+                self.failed.emit('AI가 꺼져 있어요. 위의 AI 연결 버튼에서 구독 계정이나 API 중 하나를 연결하세요.')
                 return
             if not adapter.get_api_key():
                 self.failed.emit('AI API 키가 없어요. 위의 AI 연결 버튼에서 키를 넣어 주세요.')

@@ -1301,7 +1301,7 @@ class BudgetWindow(QMainWindow):
         # AI 연결 (공문 작성 창과 같은 메뉴 · 같은 설정)
         self.btn_ai = QPushButton()
         self.btn_ai.setIconSize(QSize(9, 9))
-        self.btn_ai.setToolTip('AI 연결 바꾸기 (OpenCode · Claude · ChatGPT · Claude 구독)')
+        self.btn_ai.setToolTip('AI 연결 바꾸기')
         self.btn_ai.clicked.connect(lambda: self._ai_menu())
         for b in (self.btn_ai, self.btn_import, self.btn_manage):
             b.setFixedHeight(_sz(34))
