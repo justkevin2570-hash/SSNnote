@@ -1100,12 +1100,9 @@ class MemoWindow(QMainWindow):
         return self
 
     def _open_ai_settings(self):
-        """AI 공문 캡처·공문 초안에 쓸 AI(OpenCode, Claude API 등) 설정 — 공문 작성 창의 AI 설정을 연다."""
-        self._open_document_editor()
-        editor = getattr(self, '_doc_editor', None)
-        if editor is not None:
-            editor.raise_()
-            QTimer.singleShot(250, editor._show_ai_settings_menu)
+        """AI 연결 창 (구독 계정 연동 · API 연동 · AI 끄기). 공문 작성 창은 열지 않는다."""
+        from ui.ai_settings_window import open_ai_settings
+        open_ai_settings(self)
 
     def _toggle_privacy_mode(self):
         from school_profile import privacy_enabled, set_privacy_enabled
