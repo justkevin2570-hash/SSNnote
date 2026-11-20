@@ -2658,12 +2658,10 @@ class DocumentEditorWindow(QMainWindow):
         if legacy:
             self.btn_apikey.setText('AI 다시 연결 필요')
             self.btn_apikey.setIcon(qta.icon('fa5s.exclamation-circle', color=C.WARN))
-            self.ai_input.setPlaceholderText(
-                f'이전에 쓰던 {legacy}는 더 이상 지원하지 않아요 — 위의 [AI 다시 연결 필요]를 눌러 '
-                '구독 계정이나 API 중 하나를 연결하세요.')
+            self.ai_input.setPlaceholderText('AI 다시 연결 필요')   # 자세한 안내는 단추 툴팁 · 연결 창에서
         else:
             self.btn_apikey.setText('AI 꺼짐 · 연결하기')
-            self.ai_input.setPlaceholderText('AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]에서 연결하면 쓸 수 있어요.')
+            self.ai_input.setPlaceholderText('AI 꺼짐')   # 짧게: 「부탁」 · 「고칠 내용」 글자가 있어도 잘리지 않게
         self.btn_apikey.setIconSize(scaled_size(9) if not legacy else scaled_size(12))
 
     # ── AI 설정 메뉴 ──
