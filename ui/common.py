@@ -439,16 +439,140 @@ def px(n) -> int:
     return int(round(n * ui_scale()))
 
 
+def _render_icon(icon, size: int):
+    """QIcon을 size×size 픽셀 그림으로 (화면 배율과 상관없이 딱 그 픽셀 수로 그림)."""
+    from PyQt5.QtCore import Qt, QRect
+    from PyQt5.QtGui import QPixmap, QPainter
+    pm = QPixmap(size, size)
+    pm.setDevicePixelRatio(1)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setRenderHint(QPainter.SmoothPixmapTransform)
+    icon.paint(p, QRect(0, 0, size, size))
+    p.end()
+    return pm
+
+
 def icon_png(name: str, color: str, size: int = 16) -> str:
-    """qtawesome 아이콘을 임시 PNG로 (QSS의 image: url(...)용). 실패하면 ''."""
+    """qtawesome 아이콘을 임시 PNG로 (QSS의 image: url(...)용). 실패하면 ''.
+
+    QSS 그림은 PNG 크기 그대로 그려지므로 글꼴 배율(px)만큼 키워서 저장하고,
+    200%·300% 화면용 @2x·@3x 파일도 함께 만든다 (Qt가 화면 배율에 맞는 파일을 골라 씀).
+    예전에는 16px 한 장만 만들고 다시 만들지 않아서, 배율이 다른 화면에서는 흐리게 늘어나 보였다.
+    """
     try:
         import os
         import tempfile
         import qtawesome as qta
+        s = px(size)
         safe = name.replace('.', '_') + '_' + color.strip('#')
-        path = os.path.join(tempfile.gettempdir(), f'ssnnote_{safe}_{size}.png')
-        if not os.path.exists(path):
-            qta.icon(name, color=color).pixmap(size, size).save(path)
-        return path.replace('\\', '/')
+        base = os.path.join(tempfile.gettempdir(), f'ssnnote_{safe}_{s}px')
+        icon = None
+        for n, suffix in ((1, ''), (2, '@2x'), (3, '@3x')):
+            path = f'{base}{suffix}.png'
+            if not os.path.exists(path):
+                icon = icon or qta.icon(name, color=color)
+                _render_icon(icon, s * n).save(path)
+        return f'{base}.png'.replace('\\', '/')
     except Exception:
         return ''
+
+
+def fit_pixmap(pixmap, w: int, h: int, widget=None):
+    """그림을 w×h(논리 크기) 안에 맞춰 줄이되, 화면 배율만큼 픽셀을 더 담아 선명하게.
+    (그냥 scaled(w, h)를 쓰면 200% 화면에서 늘어나 흐려지고, 고배율 캡처는 반 크기로 보인다.)"""
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QApplication
+    if pixmap is None or pixmap.isNull():
+        return pixmap
+    r = widget.devicePixelRatioF() if widget is not None else QApplication.instance().devicePixelRatio()
+    r = max(1.0, r)
+    out = pixmap.scaled(int(round(w * r)), int(round(h * r)), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    out.setDevicePixelRatio(r)
+    return out
+
+
+def scaled_size(n: int):
+    """아이콘 크기 QSize — 글꼴 배율(125%·150%)만큼 키워서 글자와 크기를 맞춘다."""
+    from PyQt5.QtCore import QSize
+    s = px(n)
+    return QSize(s, s)
+
+
+def icon_label(icon, size: int = 16, parent=None, top: int = 0):
+    """아이콘만 보여 주는 라벨. 그릴 때마다 벡터로 그려서 어느 배율에서도 또렷하다.
+    (QLabel.setPixmap(icon.pixmap(16, 16))은 한 번 만든 그림을 늘려 써서 흐려졌다.)"""
+    from PyQt5.QtGui import QPainter
+    from PyQt5.QtWidgets import QLabel
+
+    class _IconLabel(QLabel):
+        def __init__(self):
+            super().__init__(parent)
+            self._icon = icon
+            s = px(size)
+            self._s = s
+            t = px(top)                        # 위 여백: 옆 글자 첫 줄에 맞출 때
+            self.setContentsMargins(0, t, 0, 0)
+            self.setFixedSize(s, s + t)
+
+        def setIcon(self, ic):
+            self._icon = ic
+            self.update()
+
+        def paintEvent(self, _e):
+            if self._icon is None:
+                return
+            p = QPainter(self)
+            p.setRenderHint(QPainter.Antialiasing)
+            p.setRenderHint(QPainter.SmoothPixmapTransform)
+            r = self.contentsRect()
+            s = min(self._s, r.width(), r.height())
+            self._icon.paint(p, r.x() + (r.width() - s) // 2, r.y(), s, s)
+
+    return _IconLabel()
+
+
+# ── 앱 아이콘 (노란 메모지 + 줄 세 개) ─────────────────────────────
+APP_ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
+
+
+def draw_app_icon(n: int):
+    """앱 아이콘을 n×n 픽셀로 그린다 (32px 도안을 비율대로 · 작은 크기에서도 선이 뭉개지지 않게)."""
+    from PyQt5.QtCore import Qt, QRectF, QLineF
+    from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen
+    k = n / 32
+    pm = QPixmap(n, n)
+    pm.setDevicePixelRatio(1)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    edge = max(1.0, round(k))                       # 테두리 굵기 (16px에서도 1px)
+    border = QPen(QColor('#c8a000'))
+    border.setWidthF(edge)
+    p.setPen(border)
+    p.setBrush(QColor('#f7c948'))
+    m = 2 * k + edge / 2
+    p.drawRoundedRect(QRectF(m, m, n - 2 * m, n - 2 * m), 4 * k, 4 * k)
+    lw = max(1.0, round(2 * k))                     # 줄 굵기 (픽셀 경계에 맞춰 또렷하게)
+    pen = QPen(QColor('#7a6000'))
+    pen.setWidthF(lw)
+    pen.setCapStyle(Qt.RoundCap if n >= 24 else Qt.FlatCap)
+    p.setPen(pen)
+    off = (lw % 2) / 2                              # 홀수 굵기는 반 픽셀 옮겨야 흐리지 않음
+    for y, x2 in ((10, 25), (16, 25), (22, 18)):
+        yy = round(y * k) + off
+        p.drawLine(QLineF(round(7 * k), yy, round(x2 * k), yy))
+    p.end()
+    return pm
+
+
+def app_icon():
+    """창 · 작업 표시줄 · 트레이 아이콘: 크기마다 따로 그려 넣어 어느 배율에서도 또렷하게.
+    (예전에는 32px 한 장을 늘려 써서 고배율 화면 · 큰 작업 표시줄 아이콘이 흐렸다.)"""
+    from PyQt5.QtGui import QIcon
+    icon = QIcon()
+    for n in APP_ICON_SIZES:
+        icon.addPixmap(draw_app_icon(n))
+    return icon
+

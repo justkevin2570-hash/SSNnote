@@ -55,7 +55,7 @@ from db import save_official_document, get_official_documents
 from html import escape as html_escape  # noqa: E402
 import doc_style   # 내 공문 스타일: 비슷한 저장 공문 + 나만의 작성 규칙을 AI에 함께 보냄
 from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
-from ui.common import fit_to_screen, default_geometry, px
+from ui.common import fit_to_screen, default_geometry, px, icon_png, icon_label, scaled_size
 
 
 # ── 색 · 디자인 (⋯ → 디자인): 메모장(기본) · 문서 · 기존. 틀과 기능은 같고 색과 모양만 다르다 ──
@@ -151,17 +151,11 @@ C.NAME = 'base'
 
 _FONT = "'Pretendard GOV', 'Pretendard', 'Malgun Gothic'"
 
-def _arrow_png(name: str, icon: str, color: str = None) -> str:
-    """스핀 박스 화살표 그림 (qtawesome → 임시 PNG). 실패하면 '' (Qt 기본 화살표)."""
-    try:
-        import tempfile
-        color = color or C.MUTED
-        path = os.path.join(tempfile.gettempdir(), f'ssnnote_{name}_{color.strip("#")}.png')
-        if not os.path.exists(path):
-            qta.icon(icon, color=color).pixmap(16, 16).save(path)
-        return path.replace('\\', '/')
-    except Exception:
-        return ''
+def _arrow_png(name: str, icon: str, color: str = None, size: int = 12) -> str:
+    """스핀 박스 화살표 · 체크 표시 그림 (QSS image: url(...)용). 실패하면 '' (Qt 기본 모양).
+    글꼴 배율만큼 키우고 200% · 300% 화면용 @2x · @3x 파일도 함께 만든다 (ui.common.icon_png).
+    예전에는 16px 한 장을 처음 한 번만 만들어서, 배율이 다른 화면에서는 흐리게 늘어나 보였다."""
+    return icon_png(icon, color or C.MUTED, size)
 
 
 # ── 전체 QSS 테마 ─────────────────────────────────────────────────
@@ -208,14 +202,14 @@ def _style_template() -> str:
     QLineEdit:hover, QSpinBox:hover {{ border-color: {C.BORDER_HI}; }}
     QLineEdit:focus, QSpinBox:focus {{ border: 1px solid {C.ACCENT}; }}
     QSpinBox::up-button, QSpinBox::down-button {{
-        subcontrol-origin: border; width: 18px; border: none; border-left: 1px solid {C.BORDER}; background: {C.BG};
+        subcontrol-origin: border; width: {px(18)}px; border: none; border-left: 1px solid {C.BORDER}; background: {C.BG};
     }}
     QSpinBox::up-button {{ subcontrol-position: top right; border-top-right-radius: {C.R}px; }}
     QSpinBox::down-button {{ subcontrol-position: bottom right; border-bottom-right-radius: {C.R}px;
         border-top: 1px solid {C.BORDER}; }}
     QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: {C.HOVER}; }}
-    QSpinBox::up-arrow {{ image: url(__UP__); width: 8px; height: 8px; }}
-    QSpinBox::down-arrow {{ image: url(__DOWN__); width: 8px; height: 8px; }}
+    QSpinBox::up-arrow {{ image: url(__UP__); width: {px(10)}px; height: {px(10)}px; }}
+    QSpinBox::down-arrow {{ image: url(__DOWN__); width: {px(10)}px; height: {px(10)}px; }}
 
     QTextEdit#editor {{
         background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_CARD}px;
@@ -297,13 +291,13 @@ def _style_template() -> str:
         background: {C.BG}; color: {C.FAINT}; }}
     QWidget#PanelFooter {{ background: {C.SURFACE}; border-top: 1px solid {C.BORDER}; }}
     QCheckBox#FieldCheck {{ color: {C.MUTED}; font-weight: 600; }}
-    QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {C.BORDER_HI}; border-radius: 4px;
+    QCheckBox::indicator {{ width: {px(15)}px; height: {px(15)}px; border: 1px solid {C.BORDER_HI}; border-radius: 4px;
         background: {C.SURFACE}; }}
     QCheckBox::indicator:checked {{ background: {C.ACCENT}; border-color: {C.ACCENT}; image: url(__CHECK__); }}
     QCheckBox::indicator:disabled {{ background: {C.BG}; border-color: {C.BORDER}; }}
-    QDateEdit::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; width: 20px; border: none; }}
-    QDateEdit::down-arrow {{ image: url(__DOWN__); width: 8px; height: 8px; }}
-    QScrollBar:vertical {{ background: transparent; width: 8px; margin: 2px; }}
+    QDateEdit::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; width: {px(20)}px; border: none; }}
+    QDateEdit::down-arrow {{ image: url(__DOWN__); width: {px(10)}px; height: {px(10)}px; }}
+    QScrollBar:vertical {{ background: transparent; width: {px(8)}px; margin: 2px; }}
     QScrollBar::handle:vertical {{ background: {C.BORDER_HI}; border-radius: 3px; min-height: 30px; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
     QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
@@ -329,7 +323,7 @@ def _style_template() -> str:
     QStatusBar QLabel {{ color: {C.MUTED}; font-size: 9pt; padding: 0 6px; }}
 
     /* 단축키 글자 상자 (단추 오른쪽 · 요청 칸 앞) */
-    QLabel#Kbd {{ font-family: Consolas, 'Cascadia Mono', monospace; font-size: 7.5pt; font-weight: 600;
+    QLabel#Kbd {{ font-family: Consolas, 'Cascadia Mono', monospace; font-size: 8pt; font-weight: 600;
         color: {C.KBD_TEXT}; background: {C.KBD_BG}; border: 1px solid {C.KBD_LINE}; border-bottom-width: 2px;
         border-radius: 3px; padding: 0 3px; }}
     QPushButton#Primary QLabel#Kbd, QPushButton#SaveButton QLabel#Kbd {{
@@ -348,9 +342,9 @@ def _style_template() -> str:
 
 def _style() -> str:
     """QApplication이 생긴 뒤에 만든다 (화살표 그림을 그리려면 필요)."""
-    return (_style_template().replace('__UP__', _arrow_png('spin_up', 'fa5s.chevron-up'))
-            .replace('__DOWN__', _arrow_png('spin_down', 'fa5s.chevron-down'))
-            .replace('__CHECK__', _arrow_png('check_white', 'fa5s.check', 'white')))
+    return (_style_template().replace('__UP__', _arrow_png('spin_up', 'fa5s.chevron-up', size=10))
+            .replace('__DOWN__', _arrow_png('spin_down', 'fa5s.chevron-down', size=10))
+            .replace('__CHECK__', _arrow_png('check_white', 'fa5s.check', 'white', size=10)))
 
 # ── 문서 유형 ─────────────────────────────────────────────────────
 
@@ -635,8 +629,9 @@ class ApiKeyDialog(QDialog):
         row.addWidget(self._key_edit, 1)
         self._btn_eye = QPushButton()
         self._btn_eye.setObjectName('IconButton')
-        self._btn_eye.setFixedSize(36, 36)
+        self._btn_eye.setFixedSize(px(36), px(36))
         self._btn_eye.setIcon(qta.icon('fa5s.eye', color=C.MUTED))
+        self._btn_eye.setIconSize(scaled_size(16))
         self._btn_eye.setToolTip('키 보기')
         self._btn_eye.setCheckable(True)
         self._btn_eye.toggled.connect(lambda on: self._key_edit.setEchoMode(
@@ -1176,9 +1171,8 @@ class DocumentEditorWindow(QMainWindow):
         hl = QHBoxLayout(header)
         hl.setContentsMargins(20, 10, 14, 10)
         hl.setSpacing(6)
-        icon = QLabel()
-        icon.setPixmap(qta.icon('fa5s.file-signature', color=C.ACCENT).pixmap(18, 18))
-        hl.addWidget(icon)
+        icon = icon_label(qta.icon('fa5s.file-signature', color=C.ACCENT), 18)   # 그릴 때마다 벡터로 (어느 배율에서도 또렷)
+        hl.addWidget(icon, 0, Qt.AlignVCenter)
         self._app_icon = icon
         title = QLabel('공문 작성')
         title.setObjectName('WindowTitle')
@@ -1195,13 +1189,13 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_new = QPushButton('새 공문')
         self.btn_new.setObjectName('Ghost')
         self.btn_new.setIcon(qta.icon('fa5s.plus', color=C.MUTED))
-        self.btn_new.setIconSize(QSize(10, 10))
+        self.btn_new.setIconSize(scaled_size(10))
         self.btn_new.setCursor(Qt.PointingHandCursor)
         self.btn_new.setToolTip('처음 화면으로 (새 공문 쓰기)')
         self.btn_new.clicked.connect(self._new_document)
         self.btn_capture = QPushButton('공문 캡처')
         self.btn_capture.setIcon(qta.icon('fa5s.crop-alt', color=C.TEXT))
-        self.btn_capture.setIconSize(QSize(13, 13))
+        self.btn_capture.setIconSize(scaled_size(13))
         self.btn_capture.setMinimumHeight(30)
         self.btn_capture.setCursor(Qt.PointingHandCursor)
         self.btn_capture.setToolTip('받은 공문을 화면에서 잘라 AI로 읽기 (Ctrl+Shift+X)')
@@ -1219,8 +1213,8 @@ class DocumentEditorWindow(QMainWindow):
         # ⋯ 메뉴: 디자인 고르기 · 사용 방법 (예전 ? 단추는 이 안으로)
         self.btn_more = QPushButton()
         self.btn_more.setObjectName('More')
-        self.btn_more.setIconSize(QSize(16, 16))
-        self.btn_more.setFixedSize(32, 30)
+        self.btn_more.setIconSize(scaled_size(16))
+        self.btn_more.setFixedSize(px(32), px(30))
         self.btn_more.setToolTip('디자인 · 사용 방법')
         self.btn_more.setAccessibleName('메뉴')
         self.btn_more.setCursor(Qt.PointingHandCursor)
@@ -1287,7 +1281,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_move_to_title.setObjectName('IconButton')
         self.btn_move_to_title.setFixedSize(_input_h, _input_h)
         self.btn_move_to_title.setIcon(qta.icon('fa5s.arrow-up', color=C.MUTED))
-        self.btn_move_to_title.setIconSize(QSize(13, 13))
+        self.btn_move_to_title.setIconSize(scaled_size(13))
         self.btn_move_to_title.setToolTip("관련 번호 칸의 글을 제목으로 올리기")
         self.btn_move_to_title.clicked.connect(self._move_ref_to_title)
         lbl_attach = QLabel("붙임")
@@ -1304,7 +1298,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_draft = QPushButton("자동 초안")
         self.btn_draft.setObjectName("DraftButton")
         self.btn_draft.setIcon(qta.icon('fa5s.magic', color=C.ACCENT, color_disabled=C.FAINT))
-        self.btn_draft.setIconSize(QSize(13, 13))
+        self.btn_draft.setIconSize(scaled_size(13))
         self.btn_draft.setFixedHeight(_input_h)
         self.btn_draft.setToolTip('제목에 맞는 공문 뼈대를 넣고, AI가 켜져 있으면 내용까지 채웁니다 (Enter)')
         self.btn_draft.clicked.connect(self.generate_draft)
@@ -1376,11 +1370,8 @@ class DocumentEditorWindow(QMainWindow):
         ai_frame_layout = QHBoxLayout(self.ai_frame)
         ai_frame_layout.setContentsMargins(14, 6, 6, 6)
         ai_frame_layout.setSpacing(8)
-        spark = QLabel()
-        spark.setPixmap(qta.icon('fa5s.comment-dots', color=C.FAINT).pixmap(16, 16))
-        spark.setAlignment(Qt.AlignTop)
-        spark.setContentsMargins(0, 8, 0, 0)
-        ai_frame_layout.addWidget(spark)
+        spark = icon_label(qta.icon('fa5s.comment-dots', color=C.FAINT), 16, top=8)
+        ai_frame_layout.addWidget(spark, 0, Qt.AlignTop)
         self._spark = spark
         # 메모장 · 문서: 아이콘 대신 「부탁 Ctrl+L」 / 「고칠 내용 Ctrl+L」 글자
         self.lbl_ask = QLabel()
@@ -1406,8 +1397,8 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_send = QPushButton()
         self.btn_send.setObjectName("AIPrimaryButton")
         self.btn_send.setIcon(qta.icon('fa5s.arrow-up', color='white'))
-        self.btn_send.setIconSize(QSize(15, 15))
-        self.btn_send.setFixedSize(38, 38)
+        self.btn_send.setIconSize(scaled_size(15))
+        self.btn_send.setFixedSize(px(38), px(38))
         self.btn_send.setCursor(Qt.PointingHandCursor)
         self.btn_send.setToolTip("보내기 (Enter · 줄바꿈은 Shift+Enter)")
         self.btn_send.clicked.connect(self.ask_ai)
@@ -1497,7 +1488,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_start_capture = QPushButton()
         self.btn_start_capture.setObjectName('StartIcon')
         self.btn_start_capture.setIcon(qta.icon('fa5s.crop-alt', color=C.MUTED))
-        self.btn_start_capture.setIconSize(QSize(14, 14))
+        self.btn_start_capture.setIconSize(scaled_size(14))
         self.btn_start_capture.setToolTip('공문 캡처 (Ctrl+Shift+X)')
         self.btn_start_capture.setCursor(Qt.PointingHandCursor)
         self.btn_start_capture.clicked.connect(lambda: self._start_capture())
@@ -1624,7 +1615,7 @@ class DocumentEditorWindow(QMainWindow):
 
     def _apply_design_widgets(self):
         """QSS 밖에서 색 · 글꼴 · 보이기를 정하는 것들을 지금 디자인에 맞춘다."""
-        self._app_icon.setPixmap(qta.icon('fa5s.file-signature', color=C.ACCENT).pixmap(18, 18))
+        self._app_icon.setIcon(qta.icon('fa5s.file-signature', color=C.ACCENT))
         self._app_icon.setVisible(C.APP_ICON)
         self.btn_more.setIcon(qta.icon('fa5s.ellipsis-h', color=C.TEXT))
         self.btn_new.setIcon(qta.icon('fa5s.plus', color=C.MUTED))
@@ -1638,7 +1629,7 @@ class DocumentEditorWindow(QMainWindow):
         for r in self._form_rows:
             r.layout().setContentsMargins(0, 0, 6 if table else 0, 0)
         # 요청 칸 앞: 말풍선 아이콘(기존) ↔ 「부탁」 · 「고칠 내용」 + Ctrl+L
-        self._spark.setPixmap(qta.icon('fa5s.comment-dots', color=C.FAINT).pixmap(16, 16))
+        self._spark.setIcon(qta.icon('fa5s.comment-dots', color=C.FAINT))
         self._spark.setVisible(not C.ASK_LABEL)
         self.lbl_ask.setText(C.ASK_LABEL)
         self.lbl_ask.setVisible(bool(C.ASK_LABEL))
@@ -2592,12 +2583,8 @@ class DocumentEditorWindow(QMainWindow):
         for ic, name, desc in items:
             row = QHBoxLayout()
             row.setSpacing(12)
-            i = QLabel()
-            i.setPixmap(qta.icon(ic, color=C.ACCENT).pixmap(16, 16))
-            i.setFixedWidth(20)
-            i.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-            i.setContentsMargins(0, 3, 0, 0)
-            row.addWidget(i)
+            i = icon_label(qta.icon(ic, color=C.ACCENT), 16, top=3)     # 벡터로 그려 배율이 커도 또렷
+            row.addWidget(i, 0, Qt.AlignTop)
             t = QLabel(f"<span style='color:{C.TEXT}; font-weight:700;'>{name}</span><br>"
                        f"<span style='color:{C.MUTED};'>{desc}</span>")
             t.setWordWrap(True)
@@ -2675,7 +2662,7 @@ class DocumentEditorWindow(QMainWindow):
         else:
             self.btn_apikey.setText('AI 꺼짐 · 연결하기')
             self.ai_input.setPlaceholderText('AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]에서 연결하면 쓸 수 있어요.')
-        self.btn_apikey.setIconSize(QSize(9, 9) if not legacy else QSize(12, 12))
+        self.btn_apikey.setIconSize(scaled_size(9) if not legacy else scaled_size(12))
 
     # ── AI 설정 메뉴 ──
     def _show_ai_settings_menu(self):
