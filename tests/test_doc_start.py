@@ -33,12 +33,12 @@ def ed(tmp_path, monkeypatch):
 def test_opens_as_small_start_window(ed):
     w, de, db, app = ed
     assert w._mode == 'start' and w.start_page.isVisible() and not w.fold.isVisible()
-    assert w.width() <= 620 and w.height() < 260
+    assert w.width() <= 720 and w.height() < 260
     assert w.title_input.placeholderText() == '공문 제목'
     assert w.btn_start_go.text() == '공문 작성' and w.btn_past.text() == '저장한 공문'
     assert w.btn_start_capture.isHidden() and w.btn_past.objectName() == 'SavedDocs'   # 캡처 단추 없음 (단축키로)
     assert 'Ctrl' in w.lbl_hint.text() and 'Shift' in w.lbl_hint.text()          # 안내 줄: 캡처 단축키
-    assert w.title_input.parent() is w.start_page
+    assert w.start_page.isAncestorOf(w.title_input) and w.start_page.isAncestorOf(w.ref_input)
 
 
 def test_enter_with_title_expands_and_drafts(ed):
@@ -76,9 +76,14 @@ def test_attach_button_and_copy_buttons(ed):
     assert w.btn_attach.text().startswith('붙임 2')
     w.title_input.setText('제목')
     w._start_go()
-    assert not w.btn_copy_ref.isVisible() and w.btn_copy_title.isVisible() and w.btn_copy.isVisible()
+    # 제목 · 관련 번호는 칸 바로 옆 [복사] (칸이 비면 숨김), 본문은 위 도구줄 [본문 복사]
+    assert w.btn_copy_title.isVisible() and not w.btn_copy_ref.isVisible() and w.btn_copy.isVisible()
+    w.ref_input.setText('교무부-1')
+    assert w.btn_copy_ref.isVisible()
     w._copy_title()
     assert w.btn_copy_title.text() == '복사됨' and app.clipboard().text() == '제목'
+    w._copy_ref()
+    assert w.btn_copy_ref.text() == '복사됨' and app.clipboard().text() == '교무부-1'
 
 
 def test_past_documents_load_with_year_bump(ed, monkeypatch):

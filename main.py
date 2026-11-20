@@ -103,25 +103,9 @@ _last_active_window = None
 
 
 def _make_tray_icon():
-    from PyQt5.QtGui import QPen
-    pix = QPixmap(32, 32)
-    pix.fill(Qt.transparent)
-    p = QPainter(pix)
-    p.setRenderHint(QPainter.Antialiasing)
-    # 노트 본체 (노란 배경)
-    p.setBrush(QColor('#f7c948'))
-    p.setPen(QColor('#c8a000'))
-    p.drawRoundedRect(2, 2, 28, 28, 4, 4)
-    # 노트 선 (어두운 색)
-    pen = QPen(QColor('#7a6000'))
-    pen.setWidth(2)
-    pen.setCapStyle(Qt.RoundCap)
-    p.setPen(pen)
-    p.drawLine(7, 10, 25, 10)
-    p.drawLine(7, 16, 25, 16)
-    p.drawLine(7, 22, 18, 22)
-    p.end()
-    return QIcon(pix)
+    """앱 · 트레이 아이콘 (크기별로 그린 노란 메모지 — ui.common.app_icon)."""
+    from ui.common import app_icon
+    return app_icon()
 
 
 DEFAULT_W, DEFAULT_H = 320, 400
