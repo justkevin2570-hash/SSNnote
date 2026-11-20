@@ -47,13 +47,13 @@ def test_default_is_note_and_menu_has_three_designs(ed, monkeypatch):
     assert top == ['디자인', '사용 방법']
     assert designs['note'].startswith('✓') and '(기본)' in designs['note']
     assert '포스트잇' in designs['note']
-    assert '결재판' in designs['paper'] and '깔끔이' in designs['base']
+    assert '결재판' in designs['paper'] and '처음' in designs['base']
     assert not designs['paper'].startswith('✓')
 
 
 def test_texts_changed(ed):
     w, de, db, app = ed
-    assert w.ref_input.placeholderText() == '관련 번호 (선택)'
+    assert w.ref_input.placeholderText() == '(선택)' and w.title_input.placeholderText() == ''
     assert w.btn_start_capture.toolTip().startswith('공문 캡처')
     assert '공문 캡처' in w.lbl_hint.text() and '받은 공문' not in w.lbl_hint.text()
 
@@ -143,3 +143,14 @@ def test_text_contrast(name):
             assert _ratio(fg, bg) >= 4.5, (name, fg, bg)
     finally:
         de.apply_design(de.DEFAULT_DESIGN)
+
+
+def test_base_design_keeps_hints_without_labels(ed):
+    w, de, db, app = ed
+    w.set_design('base')
+    app.processEvents()
+    assert w.title_input.placeholderText() == '공문 제목' and w.ref_input.placeholderText() == '관련 번호 (선택)'
+    assert all(k.isHidden() for k in w._form_keys)
+    w.set_design('paper')
+    app.processEvents()
+    assert w.ref_input.placeholderText() == '(선택)' and not w._form_keys[0].isHidden()

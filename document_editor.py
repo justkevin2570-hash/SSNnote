@@ -58,7 +58,7 @@ from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
 from ui.common import fit_to_screen, default_geometry, px, icon_png, icon_label, scaled_size
 
 
-# ── 색 · 디자인 (⋯ → 디자인): 포스트잇(기본, 메모장) · 결재판(문서) · 깔끔이(기존). 틀과 기능은 같고 색과 모양만 다르다 ──
+# ── 색 · 디자인 (⋯ → 디자인): 포스트잇(기본, 메모장) · 결재판(문서) · 처음(기존). 틀과 기능은 같고 색과 모양만 다르다 ──
 class C:
     """지금 디자인의 색표. apply_design()이 값을 바꾼다 (아래 기본값 = 「기존」)."""
     BG        = '#F5F6F8'    # 창 바탕
@@ -94,7 +94,7 @@ class C:
 
 DESIGN_KEY = 'doc_design'
 DEFAULT_DESIGN = 'note'
-DESIGN_LABELS = {'note': '포스트잇', 'paper': '결재판', 'base': '깔끔이'}   # 메모장 · 문서 · 기존
+DESIGN_LABELS = {'note': '포스트잇', 'paper': '결재판', 'base': '처음'}   # 메모장 · 문서 · 기존
 _BASE_COLORS = {k: v for k, v in vars(C).items() if k.isupper()}
 _DESIGNS = {
     'base': {},
@@ -1612,12 +1612,11 @@ class DocumentEditorWindow(QMainWindow):
         v.addWidget(self.lbl_hint)
         self._set_hint()
         # 제목 · 관련 번호 칸은 늘 이 위쪽에 (작성 화면으로 펼쳐도 그대로)
-        self.title_input.setPlaceholderText('공문 제목')
-        self.ref_input.setPlaceholderText('관련 번호 (선택)')
-        # 한 줄 = [제목/관련] 글자 · 입력 칸 · [복사]. 메모장은 점선 밑줄, 문서는 표, 기존은 네모 칸
+        # 안내 글은 디자인마다 (_apply_design_widgets): 칸 이름이 보이면 「(선택)」만, 처음(네모 칸)은 칸 이름 대신 안내 글
+        # 한 줄 = [공문 제목/관련 번호] 글자 · 입력 칸 · [복사]. 메모장은 점선 밑줄, 문서는 표, 기존은 네모 칸
         self._form_rows, self._form_keys = [], []
-        for i, (key, field, copy) in enumerate((('제목', self.title_input, self.btn_copy_title),
-                                                ('번호', self.ref_input, self.btn_copy_ref))):
+        for i, (key, field, copy) in enumerate((('공문 제목', self.title_input, self.btn_copy_title),
+                                                ('관련 번호', self.ref_input, self.btn_copy_ref))):
             row = QFrame()
             row.setObjectName('FormRow')
             row.setProperty('first', 'true' if i == 0 else 'false')
@@ -1713,13 +1712,16 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_win_min.setIcon(qta.icon('ph.minus', color=C.MUTED))
         self.btn_win_close.setIcon(qta.icon('ph.x', color=C.MUTED))
         self.btn_new.setIcon(qta.icon('fa5s.plus', color=C.MUTED))
-        # 제목 · 관련 번호 줄: 표는 줄끼리 붙이고, 기존(네모 칸)은 「제목/번호」 글자 없이
+        # 제목 · 관련 번호 줄: 표는 줄끼리 붙이고, 처음(네모 칸)은 「공문 제목/관련 번호」 글자 없이 안내 글로
         table = C.FIELDS == 'table'
+        boxed = C.FIELDS == 'box'
         self._start_fields.setSpacing(0 if table else 7)
         for k in self._form_keys:
-            k.setVisible(C.FIELDS != 'box')
+            k.setVisible(not boxed)
             k.ensurePolished()
-            k.setFixedWidth(k.fontMetrics().horizontalAdvance('번호') + (34 if table else 12))
+            k.setFixedWidth(k.fontMetrics().horizontalAdvance('관련 번호') + (34 if table else 12))
+        self.title_input.setPlaceholderText('공문 제목' if boxed else '')
+        self.ref_input.setPlaceholderText('관련 번호 (선택)' if boxed else '(선택)')
         for r in self._form_rows:
             r.layout().setContentsMargins(0, 0, 6 if table else 0, 0)
         # 요청 칸 앞: 말풍선 아이콘(기존) ↔ 「부탁」 · 「고칠 내용」 + Ctrl+L
