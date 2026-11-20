@@ -250,6 +250,16 @@ if __name__ == '__main__':
     app.installNativeEventFilter(_hotkey_filter)
     app.aboutToQuit.connect(_hotkey_filter.unregister)
 
+    # Alt+1~4: 앱 창이 눌려 있을 때 아래 줄 그 자리의 버튼 (공문 · 예산 · 달력 · AI가 기본, ui/bottom_bar.py)
+    from ui.bottom_bar import AltNumberFilter
+
+    def _bottom_target():
+        if not _open_windows:
+            return None
+        return _last_active_window if _last_active_window in _open_windows else _open_windows[0]
+    _alt_filter = AltNumberFilter(_bottom_target, lambda: _shortcut_enabled[0], app)
+    app.installEventFilter(_alt_filter)
+
     # ── 단축키 켬/끔 상태 관리 ──────────────────────────────────────
     _sc_settings = _load_settings()
     _shortcut_enabled = [_sc_settings.get('shortcut_enabled', True)]

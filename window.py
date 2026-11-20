@@ -324,22 +324,32 @@ class MemoWindow(QMainWindow):
             # 네 버튼 가로 길이를 똑같이: 글자 길이(크기 힌트)와 상관없이 줄 폭을 똑같이 나눈다
             b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
             b.setMinimumWidth(px(44))
+            b.setContextMenuPolicy(Qt.CustomContextMenu)          # 우클릭 → 버튼 순서 바꾸기
+            b.customContextMenuRequested.connect(lambda pos, btn=b: self._bottom_menu(btn, pos))
             bottom_layout.addWidget(b, 1)
             return b
 
-        # 아래 줄: 달력 · 공문 · 예산 · AI(아이콘만). 지난 기록은 제목줄로 옮김
-        _bottom_button('달력', 'ph.calendar-blank-bold', self._show_monthly_calendar, '월간 달력 (모든 메모장의 마감 업무)')
-        _bottom_button('공문', 'ph.pen-nib-bold', self._open_document_editor,
-                       '공문 작성 창 (AI 초안·공문 캡처)')
-        _bottom_button('예산', 'ph.currency-krw-bold', self._open_budget_window, '예산 관리 창')
+        # 아래 줄: 공문 · 예산 · 달력 · AI(아이콘만)가 기본, 순서는 바꿀 수 있음 (ui/bottom_bar.py).
+        # 왼쪽부터 Alt+1 · 2 · 3 · 4. 지난 기록은 제목줄로 옮김
+        self._bottom_layout = bottom_layout
+        self._bottom_btns = {
+            'calendar': _bottom_button('달력', 'ph.calendar-blank-bold', self._show_monthly_calendar,
+                                       '월간 달력 (모든 메모장의 마감 업무)'),
+            'doc': _bottom_button('공문', 'ph.pen-nib-bold', self._open_document_editor,
+                                  '공문 작성 창 (AI 초안·공문 캡처)'),
+            'budget': _bottom_button('예산', 'ph.currency-krw-bold', self._open_budget_window, '예산 관리 창'),
+        }
+        self._bottom_tips = {k: b.toolTip() for k, b in self._bottom_btns.items()}
         from ui.chrome import ai_chat_icon
         self.btn_ai_bottom = _bottom_button('', 'ph.chat-circle-dots-bold', self._toggle_ai_chat, 'AI 대화 열기')
+        self._bottom_btns['ai'] = self.btn_ai_bottom
         self.btn_ai_bottom.setObjectName('btn_ai_bottom')
         self.btn_ai_bottom.setIcon(ai_chat_icon(_btn_icon))           # 말풍선 안에 「AI」 (글자 없이)
         self.btn_ai_bottom.setIconSize(QSize(px(22), px(22)))
         self.btn_ai_bottom.setStyleSheet(_btn_style + f"""
             QPushButton[active="true"] {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.18)")}; }}
         """)
+        self._apply_bottom_order()
 
         # 기존 capture 메서드 호환용 더미 위젯 (숨김)
         self.lbl_capture_result = QLabel('')
@@ -1019,15 +1029,18 @@ class MemoWindow(QMainWindow):
                                        on_shortcut_change=self._on_shortcut_change,
                                        get_shortcut_enabled=self._get_shortcut_enabled)
         # 순서·이름은 「…」 메뉴와 맞춘다 (자주 쓰는 기능 → 창 → 배경색·글자·줄간격 → 설정 → 도움말)
+        from ui.bottom_bar import shortcut_text
         return [
             Command('📋 오늘 한눈에 보기', self._open_dashboard, '', 'dashboard today 대시보드 마감'),
             Command('📸 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷 ai 공문 분석 요약'),
             Command('✏️ 새 업무 입력', new_task, '', 'task add 추가 할일'),
-            Command('💬 AI 대화 열기/숨기기', lambda: target._toggle_ai_chat(), '', 'ai chat 채팅 대화 질문 클로드'),
+            Command('💬 AI 대화 열기/숨기기', lambda: target._toggle_ai_chat(), shortcut_text('ai'),
+                    'ai chat 채팅 대화 질문 클로드'),
             Command('🆕 새 메모장', new_memo, '', 'new memo 메모'),
-            Command('✍️ 공문 작성', self._open_document_editor, '', 'document 기안 초안 회신'),
-            Command('₩ 예산 관리', self._open_budget_window, '', 'budget money 돈 집행'),
-            Command('📅 월간 달력', self._show_monthly_calendar, '', 'calendar 일정 캘린더'),
+            Command('✍️ 공문 작성', self._open_document_editor, shortcut_text('doc'), 'document 기안 초안 회신'),
+            Command('₩ 예산 관리', self._open_budget_window, shortcut_text('budget'), 'budget money 돈 집행'),
+            Command('📅 월간 달력', self._show_monthly_calendar, shortcut_text('calendar'), 'calendar 일정 캘린더'),
+            Command('↔️ 아래 줄 버튼 순서', self._open_bottom_order, '', 'order shortcut alt 단축키 순서 버튼'),
             Command('📜 지난 업무', lambda: self._show_history(0), '', 'history 지난 기록 삭제 되살리기 복원'),
             Command('🗂 저장 공문', lambda: self._show_history(1), '', 'document 공문 저장 기록 지난 기록'),
             Command('📌 항상 위에 ' + ('고정 끄기' if on_top else '고정'), self.toggle_always_on_top,
@@ -1218,6 +1231,7 @@ class MemoWindow(QMainWindow):
         from school_profile import privacy_enabled
         add(settings, '개인정보 보호 모드', self._toggle_privacy_mode, checked=privacy_enabled())
         add(settings, 'AI 연결', self._open_ai_settings, icon='ph.key')
+        add(settings, '아래 줄 버튼 순서…', self._open_bottom_order, icon='ph.arrows-down-up')
         settings.addSeparator()
         add(settings, '창 배치 기본값으로…', self._reset_layouts, icon='ph.arrows-counter-clockwise')
 
@@ -1380,6 +1394,44 @@ class MemoWindow(QMainWindow):
             self._on_timed_alarm_change(enabled)
         if menu:
             menu.close()
+
+    # ── 아래 줄 버튼 순서 · Alt+1~4 (ui/bottom_bar.py) ─────────────
+    def _apply_bottom_order(self):
+        """저장된 순서대로 아래 줄 버튼을 다시 놓고, 툴팁에 Alt+숫자를 붙인다."""
+        from ui.bottom_bar import load_order
+        order = load_order()
+        lay = self._bottom_layout
+        for b in self._bottom_btns.values():
+            lay.removeWidget(b)
+        for i, key in enumerate(order):
+            lay.addWidget(self._bottom_btns[key], 1)
+        self._refresh_bottom_tips(order)
+
+    def _refresh_bottom_tips(self, order=None):
+        from ui.bottom_bar import load_order
+        order = order or load_order()
+        for i, key in enumerate(order):
+            b = self._bottom_btns[key]
+            base = b.toolTip().split(' (Alt+')[0] if key == 'ai' else self._bottom_tips[key]
+            b.setToolTip(f'{base} (Alt+{i + 1})')
+
+    def trigger_bottom(self, n):
+        """Alt+n: 아래 줄 왼쪽에서 n번째 버튼을 누른 것과 같다."""
+        from ui.bottom_bar import load_order
+        order = load_order()
+        if 1 <= n <= len(order):
+            b = self._bottom_btns[order[n - 1]]
+            if b.isEnabled():
+                b.click()
+
+    def _bottom_menu(self, btn, pos):
+        m = menu_style.make_menu(self)
+        menu_style.add_action(m, '버튼 순서 바꾸기…', self._open_bottom_order, icon='ph.arrows-down-up')
+        m.exec_(btn.mapToGlobal(pos))
+
+    def _open_bottom_order(self):
+        from ui.bottom_bar import open_order_dialog
+        open_order_dialog(self)
 
     def _set_local_shortcuts_enabled(self, enabled):
         for sc in self._shortcuts:
@@ -2005,6 +2057,8 @@ class MemoWindow(QMainWindow):
         b.style().unpolish(b)
         b.style().polish(b)
         b.setToolTip('AI 대화 숨기기' if on else 'AI 대화 열기')
+        if hasattr(self, '_bottom_btns'):
+            self._refresh_bottom_tips()                 # 「(Alt+4)」 같은 단축키 표시를 다시 붙임
 
     def _ai_chat_usable(self):
         return not (self._force_memo_mode or self._memo_mode or self.collapsed)
