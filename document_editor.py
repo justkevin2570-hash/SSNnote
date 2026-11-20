@@ -174,7 +174,7 @@ def _fields_qss() -> str:
     QFrame#FormRow QLabel#FormKey {{ background: #F6F5F2; border: none; border-right: 1px solid {C.BORDER};
         color: {C.MUTED}; font-weight: 500; padding: 0 12px; }}
     QFrame#FormRow QLineEdit {{ background: transparent; border: none; border-radius: 0; padding: 4px 10px; }}
-    QFrame#FormRow QLineEdit:focus {{ background: {C.ACCENT_SOFT}; }}
+    QFrame#FormRow[focused="true"] {{ background: {C.ACCENT_SOFT}; }}
     QFrame#FormRow[first="true"] QLineEdit {{ font-weight: 700; }}"""
     return """
     QFrame#FormRow { background: transparent; border: none; }"""
@@ -1631,6 +1631,7 @@ class DocumentEditorWindow(QMainWindow):
             copy.setParent(None)
             h.addWidget(copy)
             field.setFixedHeight(36)                     # 제목 · 관련 번호 칸 높이를 똑같이
+            field.installEventFilter(self)               # 누르면 줄 바탕 강조 (eventFilter)
             field.textChanged.connect(lambda t, b=copy: b.setVisible(bool(t.strip())))
             copy.hide()                                  # 칸이 비면 복사 단추도 숨김
             self._start_fields.addWidget(row)
@@ -1721,9 +1722,10 @@ class DocumentEditorWindow(QMainWindow):
             k.ensurePolished()
             k.setFixedWidth(k.fontMetrics().horizontalAdvance('관련 번호') + (34 if table else 12))
         self.title_input.setPlaceholderText('공문 제목' if boxed else '')
-        self.ref_input.setPlaceholderText('관련 번호 (선택)' if boxed else '(선택)')
+        self.ref_input.setPlaceholderText('관련 번호 (선택)' if boxed else '')
         for r in self._form_rows:
             r.layout().setContentsMargins(0, 0, 6 if table else 0, 0)
+            r.layout().setSpacing(0 if table else 6)      # 표: 칸 이름 칸과 입력 칸 사이 틈 없이
         # 요청 칸 앞: 말풍선 아이콘(기존) ↔ 「부탁」 · 「고칠 내용」 + Ctrl+L
         self._spark.setIcon(qta.icon('fa5s.comment-dots', color=C.FAINT))
         self._spark.setVisible(not C.ASK_LABEL)
@@ -2263,6 +2265,11 @@ class DocumentEditorWindow(QMainWindow):
 
     # ── AI 입력창 Enter 키 → 전송 ──
     def eventFilter(self, obj, event):
+        if event.type() in (QEvent.FocusIn, QEvent.FocusOut) and obj in (self.title_input, self.ref_input):
+            row = obj.parentWidget()                   # 결재판: 칸을 누르면 그 줄(칸 이름 오른쪽 전체)을 옅게 칠함
+            row.setProperty('focused', event.type() == QEvent.FocusIn)
+            row.style().unpolish(row)
+            row.style().polish(row)
         if obj is self.ai_input and event.type() in (QEvent.FocusIn, QEvent.FocusOut):
             self.ai_frame.setProperty('focused', event.type() == QEvent.FocusIn)   # 요청 칸 테두리 강조
             self.ai_frame.style().unpolish(self.ai_frame)

@@ -53,7 +53,7 @@ def test_default_is_note_and_menu_has_three_designs(ed, monkeypatch):
 
 def test_texts_changed(ed):
     w, de, db, app = ed
-    assert w.ref_input.placeholderText() == '(선택)' and w.title_input.placeholderText() == ''
+    assert w.ref_input.placeholderText() == '' and w.title_input.placeholderText() == ''
     assert w.btn_start_capture.toolTip().startswith('공문 캡처')
     assert '공문 캡처' in w.lbl_hint.text() and '받은 공문' not in w.lbl_hint.text()
 
@@ -153,4 +153,4 @@ def test_base_design_keeps_hints_without_labels(ed):
     assert all(k.isHidden() for k in w._form_keys)
     w.set_design('paper')
     app.processEvents()
-    assert w.ref_input.placeholderText() == '(선택)' and not w._form_keys[0].isHidden()
+    assert w.ref_input.placeholderText() == '' and not w._form_keys[0].isHidden()
