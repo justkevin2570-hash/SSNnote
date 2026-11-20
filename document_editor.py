@@ -1617,7 +1617,7 @@ class DocumentEditorWindow(QMainWindow):
         # 한 줄 = [제목/관련] 글자 · 입력 칸 · [복사]. 메모장은 점선 밑줄, 문서는 표, 기존은 네모 칸
         self._form_rows, self._form_keys = [], []
         for i, (key, field, copy) in enumerate((('제목', self.title_input, self.btn_copy_title),
-                                                ('관련', self.ref_input, self.btn_copy_ref))):
+                                                ('번호', self.ref_input, self.btn_copy_ref))):
             row = QFrame()
             row.setObjectName('FormRow')
             row.setProperty('first', 'true' if i == 0 else 'false')
@@ -1713,13 +1713,13 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_win_min.setIcon(qta.icon('ph.minus', color=C.MUTED))
         self.btn_win_close.setIcon(qta.icon('ph.x', color=C.MUTED))
         self.btn_new.setIcon(qta.icon('fa5s.plus', color=C.MUTED))
-        # 제목 · 관련 번호 줄: 표는 줄끼리 붙이고, 기존(네모 칸)은 「제목/관련」 글자 없이
+        # 제목 · 관련 번호 줄: 표는 줄끼리 붙이고, 기존(네모 칸)은 「제목/번호」 글자 없이
         table = C.FIELDS == 'table'
         self._start_fields.setSpacing(0 if table else 7)
         for k in self._form_keys:
             k.setVisible(C.FIELDS != 'box')
             k.ensurePolished()
-            k.setFixedWidth(k.fontMetrics().horizontalAdvance('관련') + (34 if table else 12))
+            k.setFixedWidth(k.fontMetrics().horizontalAdvance('번호') + (34 if table else 12))
         for r in self._form_rows:
             r.layout().setContentsMargins(0, 0, 6 if table else 0, 0)
         # 요청 칸 앞: 말풍선 아이콘(기존) ↔ 「부탁」 · 「고칠 내용」 + Ctrl+L
