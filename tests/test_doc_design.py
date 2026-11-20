@@ -47,7 +47,7 @@ def test_default_is_note_and_menu_has_three_designs(ed, monkeypatch):
     assert top == ['디자인', '사용 방법']
     assert designs['note'].startswith('✓') and '(기본)' in designs['note']
     assert '포스트잇' in designs['note']
-    assert '결재판' in designs['paper'] and '보라 연필' in designs['base']
+    assert '결재판' in designs['paper'] and '깔끔이' in designs['base']
     assert not designs['paper'].startswith('✓')
 
 
