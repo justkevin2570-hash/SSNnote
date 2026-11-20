@@ -1344,7 +1344,7 @@ class DocumentEditorWindow(QMainWindow):
         self.editor.document().blockCountChanged.connect(self._apply_editor_line_height)
         self._apply_editor_line_height()
         self.editor.setPlaceholderText(
-            "제목을 넣고 [자동 초안]을 누르거나, 아래에 AI에게 부탁할 내용을 적어 보세요."
+            "[다시 초안]을 누르거나, 아래에 AI에게 부탁할 내용을 적어 보세요."
         )
         self.editor.setContextMenuPolicy(Qt.CustomContextMenu)
         self.editor.customContextMenuRequested.connect(self._show_editor_menu)
@@ -1970,7 +1970,7 @@ class DocumentEditorWindow(QMainWindow):
         if self._polish is not None or (self.ai_thread and self.ai_thread.isRunning()):
             return
         if load_ai_mode() == 'none':
-            self.statusBar().showMessage('AI가 꺼져 있어요. [AI 설정]에서 연결하면 다듬을 수 있어요.')
+            self.statusBar().showMessage('AI가 꺼져 있어요 — 위의 [AI 꺼짐 · 연결하기]에서 연결하면 다듬을 수 있어요.')
             return
         cursor = self.editor.textCursor()
         if cursor.hasSelection():
@@ -2554,23 +2554,25 @@ class DocumentEditorWindow(QMainWindow):
 
         items = [
             ('fa5s.magic', '자동 초안',
-             '제목을 넣고 Enter나 [자동 초안]을 누르면 공문 뼈대가 들어가고, '
-             'AI가 연결되어 있으면 내용까지 채웁니다. 공문 종류는 제목으로 정해져 버튼 옆에 보이고, '
-             '눌러서 직접 고를 수 있습니다. 쓰던 본문은 Ctrl+Z로 되찾을 수 있습니다.'),
+             '제목을 넣고 Enter나 [공문 작성]을 누르면 창이 아래로 펼쳐지며 공문 뼈대가 들어가고, '
+             'AI가 연결되어 있으면 내용까지 채웁니다. 공문 종류(「일반 계획 ▾」)는 제목으로 정해지고, '
+             '눌러서 직접 고를 수 있습니다. 펼친 뒤에는 [다시 초안]으로 다시 넣고, '
+             '쓰던 본문은 Ctrl+Z로 되찾을 수 있습니다.'),
             ('fa5s.pen', '선택 부분 다듬기',
              '본문 글을 드래그한 뒤 우클릭 → 「선택 부분 다듬기」 (선택이 없으면 본문 전체). '
              '원문과 나란히 비교하고 고쳐서 [적용]하세요. 적용 후 Ctrl+Z나 상태 줄의 [되돌리기]로 원래 글에 돌아갑니다.'),
             ('fa5s.user-edit', '내 스타일로',
              '[저장 후 나가기]로 저장한 공문 중 제목이 비슷한 것을 AI가 예시로 보고 같은 말투로 씁니다. '
-             '저장할수록 더 닮아 갑니다. 꼭 지킬 규칙은 [AI 설정] → 나만의 작성 규칙에 적어 두세요.'),
+             '저장할수록 더 닮아 갑니다. 꼭 지킬 규칙은 머리줄의 AI 단추 → 「나만의 작성 규칙」에 적어 두세요.'),
             ('fa5s.comment-dots', 'AI에게 요청',
              '아래 칸에 "장소를 시청각실로 바꿔줘"처럼 적고 Enter. 줄바꿈은 Shift+Enter. '
              '결과가 마음에 안 들면 Ctrl+Z 한 번으로 이전 내용으로 돌아갑니다.'),
             ('fa5s.crop-alt', '공문 캡처',
-             'Ctrl+Shift+X나 [공문 캡처]로 받은 공문을 잘라 오면 제목·공문번호는 오른쪽 제목·관련 번호 칸에, '
-             '요약(핵심 내용·기한)은 왼쪽 칸에 나옵니다. '
+             'Ctrl+Shift+X로 받은 공문을 잘라 오면 제목 · 공문번호를 읽어 제목 · 관련 번호 칸에 채웁니다 '
+             '(아래 안내 줄에 진행 상황이 나와요). '
              '번호가 안 잡혔으면 그 부분만 한 번 더 캡처하세요 — 같은 공문에 합쳐서 다시 읽습니다. '
-             '다른 공문은 왼쪽 [새 공문]. AI 대화·자동 초안도 그 공문을 참고합니다.'),
+             '읽은 내용(핵심 내용 · 기한)은 화면에 따로 보이지 않고, 자동 초안 · AI 요청 때 참고로 함께 보냅니다. '
+             '다른 공문을 쓰려면 [새 공문] (Ctrl+N).'),
             ('fa5s.keyboard', '단축키 · 디자인',
              'Ctrl+1 제목 복사 · Ctrl+2 관련 번호 복사 · Ctrl+3 본문 복사 · Ctrl+N 새 공문 · Ctrl+O 저장한 공문 · '
              'Ctrl+R 다시 초안 · Ctrl+L 요청 칸으로 · Ctrl+S 저장 후 나가기. '
