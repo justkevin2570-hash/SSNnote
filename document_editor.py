@@ -331,6 +331,9 @@ def _style_template() -> str:
     QLabel#AskLabel {{ color: {C.TEXT}; font-size: 10pt; font-weight: 700; }}
     QPushButton#More {{ background: transparent; border: 1px solid transparent; padding: 0; }}
     QPushButton#More:hover {{ background: {C.HOVER}; border-color: {C.BORDER}; }}
+    QPushButton#WinButton {{ background: transparent; border: none; border-radius: 6px; padding: 0; }}
+    QPushButton#WinButton:hover {{ background: {C.HOVER}; }}
+    QPushButton#WinButton[close="true"]:hover {{ background: #FAD4D4; }}
     QPushButton#FieldCopy {{ padding: 0 9px; min-height: 26px; max-height: 26px; font-size: 9.5pt; font-weight: 600; }}
 
     /* 제목 · 관련 번호 줄 */
@@ -1141,6 +1144,78 @@ def _fit_kbd(btn, show=None):
         btn.setStyleSheet(btn._base_qss)
 
 
+# ── Windows 제목표시줄 숨기기 도우미 (Windows에서만, 다른 곳에서는 기본 제목표시줄 그대로) ──
+# Qt에는 제목표시줄 없는 창(FramelessWindowHint)이라고 알리고, Windows 창 스타일에는 테두리 · 제목 비트를
+# 다시 켜 둔다. 그러면 Windows가 크기 조절 · 화면 가장자리에 붙이기 · 최소화 애니메이션 · 그림자를 그대로
+# 해 주고, 창 전체가 앱 화면이 된다 (WM_NCCALCSIZE → 0). 머리줄 빈 곳은 HTCAPTION, 가장자리는 크기 조절.
+_CAPTION_HIDDEN = sys.platform == 'win32'
+_WM_NCCALCSIZE, _WM_NCHITTEST = 0x0083, 0x0084
+_HT = {'left': 10, 'right': 11, 'top': 12, 'topleft': 13, 'topright': 14,
+       'bottom': 15, 'bottomleft': 16, 'bottomright': 17}
+_HTCAPTION = 2
+
+
+def _setup_native_frame(win):
+    """창 스타일에 테두리 · 제목 비트를 켜고, 그림자 · 둥근 모서리를 Windows에 맡긴다."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        hwnd = int(win.winId())
+        user32 = ctypes.windll.user32
+        GWL_STYLE = -16
+        user32.GetWindowLongW.restype = ctypes.c_long
+        style = user32.GetWindowLongW(hwnd, GWL_STYLE)
+        style |= 0x00C00000 | 0x00040000 | 0x00020000 | 0x00010000   # CAPTION | THICKFRAME | MINIMIZEBOX | MAXIMIZEBOX
+        user32.SetWindowLongW(hwnd, GWL_STYLE, style)
+
+        class MARGINS(ctypes.Structure):
+            _fields_ = [('l', ctypes.c_int), ('r', ctypes.c_int), ('t', ctypes.c_int), ('b', ctypes.c_int)]
+        dwm = ctypes.windll.dwmapi
+        dwm.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(MARGINS(1, 1, 1, 1)))   # 창 그림자
+        pref = ctypes.c_int(2)                                                       # Windows 11 둥근 모서리
+        dwm.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(pref), ctypes.sizeof(pref))
+        user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)   # FRAMECHANGED
+    except Exception:
+        pass
+
+
+def _caption_native_event(win, message):
+    """WM_NCCALCSIZE · WM_NCHITTEST만 처리해 결과값을 돌려준다. 나머지는 None (Qt · Windows 기본 처리)."""
+    import ctypes
+    from ctypes import wintypes
+    msg = wintypes.MSG.from_address(int(message))
+    user32 = ctypes.windll.user32
+    if msg.message == _WM_NCCALCSIZE and msg.wParam:
+        if user32.IsZoomed(msg.hWnd):          # 최대화하면 창이 화면 밖으로 테두리만큼 나가므로 그만큼 안쪽으로
+            rect = wintypes.RECT.from_address(msg.lParam)
+            pad = user32.GetSystemMetrics(92)                   # SM_CXPADDEDBORDER
+            fx, fy = user32.GetSystemMetrics(32) + pad, user32.GetSystemMetrics(33) + pad   # SM_CXFRAME · SM_CYFRAME
+            rect.left += fx
+            rect.right -= fx
+            rect.top += fy
+            rect.bottom -= fy
+        return 0                                                # 창 전체가 앱 화면 (제목표시줄 없음)
+    if msg.message == _WM_NCHITTEST:
+        from PyQt5.QtGui import QCursor
+        return _hit_test(win, win.mapFromGlobal(QCursor.pos()), bool(user32.IsZoomed(msg.hWnd)))
+    return None
+
+
+def _hit_test(win, pos, zoomed=False):
+    """창 기준 pos → Windows 판정값 (가장자리 크기 조절 · 머리줄 빈 곳은 제목표시줄) 또는 None(앱 화면)."""
+    if not zoomed:
+        e = 6
+        w, h = win.width(), win.height()
+        fixed_h = win.minimumHeight() == win.maximumHeight()
+        fixed_w = win.minimumWidth() == win.maximumWidth()
+        left, right = (pos.x() < e) and not fixed_w, (pos.x() >= w - e) and not fixed_w
+        top, bottom = (pos.y() < e) and not fixed_h, (pos.y() >= h - e) and not fixed_h
+        key = ('top' if top else 'bottom' if bottom else '') + ('left' if left else 'right' if right else '')
+        if key:
+            return _HT[key]
+    return _HTCAPTION if win._is_caption_point(pos) else None
+
+
 class DocumentEditorWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1150,6 +1225,8 @@ class DocumentEditorWindow(QMainWindow):
         self._capturing = False
         DocumentEditorWindow._instance = self
         self.design = apply_design(current_design())   # 메모장(기본) · 문서 · 기존 (⋯ → 디자인)
+        if _CAPTION_HIDDEN:                             # Windows 제목표시줄 숨기기 (머리줄이 대신함)
+            self.setWindowFlags(self.windowFlags() | Qt.FramelessWindowHint)
         self.init_ui()
         keep_light(self)  # 공문 작성 창은 아직 라이트 전용 (다크 테마에서도 원래 모습 유지)
 
@@ -1220,6 +1297,21 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_more.setCursor(Qt.PointingHandCursor)
         self.btn_more.clicked.connect(self._show_more_menu)
         hl.addWidget(self.btn_more)
+        # 창 단추 ─ ✕: Windows 제목표시줄을 숨겼을 때(아래 _caption_hidden)만 보인다
+        self.btn_win_min = QPushButton()
+        self.btn_win_close = QPushButton()
+        for b, tip, slot in ((self.btn_win_min, '최소화', self.showMinimized), (self.btn_win_close, '닫기', self.close)):
+            b.setObjectName('WinButton')
+            b.setFixedSize(px(34), px(30))
+            b.setIconSize(scaled_size(14))
+            b.setToolTip(tip)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.clicked.connect(slot)
+            b.setVisible(_CAPTION_HIDDEN)
+        self.btn_win_close.setProperty('close', True)
+        hl.addSpacing(2)
+        hl.addWidget(self.btn_win_min)
+        hl.addWidget(self.btn_win_close)
         root.addWidget(header)
         self._header = header
         self._root = root
@@ -1618,6 +1710,8 @@ class DocumentEditorWindow(QMainWindow):
         self._app_icon.setIcon(qta.icon('fa5s.file-signature', color=C.ACCENT))
         self._app_icon.setVisible(C.APP_ICON)
         self.btn_more.setIcon(qta.icon('fa5s.ellipsis-h', color=C.TEXT))
+        self.btn_win_min.setIcon(qta.icon('ph.minus', color=C.MUTED))
+        self.btn_win_close.setIcon(qta.icon('ph.x', color=C.MUTED))
         self.btn_new.setIcon(qta.icon('fa5s.plus', color=C.MUTED))
         # 제목 · 관련 번호 줄: 표는 줄끼리 붙이고, 기존(네모 칸)은 「제목/관련」 글자 없이
         table = C.FIELDS == 'table'
@@ -2864,8 +2958,39 @@ class DocumentEditorWindow(QMainWindow):
             self.setGeometry(screen.x() + (screen.width() - self.START_W) // 2, screen.y() + int(screen.height() * 0.12),
                              self.START_W, h)
 
+    # ── Windows 제목표시줄 숨기기 (위 _setup_native_frame · _caption_native_event) ──
+    # 머리줄 빈 곳은 Windows에 「제목표시줄」이라고 알려(HTCAPTION) 끌기 · 더블클릭 최대화 ·
+    # 화면 가장자리에 붙이기 · 우클릭 창 메뉴가 그대로 된다.
+    def nativeEvent(self, event_type, message):
+        if _CAPTION_HIDDEN and event_type == b'windows_generic_MSG':
+            try:
+                r = _caption_native_event(self, message)
+            except Exception:
+                r = None
+            if r is not None:
+                return True, r
+        return super().nativeEvent(event_type, message)
+
+    def _is_caption_point(self, pos) -> bool:
+        """pos(창 기준)가 머리줄의 빈 곳(단추 · 입력 칸이 아닌 곳)인지."""
+        hdr = getattr(self, '_header', None)
+        if hdr is None or not hdr.isVisible():
+            return False
+        hp = hdr.mapFrom(self, pos)
+        if not hdr.rect().contains(hp):
+            return False
+        w = self.childAt(pos)
+        while w is not None and w is not hdr:
+            if isinstance(w, (QPushButton, QLineEdit, QComboBox)) or w.focusPolicy() != Qt.NoFocus:
+                return False
+            w = w.parentWidget()
+        return True
+
     def showEvent(self, event):
         super().showEvent(event)
+        if _CAPTION_HIDDEN and not getattr(self, '_frame_ready', False):
+            self._frame_ready = True
+            _setup_native_frame(self)                  # 테두리 · 그림자는 Windows 그대로, 제목표시줄만 숨김
         if not getattr(self, '_state_ready', False):
             if getattr(self, '_restore_maximized', False):
                 self.showMaximized()
