@@ -120,5 +120,6 @@ def test_bottom_buttons_same_height_and_row(make):
     btns = [b for b in bar.findChildren(QPushButton) if b.isVisible()]
     assert len(btns) == 4
     assert len({b.height() for b in btns}) == 1 and len({b.y() for b in btns}) == 1
+    assert max(b.width() for b in btns) - min(b.width() for b in btns) <= 1   # 가로 길이도 같게 (AI도)
     top = btns[0].y()
     assert bar.height() - (top + btns[0].height()) == top          # 위아래 여백 같게

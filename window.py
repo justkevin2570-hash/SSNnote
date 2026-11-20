@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFrame, QDateEdit, QDateTimeEdit, QWidgetAction,
     QMessageBox, QDialog, QGridLayout, QCalendarWidget, QToolButton,
     QPlainTextEdit, QTextEdit, QTimeEdit,
-    QComboBox, QScrollBar
+    QComboBox, QScrollBar, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QSettings, QUrl, QSize
 from PyQt5.QtGui import QFont, QColor, QTextBlockFormat, QTextCursor, QFontMetrics
@@ -321,7 +321,10 @@ class MemoWindow(QMainWindow):
             b.setCursor(Qt.PointingHandCursor)
             b.setToolTip(tip)
             b.clicked.connect(slot)
-            bottom_layout.addWidget(b)
+            # 네 버튼 가로 길이를 똑같이: 글자 길이(크기 힌트)와 상관없이 줄 폭을 똑같이 나눈다
+            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+            b.setMinimumWidth(px(44))
+            bottom_layout.addWidget(b, 1)
             return b
 
         # 아래 줄: 달력 · 공문 · 예산 · AI(아이콘만). 지난 기록은 제목줄로 옮김
@@ -337,7 +340,6 @@ class MemoWindow(QMainWindow):
         self.btn_ai_bottom.setStyleSheet(_btn_style + f"""
             QPushButton[active="true"] {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.18)")}; }}
         """)
-        self.btn_ai_bottom.setFixedWidth(px(52))          # 글자 없는 버튼은 좁게
 
         # 기존 capture 메서드 호환용 더미 위젯 (숨김)
         self.lbl_capture_result = QLabel('')
