@@ -58,7 +58,7 @@ from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
 from ui.common import fit_to_screen, default_geometry, px, icon_png, icon_label, scaled_size
 
 
-# ── 색 · 디자인 (⋯ → 디자인): 메모장(기본) · 문서 · 기존. 틀과 기능은 같고 색과 모양만 다르다 ──
+# ── 색 · 디자인 (⋯ → 디자인): 포스트잇(기본, 메모장) · 결재판(문서) · 보라 연필(기존). 틀과 기능은 같고 색과 모양만 다르다 ──
 class C:
     """지금 디자인의 색표. apply_design()이 값을 바꾼다 (아래 기본값 = 「기존」)."""
     BG        = '#F5F6F8'    # 창 바탕
@@ -94,7 +94,7 @@ class C:
 
 DESIGN_KEY = 'doc_design'
 DEFAULT_DESIGN = 'note'
-DESIGN_LABELS = {'note': '메모장', 'paper': '문서', 'base': '기존'}
+DESIGN_LABELS = {'note': '포스트잇', 'paper': '결재판', 'base': '보라 연필'}   # 메모장 · 문서 · 기존
 _BASE_COLORS = {k: v for k, v in vars(C).items() if k.isupper()}
 _DESIGNS = {
     'base': {},
