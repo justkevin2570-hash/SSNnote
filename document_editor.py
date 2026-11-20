@@ -58,8 +58,9 @@ from ui.theme import keep_light  # 예산·공문 창은 라이트 전용
 from ui.common import fit_to_screen, default_geometry, px
 
 
-# ── 색 (차분한 회청색 + 포인트 색 하나) ──────────────────────────
+# ── 색 · 디자인 (⋯ → 디자인): 메모장(기본) · 문서 · 기존. 틀과 기능은 같고 색과 모양만 다르다 ──
 class C:
+    """지금 디자인의 색표. apply_design()이 값을 바꾼다 (아래 기본값 = 「기존」)."""
     BG        = '#F5F6F8'    # 창 바탕
     SURFACE   = '#FFFFFF'    # 카드·종이
     BORDER    = '#E3E6EB'
@@ -69,7 +70,7 @@ class C:
     MUTED     = '#64748B'
     FAINT     = '#94A3B8'
     HOVER     = '#F1F3F6'
-    ACCENT    = '#4F46E5'    # 포인트 (저장·전송·초안)
+    ACCENT    = '#4F46E5'    # 포인트 (링크 · 입력칸 테두리 · 진행 표시)
     ACCENT_HI = '#4338CA'
     ACCENT_SOFT = '#EEF0FD'
     ACCENT_LINE = '#C7CCF7'
@@ -77,15 +78,85 @@ class C:
     OK        = '#16A34A'
     OFF       = '#94A3B8'
     WARN      = '#D97706'
+    PRIMARY, PRIMARY_HI, PRIMARY_OFF = '#4F46E5', '#4338CA', '#C7CCF7'   # [공문 작성] · [저장 후 나가기]
+    HEADER    = '#FFFFFF'    # 머리줄 바탕
+    TOP       = '#FFFFFF'    # 위쪽(제목 · 관련 번호 · 도구줄)과 펼친 아래쪽 바탕
+    SAVED_BG, SAVED_LINE, SAVED_TEXT, SAVED_HOVER = '#E6F6F3', '#A7DED4', '#0F766E', '#D3EFE9'   # [저장한 공문]
+    KBD_BG, KBD_LINE, KBD_TEXT = '#F1F3F6', '#E3E6EB', '#2B3443'      # 단축키 글자 상자
+    RULE      = ''           # 본문 줄 공책 선 색 ('' = 없음)
+    R, R_CARD = 7, 10        # 둥근 모서리 (단추 · 칸 / 본문 · 요청 칸)
+    FIELDS    = 'box'        # 제목 · 관련 번호 칸: box(네모 칸) · line(밑줄) · table(표)
+    EDITOR_FONT = ''         # 본문 글꼴 ('' = 창 글꼴 Pretendard)
+    SHOW_KEYS = False        # 단추에 단축키 글자 상자 보이기
+    APP_ICON  = True         # 머리줄 왼쪽 아이콘
+    ASK_LABEL = ''           # 요청 칸 앞 글자 ('' = 말풍선 아이콘)
+
+
+DESIGN_KEY = 'doc_design'
+DEFAULT_DESIGN = 'note'
+DESIGN_LABELS = {'note': '메모장', 'paper': '문서', 'base': '기존'}
+_BASE_COLORS = {k: v for k, v in vars(C).items() if k.isupper()}
+_DESIGNS = {
+    'base': {},
+    # B안 메모장: 노란 메모지 · 갈색 단추 · 줄 공책 본문 — 서서니 메모와 같은 결
+    'note': dict(
+        BG='#FFF4BF', SURFACE='#FFFFFF', BORDER='#D9BC3C', BORDER_HI='#B89A22',
+        TEXT='#3A2E12', BODY='#2A2410', MUTED='#6B561A', FAINT='#8C7A44', HOVER='#FFEB99',
+        ACCENT='#7A5A00', ACCENT_HI='#5C4400', ACCENT_SOFT='#FFF1B8', ACCENT_LINE='#E9D57A', FOCUS='#B89A22',
+        OK='#3F7A1E', OFF='#8C7A44', WARN='#A4510B',
+        PRIMARY='#3A2E12', PRIMARY_HI='#1F180A', PRIMARY_OFF='#B8A979',
+        HEADER='#FFE680', TOP='#FFF4BF',
+        SAVED_BG='#FFE680', SAVED_LINE='#D9BC3C', SAVED_TEXT='#4A3A0C', SAVED_HOVER='#FFDA4D',
+        KBD_BG='#FFF9DC', KBD_LINE='#C9AE45', KBD_TEXT='#4A3A0C',
+        RULE='#F1E7BE', R=3, R_CARD=3, FIELDS='line', SHOW_KEYS=True, APP_ICON=False, ASK_LABEL='부탁'),
+    # A안 문서: 회색 바탕 위 흰 종이 · 표 모양 칸 · 바탕체 본문 · 검정 단추
+    'paper': dict(
+        BG='#E8E7E3', SURFACE='#FFFFFF', BORDER='#CFCDC6', BORDER_HI='#A9A79F',
+        TEXT='#222222', BODY='#111111', MUTED='#55534E', FAINT='#8A8882', HOVER='#F0EFEC',
+        ACCENT='#2B4C7E', ACCENT_HI='#1B3358', ACCENT_SOFT='#EEF2F8', ACCENT_LINE='#C9D3E3', FOCUS='#2B4C7E',
+        OK='#3E6B2E', OFF='#8A8882', WARN='#A4510B',
+        PRIMARY='#222222', PRIMARY_HI='#000000', PRIMARY_OFF='#A9A79F',
+        HEADER='#FFFFFF', TOP='#E8E7E3',
+        SAVED_BG='#FFFFFF', SAVED_LINE='#BEBCB5', SAVED_TEXT='#222222', SAVED_HOVER='#F4F3F0',
+        KBD_BG='#F3F2EF', KBD_LINE='#CFCDC6', KBD_TEXT='#444444',
+        RULE='', R=4, R_CARD=2, FIELDS='table', EDITOR_FONT='바탕체', SHOW_KEYS=True, APP_ICON=False,
+        ASK_LABEL='고칠 내용'),
+}
+
+
+def current_design() -> str:
+    """저장해 둔 디자인 (처음에는 메모장)."""
+    try:
+        from db import get_setting
+        name = get_setting(DESIGN_KEY, DEFAULT_DESIGN)
+    except Exception:
+        name = DEFAULT_DESIGN
+    return name if name in _DESIGNS else DEFAULT_DESIGN
+
+
+def apply_design(name: str) -> str:
+    """색표(C)를 그 디자인으로 바꾼다. 이미 열린 창은 DocumentEditorWindow.set_design으로 다시 칠한다."""
+    if name not in _DESIGNS:
+        name = DEFAULT_DESIGN
+    for k, v in _BASE_COLORS.items():
+        setattr(C, k, v)
+    for k, v in _DESIGNS[name].items():
+        setattr(C, k, v)
+    C.NAME = name
+    return name
+
+
+C.NAME = 'base'
 
 
 _FONT = "'Pretendard GOV', 'Pretendard', 'Malgun Gothic'"
 
-def _arrow_png(name: str, icon: str, color: str = C.MUTED) -> str:
+def _arrow_png(name: str, icon: str, color: str = None) -> str:
     """스핀 박스 화살표 그림 (qtawesome → 임시 PNG). 실패하면 '' (Qt 기본 화살표)."""
     try:
         import tempfile
-        path = os.path.join(tempfile.gettempdir(), f'ssnnote_{name}.png')
+        color = color or C.MUTED
+        path = os.path.join(tempfile.gettempdir(), f'ssnnote_{name}_{color.strip("#")}.png')
         if not os.path.exists(path):
             qta.icon(icon, color=color).pixmap(16, 16).save(path)
         return path.replace('\\', '/')
@@ -94,7 +165,30 @@ def _arrow_png(name: str, icon: str, color: str = C.MUTED) -> str:
 
 
 # ── 전체 QSS 테마 ─────────────────────────────────────────────────
-_STYLE_TEMPLATE = f"""
+def _fields_qss() -> str:
+    """제목 · 관련 번호 줄 모양: 기존(네모 칸) · 메모장(점선 밑줄) · 문서(표)."""
+    if C.FIELDS == 'line':
+        return f"""
+    QFrame#FormRow {{ background: transparent; border: none; border-bottom: 1px dashed {C.BORDER}; }}
+    QFrame#FormRow QLineEdit {{ background: transparent; border: none; border-radius: 0; padding: 4px 6px; }}
+    QFrame#FormRow QLineEdit:focus {{ background: {C.SURFACE}; }}
+    QFrame#FormRow[first="true"] QLineEdit {{ font-size: 12pt; font-weight: 700; }}"""
+    if C.FIELDS == 'table':
+        return f"""
+    QFrame#FormRow {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 0; }}
+    QFrame#FormRow[first="false"] {{ border-top: none; }}
+    QFrame#FormRow QLabel#FormKey {{ background: #F6F5F2; border: none; border-right: 1px solid {C.BORDER};
+        color: {C.MUTED}; font-weight: 500; padding: 0 12px; }}
+    QFrame#FormRow QLineEdit {{ background: transparent; border: none; border-radius: 0; padding: 4px 10px; }}
+    QFrame#FormRow QLineEdit:focus {{ background: {C.ACCENT_SOFT}; }}
+    QFrame#FormRow[first="true"] QLineEdit {{ font-weight: 700; }}"""
+    return """
+    QFrame#FormRow { background: transparent; border: none; }"""
+
+
+def _style_template() -> str:
+    """지금 색표(C)로 만든 전체 QSS."""
+    return f"""
     QMainWindow, QDialog {{ background-color: {C.BG}; }}
     QWidget {{ font-family: {_FONT}; font-size: 11pt; color: {C.TEXT}; }}
     QLabel {{ background: transparent; color: {C.MUTED}; font-size: 10pt; }}
@@ -103,11 +197,11 @@ _STYLE_TEMPLATE = f"""
     QLabel#DialogTitle {{ color: {C.TEXT}; font-size: 12pt; font-weight: 700; }}
     QLabel#Hint {{ color: {C.MUTED}; font-size: 9pt; }}
 
-    QFrame#Header {{ background: {C.SURFACE}; border: none; border-bottom: 1px solid {C.BORDER}; }}
-    QFrame#Card {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 10px; }}
+    QFrame#Header {{ background: {C.HEADER}; border: none; border-bottom: 1px solid {C.BORDER}; }}
+    QFrame#Card {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_CARD}px; }}
 
     QLineEdit, QSpinBox {{
-        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 7px;
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R}px;
         padding: 5px 10px; color: {C.TEXT}; selection-background-color: {C.ACCENT_LINE};
         selection-color: {C.TEXT};
     }}
@@ -116,26 +210,27 @@ _STYLE_TEMPLATE = f"""
     QSpinBox::up-button, QSpinBox::down-button {{
         subcontrol-origin: border; width: 18px; border: none; border-left: 1px solid {C.BORDER}; background: {C.BG};
     }}
-    QSpinBox::up-button {{ subcontrol-position: top right; border-top-right-radius: 7px; }}
-    QSpinBox::down-button {{ subcontrol-position: bottom right; border-bottom-right-radius: 7px;
+    QSpinBox::up-button {{ subcontrol-position: top right; border-top-right-radius: {C.R}px; }}
+    QSpinBox::down-button {{ subcontrol-position: bottom right; border-bottom-right-radius: {C.R}px;
         border-top: 1px solid {C.BORDER}; }}
     QSpinBox::up-button:hover, QSpinBox::down-button:hover {{ background: {C.HOVER}; }}
     QSpinBox::up-arrow {{ image: url(__UP__); width: 8px; height: 8px; }}
     QSpinBox::down-arrow {{ image: url(__DOWN__); width: 8px; height: 8px; }}
 
     QTextEdit#editor {{
-        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 10px;
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_CARD}px;
         padding: 26px 34px; color: {C.BODY};
         selection-background-color: {C.ACCENT_LINE}; selection-color: {C.TEXT};
+        {f"font-family: '{C.EDITOR_FONT}';" if C.EDITOR_FONT else ''}
     }}
     QTextEdit#editor:focus {{ border: 1px solid {C.FOCUS}; }}
 
-    QFrame#ChatBar {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 12px; }}
+    QFrame#ChatBar {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R_CARD + 2}px; }}
     QFrame#ChatBar[focused="true"] {{ border: 1px solid {C.ACCENT}; }}
     QFrame#ChatBar QTextEdit {{ background: transparent; border: none; padding: 2px 0; color: {C.TEXT}; }}
 
     QPushButton {{
-        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 7px;
+        background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: {C.R}px;
         padding: 6px 14px; color: {C.TEXT}; font-weight: 600;
     }}
     QPushButton:hover {{ background: {C.HOVER}; border-color: {C.BORDER_HI}; }}
@@ -156,8 +251,8 @@ _STYLE_TEMPLATE = f"""
     QPushButton#DraftButton:disabled {{ background: {C.SURFACE}; border-color: {C.BORDER}; color: {C.FAINT}; }}
     QPushButton#TypeChip {{ padding: 0 10px; text-align: left; font-weight: 600; color: {C.TEXT}; }}
     QPushButton#TypeChip[guess="true"] {{ color: {C.BODY}; font-weight: 600; }}
-    QFrame#StartPage {{ background: {C.SURFACE}; }}
-    QWidget#Fold {{ background: {C.SURFACE}; }}
+    QFrame#StartPage {{ background: {C.TOP}; }}
+    QWidget#Fold {{ background: {C.TOP}; }}
     QLabel#StartHint {{ font-size: 9pt; padding: 0 2px; }}
     QFrame#RecvCard {{ background: {C.BG}; border: 1px solid {C.BORDER}; border-radius: 8px; }}
     QPushButton#RecvToggle {{ background: transparent; border: none; text-align: left; padding: 7px 12px;
@@ -167,21 +262,21 @@ _STYLE_TEMPLATE = f"""
     QPushButton#StartIcon {{ padding: 0; min-width: 30px; max-width: 30px; min-height: 30px; max-height: 30px; }}
     QPushButton#StartChip {{ padding: 0 10px; min-height: 30px; max-height: 30px; font-weight: 600; color: {C.TEXT}; }}
     QPushButton#SavedDocs {{ padding: 0 12px; min-height: 30px; max-height: 30px; font-weight: 700;
-        background: #E6F6F3; border: 1px solid #A7DED4; color: #0F766E; }}
-    QPushButton#SavedDocs:hover {{ background: #D3EFE9; border-color: #5EC4B3; }}
+        background: {C.SAVED_BG}; border: 1px solid {C.SAVED_LINE}; color: {C.SAVED_TEXT}; }}
+    QPushButton#SavedDocs:hover {{ background: {C.SAVED_HOVER}; border-color: {C.BORDER_HI}; }}
     QPushButton[copied="true"] {{ background: #ECFDF5; border-color: #A7F3D0; color: #047857; }}
     QListWidget#PastList {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; border-radius: 8px; padding: 4px; }}
     QListWidget#PastList::item {{ padding: 8px 8px; border-radius: 6px; color: {C.TEXT}; }}
     QListWidget#PastList::item:selected {{ background: {C.ACCENT_SOFT}; color: {C.TEXT}; }}
     QPushButton#TypeChip[manual="true"] {{ border-color: {C.ACCENT_LINE}; color: {C.ACCENT}; }}
     QPushButton#SaveButton, QPushButton#Primary {{
-        background: {C.ACCENT}; border: 1px solid {C.ACCENT}; color: white; font-weight: 700;
+        background: {C.PRIMARY}; border: 1px solid {C.PRIMARY}; color: white; font-weight: 700;
     }}
-    QPushButton#SaveButton:hover, QPushButton#Primary:hover {{ background: {C.ACCENT_HI}; border-color: {C.ACCENT_HI}; }}
+    QPushButton#SaveButton:hover, QPushButton#Primary:hover {{ background: {C.PRIMARY_HI}; border-color: {C.PRIMARY_HI}; }}
     QPushButton#SaveButton:disabled, QPushButton#Primary:disabled {{
-        background: {C.ACCENT_LINE}; border-color: {C.ACCENT_LINE}; color: white; }}
-    QPushButton#AIPrimaryButton {{ background: {C.ACCENT}; border: none; border-radius: 9px; padding: 0; }}
-    QPushButton#AIPrimaryButton:hover {{ background: {C.ACCENT_HI}; }}
+        background: {C.PRIMARY_OFF}; border-color: {C.PRIMARY_OFF}; color: white; }}
+    QPushButton#AIPrimaryButton {{ background: {C.PRIMARY}; border: none; border-radius: {C.R + 2}px; padding: 0; }}
+    QPushButton#AIPrimaryButton:hover {{ background: {C.PRIMARY_HI}; }}
     QPushButton#AIPrimaryButton:disabled {{ background: {C.BORDER}; }}
 
     QCheckBox {{ color: {C.TEXT}; font-size: 10pt; spacing: 6px; background: transparent; }}
@@ -228,15 +323,32 @@ _STYLE_TEMPLATE = f"""
     QMenu::indicator {{ width: 0; height: 0; }}
     QMenu::separator {{ height: 1px; background: {C.BORDER}; margin: 5px 6px; }}
 
-    QStatusBar {{ background: {C.BG}; color: {C.MUTED}; font-size: 9pt; border-top: 1px solid {C.BORDER}; }}
+    QStatusBar {{ background: {C.HEADER if C.NAME == 'note' else C.BG}; color: {C.MUTED}; font-size: 9pt;
+        border-top: 1px solid {C.BORDER}; }}
     QStatusBar::item {{ border: none; }}
+    QStatusBar QLabel {{ color: {C.MUTED}; font-size: 9pt; padding: 0 6px; }}
+
+    /* 단축키 글자 상자 (단추 오른쪽 · 요청 칸 앞) */
+    QLabel#Kbd {{ font-family: Consolas, 'Cascadia Mono', monospace; font-size: 7.5pt; font-weight: 600;
+        color: {C.KBD_TEXT}; background: {C.KBD_BG}; border: 1px solid {C.KBD_LINE}; border-bottom-width: 2px;
+        border-radius: 3px; padding: 0 3px; }}
+    QPushButton#Primary QLabel#Kbd, QPushButton#SaveButton QLabel#Kbd {{
+        color: white; background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.32); }}
+    QLabel#AskLabel {{ color: {C.TEXT}; font-size: 10pt; font-weight: 700; }}
+    QPushButton#More {{ background: transparent; border: 1px solid transparent; padding: 0; }}
+    QPushButton#More:hover {{ background: {C.HOVER}; border-color: {C.BORDER}; }}
+    QPushButton#FieldCopy {{ padding: 0 9px; min-height: 26px; max-height: 26px; font-size: 9.5pt; font-weight: 600; }}
+
+    /* 제목 · 관련 번호 줄 */
+    QLabel#FormKey {{ color: {C.MUTED}; font-size: 10pt; font-weight: 700; padding: 0 2px 0 4px; }}
+    {_fields_qss()}
     QToolTip {{ background: {C.TEXT}; color: white; border: none; padding: 4px 8px; }}
 """
 
 
 def _style() -> str:
     """QApplication이 생긴 뒤에 만든다 (화살표 그림을 그리려면 필요)."""
-    return (_STYLE_TEMPLATE.replace('__UP__', _arrow_png('spin_up', 'fa5s.chevron-up'))
+    return (_style_template().replace('__UP__', _arrow_png('spin_up', 'fa5s.chevron-up'))
             .replace('__DOWN__', _arrow_png('spin_down', 'fa5s.chevron-down'))
             .replace('__CHECK__', _arrow_png('check_white', 'fa5s.check', 'white')))
 
@@ -440,6 +552,43 @@ def _correct_document_format(body: str) -> str:
 
 
 class PlainPasteDocEdit(QTextEdit):
+    rule_color = ''          # 줄 공책 선 색 (메모장 디자인). '' = 선 없음
+
+    def paintEvent(self, event):
+        if self.rule_color:
+            self._paint_rules()
+        super().paintEvent(event)
+
+    def _paint_rules(self):
+        """글 줄마다 밑에 옅은 선, 글이 끝난 아래로도 같은 간격으로 이어서 (스크롤과 함께 움직임)."""
+        from PyQt5.QtGui import QPainter, QPen
+        vp = self.viewport()
+        p = QPainter(vp)
+        p.setPen(QPen(QColor(self.rule_color), 1))
+        doc = self.document()
+        lay = doc.documentLayout()
+        dy = -self.verticalScrollBar().value()
+        w = vp.width()
+        y, step = None, None
+        block = doc.begin()
+        while block.isValid():
+            r = lay.blockBoundingRect(block)
+            tl = block.layout()
+            for i in range(tl.lineCount()):
+                line = tl.lineAt(i)
+                step = line.height() * 1.23                 # 본문 줄간격 123%
+                y = r.top() + line.y() + step
+                if 0 <= y + dy <= vp.height():
+                    p.drawLine(0, int(y + dy) - 2, w, int(y + dy) - 2)
+            block = block.next()
+        if step is None:
+            step = self.fontMetrics().height() * 1.23
+            y = doc.documentMargin()
+        while y + dy < vp.height():
+            y += step
+            p.drawLine(0, int(y + dy) - 2, w, int(y + dy) - 2)
+        p.end()
+
     def insertFromMimeData(self, source):
         if not source.hasText():
             super().insertFromMimeData(source)
@@ -963,6 +1112,40 @@ class PastDocumentsDialog(QDialog):
         self.accept()
 
 
+def _attach_kbd(btn, key: str):
+    """단추 오른쪽 안에 단축키 글자 상자를 붙인다 (메모장 · 문서 디자인에서만 보임)."""
+    lab = QLabel(key, btn)
+    lab.setObjectName('Kbd')
+    lab.setAttribute(Qt.WA_TransparentForMouseEvents)
+    lay = QHBoxLayout(btn)
+    lay.setContentsMargins(0, 0, 7, 0)
+    lay.addStretch(1)
+    lay.addWidget(lab, 0, Qt.AlignVCenter)
+    btn._kbd = lab
+    btn._base_qss = btn.styleSheet()
+    from PyQt5.QtWidgets import QSizePolicy
+    btn.setSizePolicy(QSizePolicy.Fixed, btn.sizePolicy().verticalPolicy())   # 글자 + 상자 폭만큼만
+    return lab
+
+
+def _fit_kbd(btn, show=None):
+    """단축키 상자 자리만큼 단추 오른쪽 여백을 넓힌다 (상자를 숨기면 원래대로)."""
+    lab = getattr(btn, '_kbd', None)
+    if lab is None:
+        return
+    show = C.SHOW_KEYS if show is None else (show and C.SHOW_KEYS)
+    if getattr(btn, '_kbd_shown', None) == (show, lab.text(), C.NAME):
+        return                                      # 그대로면 다시 칠하지 않음 (창 크기를 바꿀 때마다 불림)
+    btn._kbd_shown = (show, lab.text(), C.NAME)
+    lab.setVisible(show)
+    if show:
+        lab.ensurePolished()
+        pad = lab.sizeHint().width() + 13
+        btn.setStyleSheet(btn._base_qss + f' QPushButton {{ padding-right: {pad}px; }}')
+    else:
+        btn.setStyleSheet(btn._base_qss)
+
+
 class DocumentEditorWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -971,6 +1154,7 @@ class DocumentEditorWindow(QMainWindow):
         self._polish_undo = None       # 마지막 다듬기 적용 (되돌리기용)
         self._capturing = False
         DocumentEditorWindow._instance = self
+        self.design = apply_design(current_design())   # 메모장(기본) · 문서 · 기존 (⋯ → 디자인)
         self.init_ui()
         keep_light(self)  # 공문 작성 창은 아직 라이트 전용 (다크 테마에서도 원래 모습 유지)
 
@@ -995,6 +1179,7 @@ class DocumentEditorWindow(QMainWindow):
         icon = QLabel()
         icon.setPixmap(qta.icon('fa5s.file-signature', color=C.ACCENT).pixmap(18, 18))
         hl.addWidget(icon)
+        self._app_icon = icon
         title = QLabel('공문 작성')
         title.setObjectName('WindowTitle')
         hl.addWidget(title)
@@ -1031,15 +1216,16 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_apikey.setToolTip('AI 연결 바꾸기')
         self.btn_apikey.clicked.connect(self._show_ai_settings_menu)
         hl.addWidget(self.btn_apikey)
-        self.btn_help = QPushButton()
-        self.btn_help.setObjectName('Ghost')
-        self.btn_help.setIcon(qta.icon('fa5s.question-circle', color=C.MUTED))
-        self.btn_help.setIconSize(QSize(16, 16))
-        self.btn_help.setFixedSize(32, 30)
-        self.btn_help.setToolTip('사용 방법')
-        self.btn_help.setCursor(Qt.PointingHandCursor)
-        self.btn_help.clicked.connect(self._show_help)
-        hl.addWidget(self.btn_help)
+        # ⋯ 메뉴: 디자인 고르기 · 사용 방법 (예전 ? 단추는 이 안으로)
+        self.btn_more = QPushButton()
+        self.btn_more.setObjectName('More')
+        self.btn_more.setIconSize(QSize(16, 16))
+        self.btn_more.setFixedSize(32, 30)
+        self.btn_more.setToolTip('디자인 · 사용 방법')
+        self.btn_more.setAccessibleName('메뉴')
+        self.btn_more.setCursor(Qt.PointingHandCursor)
+        self.btn_more.clicked.connect(self._show_more_menu)
+        hl.addWidget(self.btn_more)
         root.addWidget(header)
         self._header = header
         self._root = root
@@ -1094,7 +1280,7 @@ class DocumentEditorWindow(QMainWindow):
 
         self.ref_input = QLineEdit()
         self.ref_input.setFixedHeight(_input_h)
-        self.ref_input.setPlaceholderText("관련 공문번호 (선택)")
+        self.ref_input.setPlaceholderText("관련 번호 (선택)")
         self.ref_input.textChanged.connect(self._update_draft_button)
         self.ref_input.returnPressed.connect(self._on_return)
         self.btn_move_to_title = QPushButton()
@@ -1195,9 +1381,25 @@ class DocumentEditorWindow(QMainWindow):
         spark.setAlignment(Qt.AlignTop)
         spark.setContentsMargins(0, 8, 0, 0)
         ai_frame_layout.addWidget(spark)
+        self._spark = spark
+        # 메모장 · 문서: 아이콘 대신 「부탁 Ctrl+L」 / 「고칠 내용 Ctrl+L」 글자
+        self.lbl_ask = QLabel()
+        self.lbl_ask.setObjectName('AskLabel')
+        self.lbl_ask.setContentsMargins(0, 7, 0, 0)
+        self.lbl_ask.setAlignment(Qt.AlignTop)
+        self.lbl_ask_key = QLabel('Ctrl+L')
+        self.lbl_ask_key.setObjectName('Kbd')
+        ask_box = QVBoxLayout()
+        ask_box.setContentsMargins(0, 0, 0, 0)
+        ask_box.setSpacing(3)
+        ask_box.addWidget(self.lbl_ask)
+        ask_box.addWidget(self.lbl_ask_key, 0, Qt.AlignLeft)
+        ask_box.addStretch()
+        ai_frame_layout.addLayout(ask_box)
         self.ai_input = QTextEdit()
         self.ai_input.setPlaceholderText("AI에게 요청")
-        self.ai_input.setFixedHeight(52)
+        self.ai_input.ensurePolished()               # 두 줄이 다 보이게 (화면 배율 150%에서도)
+        self.ai_input.setFixedHeight(max(52, self.ai_input.fontMetrics().lineSpacing() * 2 + 14))
         self.ai_input.setAcceptRichText(False)
         self.ai_input.installEventFilter(self)
         self.editor.installEventFilter(self)
@@ -1216,26 +1418,30 @@ class DocumentEditorWindow(QMainWindow):
         # ── 아래 버튼 ──
         ctrl_row = QHBoxLayout()
         ctrl_row.setSpacing(8)
-        self.btn_copy_title = QPushButton("제목 복사")
-        self.btn_copy_title.setIcon(qta.icon('fa5.copy', color=C.MUTED))
-        self.btn_copy_title.setMinimumHeight(_input_h)
+        # 복사 단추: 제목 · 관련 번호는 칸 바로 옆, 본문은 위 도구줄 [다시 초안] 옆 (_build_start_page에서 놓음)
+        self.btn_copy_title = QPushButton("복사")
+        self.btn_copy_title.setObjectName('FieldCopy')
+        self.btn_copy_title.setToolTip('제목 복사 (Ctrl+1)')
         self.btn_copy_title.clicked.connect(self._copy_title)
-        self.btn_copy_ref = QPushButton("관련번호 복사")
-        self.btn_copy_ref.setIcon(qta.icon('fa5.copy', color=C.MUTED))
-        self.btn_copy_ref.setMinimumHeight(_input_h)
+        self.btn_copy_ref = QPushButton("복사")
+        self.btn_copy_ref.setObjectName('FieldCopy')
+        self.btn_copy_ref.setToolTip('관련 번호 복사 (Ctrl+2)')
         self.btn_copy_ref.clicked.connect(self._copy_ref)
+        for b in (self.btn_copy_title, self.btn_copy_ref):
+            b.setCursor(Qt.PointingHandCursor)
+            b.setFocusPolicy(Qt.NoFocus)          # Tab은 제목 → 관련 번호로 바로
         self.btn_copy = QPushButton("본문 복사")
-        self.btn_copy.setIcon(qta.icon('fa5.copy', color=C.MUTED))
-        self.btn_copy.setMinimumHeight(_input_h)
+        self.btn_copy.setObjectName('StartChip')
+        self.btn_copy.setToolTip('본문 복사 (Ctrl+3)')
+        self.btn_copy.setCursor(Qt.PointingHandCursor)
         self.btn_copy.clicked.connect(self._copy_body)
         self.btn_save_exit = QPushButton("저장 후 나가기")
         self.btn_save_exit.setObjectName("SaveButton")
         self.btn_save_exit.setMinimumHeight(_input_h)
         self.btn_save_exit.setMinimumWidth(130)
+        self.btn_save_exit.setToolTip('저장하고 창 닫기 (Ctrl+S)')
+        self.btn_save_exit.setCursor(Qt.PointingHandCursor)
         self.btn_save_exit.clicked.connect(self.save_and_close)
-        ctrl_row.addWidget(self.btn_copy_title)
-        self.btn_copy_ref.hide()                    # 관련 번호는 본문 「1. 관련:」에 들어가므로 따로 복사하지 않음
-        ctrl_row.addWidget(self.btn_copy)
         ctrl_row.addStretch()
         ctrl_row.addWidget(self.btn_save_exit)
         layout.addLayout(ctrl_row)
@@ -1247,6 +1453,13 @@ class DocumentEditorWindow(QMainWindow):
         self._polish_link.linkActivated.connect(lambda _: self._undo_polish())
         self._polish_link.hide()
         self.statusBar().addPermanentWidget(self._polish_link)
+        # 상태 줄 오른쪽: 본문 줄 수 · 글자 수 · Esc 안내
+        self._lbl_count = QLabel()
+        self._lbl_esc = QLabel('Esc 닫기')
+        self.statusBar().addPermanentWidget(self._lbl_count)
+        self.statusBar().addPermanentWidget(self._lbl_esc)
+        self.editor.textChanged.connect(self._update_count)
+        self._update_count()
         self.statusBar().showMessage("준비 완료")
         self._apply_ai_mode()
         ai_connect.on_change(self._on_ai_changed)   # 예산 창 등 다른 곳에서 바꿔도 맞춤
@@ -1254,6 +1467,11 @@ class DocumentEditorWindow(QMainWindow):
         self._update_doc_type_chip()
         self._apply_editor_line_height()
         self._build_start_page()
+        for b, key in ((self.btn_past, 'Ctrl+O'), (self.btn_start_go, 'Enter'), (self.btn_copy, 'Ctrl+3'),
+                       (self.btn_new, 'Ctrl+N'), (self.btn_save_exit, 'Ctrl+S')):
+            _attach_kbd(b, key)
+        self._setup_shortcuts()
+        self._apply_design_widgets()
         self._enter_start(first=True)
 
     # ── 시작 화면 (작은 창: 제목 · 관련 번호 · 종류 · 붙임 · 저장한 공문 · [공문 작성]) ──
@@ -1280,7 +1498,7 @@ class DocumentEditorWindow(QMainWindow):
         self.btn_start_capture.setObjectName('StartIcon')
         self.btn_start_capture.setIcon(qta.icon('fa5s.crop-alt', color=C.MUTED))
         self.btn_start_capture.setIconSize(QSize(14, 14))
-        self.btn_start_capture.setToolTip('받은 공문 캡처 (Ctrl+Shift+X)')
+        self.btn_start_capture.setToolTip('공문 캡처 (Ctrl+Shift+X)')
         self.btn_start_capture.setCursor(Qt.PointingHandCursor)
         self.btn_start_capture.clicked.connect(lambda: self._start_capture())
         self.btn_start_capture.hide()                 # 캡처는 단축키(Ctrl+Shift+X)로 — 안내 줄에 적혀 있음
@@ -1301,6 +1519,7 @@ class DocumentEditorWindow(QMainWindow):
         for w in (sep, self.btn_past):
             bar.addWidget(w)
         bar.addStretch(1)
+        bar.addWidget(self.btn_copy)                  # 본문 복사 — 펼친 뒤에만 보임
         bar.addWidget(self.btn_start_go)
         v.addLayout(bar)
         # 안내 줄: 평소엔 캡처 단축키, 캡처한 공문을 읽는 동안 · 다 읽은 뒤에는 진행 상태
@@ -1311,11 +1530,30 @@ class DocumentEditorWindow(QMainWindow):
         self._set_hint()
         # 제목 · 관련 번호 칸은 늘 이 위쪽에 (작성 화면으로 펼쳐도 그대로)
         self.title_input.setPlaceholderText('공문 제목')
-        self.ref_input.setPlaceholderText('관련 공문번호 (선택)')
-        self._start_fields.addWidget(self.title_input)
-        self._start_fields.addWidget(self.ref_input)
-        for f in (self.title_input, self.ref_input):     # 제목 · 관련 번호 칸 높이를 똑같이
-            f.setFixedHeight(36)
+        self.ref_input.setPlaceholderText('관련 번호 (선택)')
+        # 한 줄 = [제목/관련] 글자 · 입력 칸 · [복사]. 메모장은 점선 밑줄, 문서는 표, 기존은 네모 칸
+        self._form_rows, self._form_keys = [], []
+        for i, (key, field, copy) in enumerate((('제목', self.title_input, self.btn_copy_title),
+                                                ('관련', self.ref_input, self.btn_copy_ref))):
+            row = QFrame()
+            row.setObjectName('FormRow')
+            row.setProperty('first', 'true' if i == 0 else 'false')
+            h = QHBoxLayout(row)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(6)
+            k = QLabel(key)
+            k.setObjectName('FormKey')
+            k.setBuddy(field)
+            h.addWidget(k)
+            h.addWidget(field, 1)
+            copy.setParent(None)
+            h.addWidget(copy)
+            field.setFixedHeight(36)                     # 제목 · 관련 번호 칸 높이를 똑같이
+            field.textChanged.connect(lambda t, b=copy: b.setVisible(bool(t.strip())))
+            copy.hide()                                  # 칸이 비면 복사 단추도 숨김
+            self._start_fields.addWidget(row)
+            self._form_rows.append(row)
+            self._form_keys.append(k)
         for b in (self.btn_doc_type, self.btn_attach):
             b.setFixedHeight(30)
         self._root.insertWidget(1, page)
@@ -1343,20 +1581,150 @@ class DocumentEditorWindow(QMainWindow):
         v.addWidget(self.editor, 1)
         v.addWidget(self.ai_answer)
         v.addWidget(self.ai_confirm)
-        v.addWidget(self.ai_frame)
+        # 맨 아래 한 줄: AI 요청 칸 · [저장 후 나가기]
         row = QHBoxLayout()
         row.setSpacing(8)
-        for b in (self.btn_copy_title, self.btn_copy):
-            b.setParent(None)
-            row.addWidget(b)
-        row.addStretch()
+        row.addWidget(self.ai_frame, 1)
         self.btn_save_exit.setParent(None)
-        row.addWidget(self.btn_save_exit)
+        row.addWidget(self.btn_save_exit, 0, Qt.AlignBottom)
         v.addLayout(row)
         self.ai_answer.hide()
         fold.hide()
         self._root.insertWidget(2, fold, 1)
         self.fold = fold
+
+    # ── 디자인 (⋯ → 디자인) ──
+    def _show_more_menu(self):
+        """⋯ 메뉴: 디자인(메모장 · 문서 · 기존) · 사용 방법."""
+        from PyQt5.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.setStyleSheet(_style())
+        dm = menu.addMenu('디자인')
+        self._design_actions = {}
+        for key in ('note', 'paper', 'base'):
+            label = DESIGN_LABELS[key] + ('  (기본)' if key == DEFAULT_DESIGN else '')
+            act = dm.addAction(('✓  ' if key == self.design else '     ') + label)
+            act.triggered.connect(lambda _=False, k=key: self.set_design(k))
+            self._design_actions[key] = act
+        menu.addSeparator()
+        menu.addAction('사용 방법', self._show_help)
+        self._more_menu = menu
+        menu.exec_(self.btn_more.mapToGlobal(self.btn_more.rect().bottomLeft()))
+
+    def set_design(self, name):
+        """디자인 바꾸기: 색 · 모양만 바뀌고 쓰던 제목 · 번호 · 본문은 그대로. 고른 것은 기억한다."""
+        self.design = apply_design(name)
+        try:
+            from db import set_setting
+            set_setting(DESIGN_KEY, self.design)
+        except Exception:
+            pass
+        self.setStyleSheet(_style())
+        self._apply_design_widgets()
+
+    def _apply_design_widgets(self):
+        """QSS 밖에서 색 · 글꼴 · 보이기를 정하는 것들을 지금 디자인에 맞춘다."""
+        self._app_icon.setPixmap(qta.icon('fa5s.file-signature', color=C.ACCENT).pixmap(18, 18))
+        self._app_icon.setVisible(C.APP_ICON)
+        self.btn_more.setIcon(qta.icon('fa5s.ellipsis-h', color=C.TEXT))
+        self.btn_new.setIcon(qta.icon('fa5s.plus', color=C.MUTED))
+        # 제목 · 관련 번호 줄: 표는 줄끼리 붙이고, 기존(네모 칸)은 「제목/관련」 글자 없이
+        table = C.FIELDS == 'table'
+        self._start_fields.setSpacing(0 if table else 7)
+        for k in self._form_keys:
+            k.setVisible(C.FIELDS != 'box')
+            k.ensurePolished()
+            k.setFixedWidth(k.fontMetrics().horizontalAdvance('관련') + (34 if table else 12))
+        for r in self._form_rows:
+            r.layout().setContentsMargins(0, 0, 6 if table else 0, 0)
+        # 요청 칸 앞: 말풍선 아이콘(기존) ↔ 「부탁」 · 「고칠 내용」 + Ctrl+L
+        self._spark.setPixmap(qta.icon('fa5s.comment-dots', color=C.FAINT).pixmap(16, 16))
+        self._spark.setVisible(not C.ASK_LABEL)
+        self.lbl_ask.setText(C.ASK_LABEL)
+        self.lbl_ask.setVisible(bool(C.ASK_LABEL))
+        self.lbl_ask_key.setVisible(bool(C.ASK_LABEL) and C.SHOW_KEYS)
+        self._lbl_esc.setVisible(C.SHOW_KEYS)
+        for b in (self.btn_past, self.btn_start_go, self.btn_copy, self.btn_new, self.btn_save_exit):
+            _fit_kbd(b)
+        # 본문: 글꼴(메모장 · 기존 Pretendard, 문서 바탕체 — QSS가 정함) · 줄 공책 선.
+        # 붙여 넣은 글은 글꼴이 글자마다 박혀 있으므로 지금 디자인 글꼴로 맞춘다
+        self.editor.ensurePolished()
+        if self.editor.toPlainText():
+            cur = QTextCursor(self.editor.document())
+            cur.select(QTextCursor.Document)
+            fmt = QTextCharFormat()
+            fmt.setFontFamily(self.editor.font().family())
+            cur.mergeCharFormat(fmt)
+        self.editor.rule_color = C.RULE
+        self.editor.viewport().update()
+        self.ai_answer.setStyleSheet(f'QLabel#AiAnswer {{ background: {C.SURFACE}; border: 1px solid {C.BORDER}; '
+                                     f'border-radius: {C.R_CARD}px; padding: 8px 12px; color: {C.TEXT}; }}')
+        if self._polish_link.text():
+            self._polish_link.setText('<a href="undo" style="color:%s;">되돌리기</a>' % C.ACCENT)
+        self._apply_ai_mode()
+        self._fit_chips()
+        if not self.panel._worker or not self.panel._worker.isRunning():
+            self._set_hint()
+        # 펼쳐도 가로폭이 그대로이도록: 펼친 도구줄(종류 · 붙임 · 저장한 공문 · 본문 복사 · 다시 초안)이
+        # 들어갈 만큼을 접힌 창에서도 최소 폭으로 둔다. 좁으면 저장한 공문 · 본문 복사의 단축키 상자는 숨긴다
+        # (화면 배율 150%에서 창이 너무 넓어지지 않게)
+        for b in (self.btn_past, self.btn_copy):
+            _fit_kbd(b, show=False)
+        bar = self._start_bar
+        need = sum(b.sizeHint().width() for b in (self.btn_past, self.btn_copy, self.btn_start_go))
+        need += self.btn_doc_type.width() + self.btn_attach.width() + self._start_sep.width()
+        need += bar.spacing() * 6 + 12 + 12 + 8      # 창 안쪽 여백 · 다시 초안(Ctrl+R) 글자 여유
+        self.start_page.setMinimumWidth(need)
+        extra = sum(b._kbd.sizeHint().width() + 13 for b in (self.btn_past, self.btn_copy)) if C.SHOW_KEYS else 0
+        self._bar_need_full = need + extra
+        self._fit_bar_keys()
+        if self._mode == 'start' and self.isVisible():   # 칸 모양이 바뀌면 접힌 창 높이도 맞춤
+            self.setFixedHeight(self._start_height())
+
+    def _fit_bar_keys(self):
+        """도구줄이 넉넉하면 저장한 공문 · 본문 복사에도 단축키 상자를 보인다."""
+        need = getattr(self, '_bar_need_full', 0)
+        if not need:
+            return
+        roomy = self.start_page.width() >= need
+        for b in (self.btn_past, self.btn_copy):
+            _fit_kbd(b, show=roomy)
+
+    def _set_go_key(self, key):
+        lab = getattr(self.btn_start_go, '_kbd', None)
+        if lab is not None:
+            lab.setText(key)
+            _fit_kbd(self.btn_start_go)
+
+    # ── 단축키 (이 창 안에서만) ──
+    def _setup_shortcuts(self):
+        from PyQt5.QtWidgets import QShortcut
+        from PyQt5.QtGui import QKeySequence
+        self._shortcuts = []
+        for key, fn in (('Ctrl+1', self._copy_title), ('Ctrl+2', self._copy_ref), ('Ctrl+3', self._copy_body),
+                        ('Ctrl+N', self._new_document), ('Ctrl+O', self._open_past_documents),
+                        ('Ctrl+R', self._key_redraft), ('Ctrl+L', self._key_focus_ask),
+                        ('Ctrl+S', self._key_save)):
+            sc = QShortcut(QKeySequence(key), self)
+            sc.activated.connect(fn)
+            self._shortcuts.append(sc)
+
+    def _key_redraft(self):
+        if self._mode == 'edit':
+            self._start_go()                          # 다시 초안
+
+    def _key_focus_ask(self):
+        if self._mode == 'edit' and self.ai_input.isEnabled():
+            self.ai_input.setFocus()
+
+    def _key_save(self):
+        if self._mode == 'edit':
+            self.save_and_close()
+
+    def _update_count(self):
+        text = self.editor.toPlainText()
+        lines = self.editor.document().blockCount() if text else 0
+        self._lbl_count.setText(f'본문 {lines}줄 · {len(text.replace(chr(10), "")):,}자')
 
     # ── 안내 줄 ──
     def _set_hint(self, text=None, state=''):
@@ -1385,7 +1753,7 @@ class DocumentEditorWindow(QMainWindow):
             layout.insertWidget(index, widget, stretch)
 
     # ── 시작(접힘) ↔ 작성(펼침) ──
-    START_W = 600
+    START_W = 680
 
     def _start_height(self):
         self.start_page.adjustSize()
@@ -1402,11 +1770,12 @@ class DocumentEditorWindow(QMainWindow):
         self._mode = 'start'
         self.fold.hide()
         self.statusBar().hide()
-        for b in (self.btn_new, self.btn_help):
-            b.hide()
+        self.btn_new.hide()
+        self.btn_copy.hide()                          # 본문 복사는 펼친 뒤에만
         self._header.layout().setContentsMargins(14, 8, 12, 8)
         self.btn_start_go.setText('공문 작성')
         self.btn_start_go.setToolTip('본문을 아래로 펼치고 초안을 넣어요 (Enter)')
+        self._set_go_key('Enter')
         self._update_doc_type_chip()
         self._set_hint()
         self.setMinimumSize(0, 0)
@@ -1441,10 +1810,11 @@ class DocumentEditorWindow(QMainWindow):
         y = g.y()
         if y + target_h > screen.bottom():           # 아래 자리가 모자라면 창을 조금 올림
             y = max(screen.y(), screen.bottom() - target_h)
-        for b in (self.btn_new, self.btn_help):
-            b.show()
+        self.btn_new.show()
+        self.btn_copy.show()
         self.btn_start_go.setText('다시 초안')
-        self.btn_start_go.setToolTip('제목 · 종류에 맞춰 초안을 다시 넣어요')
+        self.btn_start_go.setToolTip('제목 · 종류에 맞춰 초안을 다시 넣어요 (Ctrl+R)')
+        self._set_go_key('Ctrl+R')
         self.setMinimumHeight(0)
         self.setMaximumHeight(16777215)
         self.fold.show()
@@ -2114,7 +2484,7 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage('복사할 제목이 없습니다.')
             return
         QApplication.clipboard().setText(title)
-        self._flash_copied(self.btn_copy_title, '제목 복사')
+        self._flash_copied(self.btn_copy_title, '복사')
 
     def _later(self, ms, fn, owner=None):
         """잠시 뒤 fn — 창(또는 owner)에 딸린 타이머라 창이 먼저 닫히면 같이 사라진다
@@ -2153,8 +2523,7 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage('복사할 관련 번호가 없습니다.')
             return
         QApplication.clipboard().setText(ref)
-        self.statusBar().showMessage('관련 번호가 클립보드에 복사되었습니다.')
-        self._later(1500, lambda: self.statusBar().showMessage(''))
+        self._flash_copied(self.btn_copy_ref, '복사')
 
     def _copy_body(self):
         """본문 텍스트를 클립보드에 복사."""
@@ -2211,6 +2580,10 @@ class DocumentEditorWindow(QMainWindow):
              '요약(핵심 내용·기한)은 왼쪽 칸에 나옵니다. '
              '번호가 안 잡혔으면 그 부분만 한 번 더 캡처하세요 — 같은 공문에 합쳐서 다시 읽습니다. '
              '다른 공문은 왼쪽 [새 공문]. AI 대화·자동 초안도 그 공문을 참고합니다.'),
+            ('fa5s.keyboard', '단축키 · 디자인',
+             'Ctrl+1 제목 복사 · Ctrl+2 관련 번호 복사 · Ctrl+3 본문 복사 · Ctrl+N 새 공문 · Ctrl+O 저장한 공문 · '
+             'Ctrl+R 다시 초안 · Ctrl+L 요청 칸으로 · Ctrl+S 저장 후 나가기. '
+             '오른쪽 위 ⋯ → 디자인에서 메모장 · 문서 · 기존 중에 고를 수 있어요 (고른 것은 기억).'),
             ('fa5s.stop-circle', '취소·닫기', 'AI가 쓰는 중에 Esc를 누르면 멈추고 원래 내용으로 되돌립니다. '
              '그 밖에는 Esc로 창을 닫습니다.'),
             ('fa5s.shield-alt', '개인정보 보호',
@@ -2518,6 +2891,8 @@ class DocumentEditorWindow(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._schedule_state_save()
+        if hasattr(self, 'start_page'):
+            self._fit_bar_keys()
 
     def closeEvent(self, event):
         t = getattr(self, '_state_timer', None)
