@@ -930,6 +930,8 @@ class MemoWindow(QMainWindow):
     def _open_document_editor(self):
         try:
             ed = self._ensure_doc_editor()
+            if ed.isMinimized():
+                ed.showNormal()
             ed.show()
             ed.raise_()
             ed.activateWindow()
@@ -1416,13 +1418,45 @@ class MemoWindow(QMainWindow):
             b.setToolTip(f'{base} (Alt+{i + 1})')
 
     def trigger_bottom(self, n):
-        """Alt+n: 아래 줄 왼쪽에서 n번째 버튼을 누른 것과 같다."""
+        """Alt+n: 아래 줄 왼쪽에서 n번째 버튼을 누른 것과 같다.
+        그 창이 이미 맨 앞(지금 쓰는 창)이면 닫는다 — 같은 단축키를 한 번 더 누르면 닫힘. AI는 버튼이 원래 열기/닫기."""
         from ui.bottom_bar import load_order
         order = load_order()
-        if 1 <= n <= len(order):
-            b = self._bottom_btns[order[n - 1]]
-            if b.isEnabled():
-                b.click()
+        if not 1 <= n <= len(order):
+            return
+        key = order[n - 1]
+        win = self._bottom_window(key)
+        if win is not None and win.isVisible() and QApplication.activeWindow() is win:
+            if key == 'doc' and self._doc_has_text(win):
+                win.showMinimized()          # 쓰던 공문은 잃지 않게 닫지 않고 내려 둔다 (다시 누르면 그대로)
+            else:
+                win.close()
+            return
+        b = self._bottom_btns[key]
+        if b.isEnabled():
+            b.click()
+
+    @staticmethod
+    def _doc_has_text(ed):
+        try:
+            return bool(ed.editor.toPlainText().strip() or ed.title_input.text().strip())
+        except Exception:
+            return True
+
+    def _bottom_window(self, key):
+        """아래 줄 버튼이 여는 창 (열려 있지 않으면 None). AI는 버튼이 토글하므로 None."""
+        try:
+            if key == 'doc':
+                from document_editor import DocumentEditorWindow
+                return DocumentEditorWindow._instance
+            if key == 'budget':
+                import budget
+                return budget._instance
+            if key == 'calendar':
+                return getattr(self, '_calendar_dlg', None)
+        except Exception:
+            return None
+        return None
 
     def _bottom_menu(self, btn, pos):
         m = menu_style.make_menu(self)

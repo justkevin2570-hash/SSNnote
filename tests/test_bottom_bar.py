@@ -94,3 +94,36 @@ def test_broken_setting_falls_back(win):
     from ui import bottom_bar
     db.set_setting(bottom_bar.ORDER_KEY, 'doc,doc,xx')
     assert bottom_bar.load_order() == bottom_bar.DEFAULT_ORDER
+
+
+def test_same_shortcut_again_closes_front_window(win, monkeypatch):
+    w, app, calls = win
+    from PyQt5.QtWidgets import QWidget
+    import PyQt5.QtWidgets as qw
+    other = QWidget()
+    other.show()
+    monkeypatch.setattr(w, '_bottom_window', lambda key: other if key == 'budget' else None)
+    monkeypatch.setattr(qw.QApplication, 'activeWindow', staticmethod(lambda: w))
+    w.trigger_bottom(2)                              # 예산 창이 뒤에 있으면: 앞으로 (버튼 누르기)
+    assert calls == ['budget'] and other.isVisible()
+    monkeypatch.setattr(qw.QApplication, 'activeWindow', staticmethod(lambda: other))
+    w.trigger_bottom(2)                              # 예산 창이 맨 앞이면: 닫기
+    assert calls == ['budget'] and not other.isVisible()
+
+
+def test_doc_with_text_is_minimized_not_closed(win, monkeypatch):
+    w, app, calls = win
+    from types import SimpleNamespace
+    import PyQt5.QtWidgets as qw
+    done = []
+    ed = SimpleNamespace(isVisible=lambda: True, close=lambda: done.append('close'),
+                         showMinimized=lambda: done.append('min'),
+                         editor=SimpleNamespace(toPlainText=lambda: '본문'),
+                         title_input=SimpleNamespace(text=lambda: ''))
+    monkeypatch.setattr(w, '_bottom_window', lambda key: ed if key == 'doc' else None)
+    monkeypatch.setattr(qw.QApplication, 'activeWindow', staticmethod(lambda: ed))
+    w.trigger_bottom(1)
+    assert done == ['min']
+    ed.editor = SimpleNamespace(toPlainText=lambda: '')
+    w.trigger_bottom(1)
+    assert done == ['min', 'close']
