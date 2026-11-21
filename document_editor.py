@@ -1511,11 +1511,11 @@ class DocumentEditorWindow(QMainWindow):
         ctrl_row = QHBoxLayout()
         ctrl_row.setSpacing(8)
         # 복사 단추: 제목 · 관련 번호는 칸 바로 옆, 본문은 위 도구줄 [다시 초안] 옆 (_build_start_page에서 놓음)
-        self.btn_copy_title = QPushButton("복사")
+        self.btn_copy_title = QPushButton("제목 복사")
         self.btn_copy_title.setObjectName('FieldCopy')
         self.btn_copy_title.setToolTip('제목 복사 (Ctrl+1)')
         self.btn_copy_title.clicked.connect(self._copy_title)
-        self.btn_copy_ref = QPushButton("복사")
+        self.btn_copy_ref = QPushButton("번호 복사")
         self.btn_copy_ref.setObjectName('FieldCopy')
         self.btn_copy_ref.setToolTip('관련 번호 복사 (Ctrl+2)')
         self.btn_copy_ref.clicked.connect(self._copy_ref)
@@ -1560,7 +1560,8 @@ class DocumentEditorWindow(QMainWindow):
         self._apply_editor_line_height()
         self._build_start_page()
         for b, key in ((self.btn_past, 'Ctrl+O'), (self.btn_start_go, 'Enter'), (self.btn_copy, 'Ctrl+3'),
-                       (self.btn_new, 'Ctrl+N'), (self.btn_save_exit, 'Ctrl+S')):
+                       (self.btn_new, 'Ctrl+N'), (self.btn_save_exit, 'Ctrl+S'),
+                       (self.btn_copy_title, 'Ctrl+1'), (self.btn_copy_ref, 'Ctrl+2')):
             _attach_kbd(b, key)
         self._setup_shortcuts()
         self._apply_design_widgets()
@@ -1742,7 +1743,8 @@ class DocumentEditorWindow(QMainWindow):
         self.lbl_ask.setVisible(bool(C.ASK_LABEL))
         self.lbl_ask_key.setVisible(bool(C.ASK_LABEL) and C.SHOW_KEYS)
         self._lbl_esc.setVisible(C.SHOW_KEYS)
-        for b in (self.btn_past, self.btn_start_go, self.btn_copy, self.btn_new, self.btn_save_exit):
+        for b in (self.btn_past, self.btn_start_go, self.btn_copy, self.btn_new, self.btn_save_exit,
+                  self.btn_copy_title, self.btn_copy_ref):
             _fit_kbd(b)
         # 본문: 글꼴(메모장 · 기존 Pretendard, 문서 바탕체 — QSS가 정함) · 줄 공책 선.
         # 붙여 넣은 글은 글꼴이 글자마다 박혀 있으므로 지금 디자인 글꼴로 맞춘다
@@ -2587,7 +2589,7 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage('복사할 제목이 없습니다.')
             return
         QApplication.clipboard().setText(title)
-        self._flash_copied(self.btn_copy_title, '복사')
+        self._flash_copied(self.btn_copy_title, '제목 복사')
 
     def _later(self, ms, fn, owner=None):
         """잠시 뒤 fn — 창(또는 owner)에 딸린 타이머라 창이 먼저 닫히면 같이 사라진다
@@ -2626,7 +2628,7 @@ class DocumentEditorWindow(QMainWindow):
             self.statusBar().showMessage('복사할 관련 번호가 없습니다.')
             return
         QApplication.clipboard().setText(ref)
-        self._flash_copied(self.btn_copy_ref, '복사')
+        self._flash_copied(self.btn_copy_ref, '번호 복사')
 
     def _copy_body(self):
         """본문 텍스트를 클립보드에 복사."""
