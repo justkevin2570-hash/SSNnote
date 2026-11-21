@@ -1313,11 +1313,14 @@ class DocumentEditorWindow(QMainWindow):
             b.setToolTip(tip)
             b.setFocusPolicy(Qt.NoFocus)
             b.clicked.connect(slot)
-            b.setVisible(_CAPTION_HIDDEN)
         self.btn_win_close.setProperty('close', True)
         hl.addSpacing(2)
         hl.addWidget(self.btn_win_min)
         hl.addWidget(self.btn_win_close)
+        # 머리줄에 넣은 뒤에 보이기/숨기기를 정한다: 넣기 전에 보이게 하면 부모가 없어서
+        # 단추가 따로 아주 작은 창으로 잠깐 떴다
+        for b in (self.btn_win_min, self.btn_win_close):
+            b.setVisible(_CAPTION_HIDDEN)
         root.addWidget(header)
         self._header = header
         self._root = root

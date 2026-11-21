@@ -64,3 +64,40 @@ def test_hit_test_edges_and_fixed_height(ed):
     assert de._hit_test(w, QPoint(300, 2)) != H['top'] and de._hit_test(w, QPoint(2, 100)) == H['left']
     hdr = w._header
     assert de._hit_test(w, hdr.mapTo(w, QPoint(hdr.width() // 2, hdr.height() // 2))) == de._HTCAPTION
+
+
+def test_no_stray_tiny_windows_when_opening(tmp_path, monkeypatch):
+    """창을 열 때 단추 같은 작은 위젯이 따로 창으로 뜨지 않는다 (─ ✕ 단추가 머리줄에 들어가기 전에 보였던 문제)."""
+    from unittest.mock import MagicMock
+    sys.modules.setdefault('winreg', MagicMock())
+    import db
+    monkeypatch.setattr(db, 'DB_DIR', str(tmp_path))
+    monkeypatch.setattr(db, 'DB_PATH', str(tmp_path / 'ssnnote.db'))
+    db.init_db()
+    monkeypatch.setenv('APPDATA', str(tmp_path))
+    from PyQt5.QtWidgets import QApplication, QWidget
+    from PyQt5.QtCore import QObject, QEvent
+    global _APP
+    _APP = QApplication.instance() or QApplication([])
+    import document_editor as de
+    monkeypatch.setattr(de, '_CAPTION_HIDDEN', True)              # Windows처럼 ─ ✕ 단추를 보이게
+    monkeypatch.setattr(de, '_setup_native_frame', lambda w: None)
+    monkeypatch.setattr(de, 'load_ai_mode', lambda: 'none')
+    monkeypatch.setattr(de.DocumentEditorWindow, '_STATE_FILE', str(tmp_path / 'st.json'))
+    shown = []
+
+    class Spy(QObject):
+        def eventFilter(self, o, e):
+            if e.type() == QEvent.Show and isinstance(o, QWidget) and o.isWindow():
+                shown.append(type(o).__name__)
+            return False
+    spy = Spy()
+    _APP.installEventFilter(spy)
+    try:
+        w = de.DocumentEditorWindow()
+        w.show()
+        _APP.processEvents()
+    finally:
+        _APP.removeEventFilter(spy)
+    assert shown == ['DocumentEditorWindow']
+    w.close()
