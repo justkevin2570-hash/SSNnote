@@ -1217,14 +1217,14 @@ def _hit_test(win, pos, zoomed=False):
 
 
 def _capture_result_hint(got):
-    """캡처를 다 읽은 뒤 안내 줄: 찾은 칸만 「채웠어요」, 둘 다 못 찾으면 글자가 작다는 안내. (글, 상태)"""
-    t, r = got.get('title'), got.get('ref')
-    if t and r:
-        return '✓ 제목 · 공문번호를 채웠어요', 'done'
-    if t:
-        return '✓ 제목을 채웠어요 · 공문번호는 못 찾았어요 (번호 부분만 크게 다시 캡처해 보세요)', 'done'
-    if r:
-        return '✓ 공문번호를 채웠어요 · 제목은 못 찾았어요 (제목 부분만 크게 다시 캡처해 보세요)', 'done'
+    """캡처를 다 읽은 뒤 안내 줄: 채운 칸만 알려 준다. 둘 다 못 찾으면 글자가 작다는 안내. (글, 상태)"""
+    parts = []
+    if got.get('title'):
+        parts.append('✓ 공문 제목을 채웠어요.')
+    if got.get('ref'):
+        parts.append('✓ 관련 번호를 채웠어요.')
+    if parts:
+        return '&nbsp; '.join(parts), 'done'
     return '⚠ 글자가 너무 작아요. 화면을 크게 확대해서 다시 캡처해 보세요', 'error'
 
 
@@ -3158,9 +3158,7 @@ class DocumentEditorWindow(QMainWindow):
         title, number = _quick_fields(text)
         if not (title or number):
             return
-        self._fill_from_capture(title, number)
-        if self.panel._worker is not None and self.panel._worker.isRunning():
-            self._set_hint('✓ 제목 · 공문번호를 넣었어요 · AI가 다듬는 중…', 'busy')
+        self._fill_from_capture(title, number)       # 안내 줄은 「읽는 중…」 그대로 — 다 읽은 뒤 채운 칸만 알려 줌
 
     def _on_analyzed(self, title, doc_number):
         self._ai_filled = True
