@@ -1216,6 +1216,10 @@ def _hit_test(win, pos, zoomed=False):
     return _HTCAPTION if win._is_caption_point(pos) else None
 
 
+EDITOR_HINT = '[다시 초안]을 누르거나, 아래에 AI에게 부탁할 내용을 적어 보세요.'
+EDITOR_HINT_BUSY = 'AI가 공문을 작성 중…'      # AI가 쓰는 동안 빈 본문 칸에 (멈춘 것처럼 보이지 않게)
+
+
 class DocumentEditorWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1444,9 +1448,7 @@ class DocumentEditorWindow(QMainWindow):
         self.editor.setFont(_editor_font)
         self.editor.document().blockCountChanged.connect(self._apply_editor_line_height)
         self._apply_editor_line_height()
-        self.editor.setPlaceholderText(
-            "[다시 초안]을 누르거나, 아래에 AI에게 부탁할 내용을 적어 보세요."
-        )
+        self.editor.setPlaceholderText(EDITOR_HINT)
         self.editor.setContextMenuPolicy(Qt.CustomContextMenu)
         self.editor.customContextMenuRequested.connect(self._show_editor_menu)
         layout.addWidget(self.editor, stretch=1)
@@ -2423,6 +2425,7 @@ class DocumentEditorWindow(QMainWindow):
         self._before_ai = self.editor.toPlainText()
         self.editor.setUndoRedoEnabled(False)                     # 흘러들어오는 글자는 되돌리기 기록에 안 남김
         self.editor.clear()
+        self.editor.setPlaceholderText(EDITOR_HINT_BUSY)          # 끝나면 _set_controls_enabled(True)에서 원래대로
 
         self.ai_thread = AiStreamThread(prompt, system=system, structured=structured)
         self.ai_thread.new_text_signal.connect(lambda t, g=gen: self._append_text(t, g))
@@ -2518,6 +2521,8 @@ class DocumentEditorWindow(QMainWindow):
         self._set_controls_enabled(True)
 
     def _set_controls_enabled(self, enabled):
+        if enabled:
+            self.editor.setPlaceholderText(EDITOR_HINT)
         mode = load_ai_mode()
         ai_available = mode != 'none'
         self.btn_send.setEnabled(enabled and ai_available)

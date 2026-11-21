@@ -154,3 +154,25 @@ def test_base_design_keeps_hints_without_labels(ed):
     w.set_design('paper')
     app.processEvents()
     assert w.ref_input.placeholderText() == '' and not w._form_keys[0].isHidden()
+
+
+def test_editor_hint_while_ai_writes(ed, monkeypatch):
+    w, de, db, app = ed
+
+    class FakeThread:
+        def __init__(self, *a, **k):
+            from unittest.mock import MagicMock
+            self.new_text_signal = MagicMock()
+            self.finished_signal = MagicMock()
+            self.error_signal = MagicMock()
+
+        def isRunning(self):
+            return False
+
+        def start(self):
+            pass
+    monkeypatch.setattr(de, 'AiStreamThread', FakeThread)
+    w._start_ai('요청', structured=True)
+    assert w.editor.placeholderText() == de.EDITOR_HINT_BUSY       # AI가 쓰는 동안
+    w._on_finished('1. 관련: 교무-1', w._ai_gen)
+    assert w.editor.placeholderText() == de.EDITOR_HINT            # 끝나면 원래 안내
