@@ -126,7 +126,9 @@ class ScreenCaptureOverlay(QWidget):
 class OcrWorker(QThread):
     """별도 스레드에서 OCR을 실행하고 결과를 시그널로 메인 스레드에 전달."""
 
-    finished = pyqtSignal(str, str)  # (text, error_msg)
+    # 결과 신호 이름을 QThread.finished와 다르게: 예전에는 같은 이름이라 「스레드가 완전히 끝났다」는
+    # 신호를 덮어써서, 결과를 받자마자 스레드를 지우다 아직 돌고 있는 스레드를 지워 앱이 멈출 수 있었다
+    result = pyqtSignal(str, str)  # (text, error_msg)
 
     def __init__(self, png_bytes: bytes):
         super().__init__()
@@ -142,7 +144,10 @@ class OcrWorker(QThread):
                 error_msg = 'OCR 텍스트를 인식하지 못했습니다.'
         except Exception as e:
             error_msg = f'OCR 오류: {e}'
-        self.finished.emit(text, error_msg)
+        self.result.emit(text, error_msg)
+
+
+_OCR_ALIVE = set()     # 끝날 때까지 스레드 객체를 붙잡아 둔다 (중간에 지워지지 않게)
 
 
 def run_ocr(pixmap: QPixmap, callback, error_callback=None):
@@ -157,16 +162,23 @@ def run_ocr(pixmap: QPixmap, callback, error_callback=None):
 
     worker = OcrWorker(png_bytes)
 
-    def _on_finished(text, error_msg):
-        if error_msg:
-            if error_callback:
-                error_callback(error_msg)
-        else:
-            callback(text)
-        # 스레드 객체 정리
+    def _on_result(text, error_msg):
+        try:
+            if error_msg:
+                if error_callback:
+                    error_callback(error_msg)
+            else:
+                callback(text)
+        except RuntimeError:          # 결과를 받을 창이 이미 닫힘
+            pass
+
+    def _on_thread_done():            # 스레드가 완전히 끝난 뒤에만 지운다
+        _OCR_ALIVE.discard(worker)
         worker.deleteLater()
 
-    worker.finished.connect(_on_finished)
+    _OCR_ALIVE.add(worker)
+    worker.result.connect(_on_result)
+    worker.finished.connect(_on_thread_done)
     worker.start()
     return worker  # 호출자가 참조를 유지할 수 있도록 반환
 
