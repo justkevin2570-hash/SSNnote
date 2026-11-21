@@ -176,3 +176,19 @@ def test_editor_hint_while_ai_writes(ed, monkeypatch):
     assert w.editor.placeholderText() == de.EDITOR_HINT_BUSY       # AI가 쓰는 동안
     w._on_finished('1. 관련: 교무-1', w._ai_gen)
     assert w.editor.placeholderText() == de.EDITOR_HINT            # 끝나면 원래 안내
+
+
+def test_capture_hint_says_what_was_found(ed):
+    w, de, db, app = ed
+    w._cap_got = {'title': False, 'ref': False}
+    w._on_analyzed('', '')
+    w._on_panel_status('', 'done')
+    assert '글자가 너무 작아요' in w.lbl_hint.text()
+    w._cap_got = {'title': False, 'ref': False}
+    w._on_analyzed('2026 진로 특강 계획', '')
+    w._on_panel_status('', 'done')
+    assert '제목을 채웠어요' in w.lbl_hint.text() and '공문번호는 못 찾았어요' in w.lbl_hint.text()
+    w._cap_got = {'title': False, 'ref': False}
+    w._on_analyzed('제목', '교무부-1(2026. 11. 1.)')
+    w._on_panel_status('', 'done')
+    assert '제목 · 공문번호를 채웠어요' in w.lbl_hint.text()

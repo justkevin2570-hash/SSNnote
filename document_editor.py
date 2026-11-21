@@ -1216,6 +1216,18 @@ def _hit_test(win, pos, zoomed=False):
     return _HTCAPTION if win._is_caption_point(pos) else None
 
 
+def _capture_result_hint(got):
+    """캡처를 다 읽은 뒤 안내 줄: 찾은 칸만 「채웠어요」, 둘 다 못 찾으면 글자가 작다는 안내. (글, 상태)"""
+    t, r = got.get('title'), got.get('ref')
+    if t and r:
+        return '✓ 제목 · 공문번호를 채웠어요', 'done'
+    if t:
+        return '✓ 제목을 채웠어요 · 공문번호는 못 찾았어요 (번호 부분만 크게 다시 캡처해 보세요)', 'done'
+    if r:
+        return '✓ 공문번호를 채웠어요 · 제목은 못 찾았어요 (제목 부분만 크게 다시 캡처해 보세요)', 'done'
+    return '⚠ 글자가 너무 작아요. 화면을 크게 확대해서 다시 캡처해 보세요', 'error'
+
+
 EDITOR_HINT = '[다시 초안]을 누르거나, 아래에 AI에게 부탁할 내용을 적어 보세요.'
 EDITOR_HINT_BUSY = 'AI가 공문을 작성 중…'      # AI가 쓰는 동안 빈 본문 칸에 (멈춘 것처럼 보이지 않게)
 
@@ -1841,7 +1853,7 @@ class DocumentEditorWindow(QMainWindow):
 
     def _on_panel_status(self, text, state):
         if state == 'done':
-            self._set_hint('✓ 제목 · 공문번호를 채웠어요', 'done')
+            self._set_hint(*_capture_result_hint(getattr(self, '_cap_got', {'title': True, 'ref': True})))
         elif state == 'error':
             self._set_hint('⚠ 공문을 읽지 못했어요. 다시 캡처해 보세요', 'error')
 
@@ -3109,6 +3121,7 @@ class DocumentEditorWindow(QMainWindow):
             self._ocr_fallback(pixmap, self._capture_target())
             return
         self._ai_filled = False
+        self._cap_got = {'title': False, 'ref': False}     # 이번 캡처로 찾은 칸 (끝나면 안내 줄에 알려 줌)
         self.panel.add_capture(pixmap)
         self._set_hint('⏳ 받은 공문을 읽는 중…', 'busy')
         self._quick_ocr(pixmap)                    # AI를 기다리지 않고 PC 글자 인식으로 먼저 칸을 채움
@@ -3156,7 +3169,10 @@ class DocumentEditorWindow(QMainWindow):
     def _fill_from_capture(self, title: str, doc_number: str):
         """캡처 분석 결과를 오른쪽 제목·관련 번호 칸에도 넣는다. 찾은 값만 넣고, 칸이 비어 있거나
         지난번에 캡처로 넣은 값 그대로일 때만 바꾼다 (사용자가 고친 제목·번호는 유지)."""
+        got = getattr(self, '_cap_got', None)
         for value, box, key in ((title, self.title_input, '_auto_title'), (doc_number, self.ref_input, '_auto_ref')):
+            if value and got is not None:
+                got['title' if key == '_auto_title' else 'ref'] = True
             cur = box.text().strip()
             if value and (not cur or cur == getattr(self, key, None)):
                 box.setText(value)
@@ -3202,6 +3218,8 @@ class DocumentEditorWindow(QMainWindow):
 
         def _on_error(msg):
             self.statusBar().showMessage(f'OCR 오류: {msg}')
+            if '인식하지 못' in msg:                  # 글자를 하나도 못 읽음 — 대개 글자가 너무 작을 때
+                self._set_hint(*_capture_result_hint({}))
 
         self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
 
