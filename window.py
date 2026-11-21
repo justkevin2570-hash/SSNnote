@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit, QTextEdit, QTimeEdit,
     QComboBox, QScrollBar, QSizePolicy
 )
-from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QSettings, QUrl, QSize
+from PyQt5.QtCore import Qt, QDate, QTime, QEvent, QTimer, QDateTime, QPoint, QSettings, QUrl, QSize, QObject
 from PyQt5.QtGui import QFont, QColor, QTextBlockFormat, QTextCursor, QFontMetrics
 from db import (update_window, delete_window, get_tasks, add_task, delete_task, update_task,
                 add_task_history, delete_task_history,
@@ -32,6 +32,43 @@ from ui import menu_style
 from ui import ai_chat_window
 from ui.theme import T, PALETTE, DEFAULT_NOTE_COLOR, tc, tct, note_color, qcolor, DARK, accent_for_note, set_current_accent, rgba
 import qtawesome as qta
+
+class _ChildWindowWatcher(QObject):
+    """업무창이 연 창(공문 작성 · 예산 · 달력)이 닫히거나 내려가면 업무창을 다시 앞으로."""
+
+    def __init__(self, memo):
+        super().__init__(memo)
+        self._memo = memo
+        self._watched = set()
+
+    def watch(self, win):
+        if id(win) in self._watched:
+            return
+        self._watched.add(id(win))
+        win.installEventFilter(self)
+        try:
+            win.destroyed.connect(lambda *_, k=id(win): self._watched.discard(k))
+        except (RuntimeError, TypeError):
+            pass
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Hide, QEvent.Close, QEvent.WindowStateChange):
+            QTimer.singleShot(0, lambda o=obj: self._maybe_return(o))
+        return False
+
+    def _maybe_return(self, win):
+        try:
+            if getattr(win, '_capturing', False):        # 공문 캡처 중에는 창이 잠깐 숨는 것뿐
+                return
+            gone = not win.isVisible() or win.isMinimized()
+        except RuntimeError:                              # 이미 지워진 창
+            gone = True
+        if gone and QApplication.activeWindow() in (None, win):
+            try:
+                self._memo._take_focus_back()
+            except RuntimeError:
+                pass
+
 
 class MemoWindow(QMainWindow):
     def __init__(self, window_id, on_new=None, open_windows=None, on_toggle_hotkey=None,
@@ -927,9 +964,26 @@ class MemoWindow(QMainWindow):
         self._doc_editor = ed
         return ed
 
+    # ── 공문 작성 · 예산 · 달력 창을 닫으면 업무창으로 돌아오기 ──────────
+    # 업무창은 작업 표시줄에 없는 도구 창이라, 다른 창이 닫힐 때 Windows가 업무창 대신 다른 프로그램으로 넘긴다
+    def _watch_child_window(self, win):
+        if win is None:
+            return
+        watcher = getattr(self, '_child_watcher', None)
+        if watcher is None:
+            watcher = self._child_watcher = _ChildWindowWatcher(self)
+        watcher.watch(win)
+
+    def _take_focus_back(self):
+        if not self.isVisible() or self.isMinimized():
+            return
+        self.raise_()
+        self.activateWindow()
+
     def _open_document_editor(self):
         try:
             ed = self._ensure_doc_editor()
+            self._watch_child_window(ed)
             if ed.isMinimized():
                 ed.showNormal()
             ed.show()
@@ -943,6 +997,7 @@ class MemoWindow(QMainWindow):
         try:
             import budget
             budget.open_budget_window()
+            self._watch_child_window(budget._instance)
         except Exception as e:
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.critical(self, '오류', f'예산 관리 창 열기 실패:\n{e}')
@@ -961,6 +1016,7 @@ class MemoWindow(QMainWindow):
         if geo:
             dlg.restoreGeometry(geo)
         self._calendar_dlg = dlg
+        self._watch_child_window(dlg)
         dlg.finished.connect(lambda *_: settings.setValue('calendar_dlg/geometry', dlg.saveGeometry()))
         dlg.finished.connect(lambda *_: setattr(self, '_calendar_dlg', None))
         dlg.show()
@@ -1431,6 +1487,7 @@ class MemoWindow(QMainWindow):
                 win.showMinimized()          # 쓰던 공문은 잃지 않게 닫지 않고 내려 둔다 (다시 누르면 그대로)
             else:
                 win.close()
+            QTimer.singleShot(0, self._take_focus_back)
             return
         b = self._bottom_btns[key]
         if b.isEnabled():

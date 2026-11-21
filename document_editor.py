@@ -1229,6 +1229,12 @@ class DocumentEditorWindow(QMainWindow):
             self.setWindowFlags(self.windowFlags() | Qt.FramelessWindowHint)
         self.init_ui()
         keep_light(self)  # 공문 작성 창은 아직 라이트 전용 (다크 테마에서도 원래 모습 유지)
+        if _CAPTION_HIDDEN:
+            # 제목표시줄 숨김 · 테두리 · 그림자를 화면에 띄우기 전에 끝낸다. 띄운 뒤에 바꾸면
+            # Windows가 기본 모양의 창을 한 번 그렸다가 다시 그려 작은 창이 잠깐 보였다
+            self.winId()                                # 창 핸들을 지금 만든다 (아직 안 보임)
+            _setup_native_frame(self)
+            self._frame_ready = True
 
     def init_ui(self):
         self.setWindowTitle("공문 작성")

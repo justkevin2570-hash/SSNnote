@@ -127,3 +127,27 @@ def test_doc_with_text_is_minimized_not_closed(win, monkeypatch):
     ed.editor = SimpleNamespace(toPlainText=lambda: '')
     w.trigger_bottom(1)
     assert done == ['min', 'close']
+
+
+def test_closing_child_window_returns_focus(win, monkeypatch):
+    w, app, calls = win
+    from PyQt5.QtWidgets import QWidget
+    back = []
+    monkeypatch.setattr(w, '_take_focus_back', lambda: back.append(1))
+    child = QWidget()
+    child.show()
+    app.processEvents()
+    w._watch_child_window(child)
+    w._watch_child_window(child)                       # 두 번 불러도 한 번만 지켜봄
+    child.close()
+    for _ in range(5):
+        app.processEvents()
+    assert back                                        # 닫히면 업무창으로 돌아옴
+    back.clear()
+    child._capturing = True                            # 공문 캡처로 잠깐 숨는 건 제외
+    child.show()
+    app.processEvents()
+    child.hide()
+    for _ in range(5):
+        app.processEvents()
+    assert back == []
