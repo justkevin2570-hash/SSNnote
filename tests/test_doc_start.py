@@ -59,6 +59,7 @@ def test_enter_with_title_expands_and_drafts(ed):
 def test_new_document_returns_to_start(ed, monkeypatch):
     w, de, db, app = ed
     w.title_input.setText('제목')
+    assert not w.btn_copy_title.isVisible()                    # 첫 창(접힌 창)에서는 복사 단추 없음
     w._start_go()
     w.editor.setPlainText('직접 쓴 글')
     from PyQt5.QtWidgets import QMessageBox
@@ -75,6 +76,7 @@ def test_attach_button_and_copy_buttons(ed):
     w.spin_attach.setValue(2)
     assert w.btn_attach.text().startswith('붙임 2')
     w.title_input.setText('제목')
+    assert not w.btn_copy_title.isVisible()                    # 첫 창(접힌 창)에서는 복사 단추 없음
     w._start_go()
     # 제목 · 관련 번호는 칸 바로 옆 [복사] (칸이 비면 숨김), 본문은 위 도구줄 [본문 복사]
     assert w.btn_copy_title.isVisible() and not w.btn_copy_ref.isVisible() and w.btn_copy.isVisible()

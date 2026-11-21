@@ -1642,7 +1642,7 @@ class DocumentEditorWindow(QMainWindow):
             h.addWidget(copy)
             field.setFixedHeight(36)                     # 제목 · 관련 번호 칸 높이를 똑같이
             field.installEventFilter(self)               # 누르면 줄 바탕 강조 (eventFilter)
-            field.textChanged.connect(lambda t, b=copy: b.setVisible(bool(t.strip())))
+            field.textChanged.connect(lambda _t: self._update_field_copy())
             copy.hide()                                  # 칸이 비면 복사 단추도 숨김
             self._start_fields.addWidget(row)
             self._form_rows.append(row)
@@ -1859,6 +1859,12 @@ class DocumentEditorWindow(QMainWindow):
         self.start_page.adjustSize()
         return self._header.sizeHint().height() + self.start_page.sizeHint().height()
 
+    def _update_field_copy(self):
+        """[제목 복사] · [번호 복사]: [공문 작성]으로 펼친 뒤, 칸에 글이 있을 때만."""
+        edit = getattr(self, '_mode', '') == 'edit'
+        for field, btn in ((self.title_input, self.btn_copy_title), (self.ref_input, self.btn_copy_ref)):
+            btn.setVisible(edit and bool(field.text().strip()))
+
     def _enter_start(self, first=False):
         """접기: 위쪽(제목 · 관련 번호 · 도구줄)만 남은 작은 창으로."""
         if self._mode == 'start' and not first:
@@ -1872,6 +1878,7 @@ class DocumentEditorWindow(QMainWindow):
         self.statusBar().hide()
         self.btn_new.hide()
         self.btn_copy.hide()                          # 본문 복사는 펼친 뒤에만
+        self._update_field_copy()                     # 제목 · 번호 복사도 펼친 뒤에만 (첫 창은 원래 모양)
         self._header.layout().setContentsMargins(14, 8, 12, 8)
         self.btn_start_go.setText('공문 작성')
         self.btn_start_go.setToolTip('본문을 아래로 펼치고 초안을 넣어요 (Enter)')
@@ -1912,6 +1919,7 @@ class DocumentEditorWindow(QMainWindow):
             y = max(screen.y(), screen.bottom() - target_h)
         self.btn_new.show()
         self.btn_copy.show()
+        self._update_field_copy()
         self.btn_start_go.setText('다시 초안')
         self.btn_start_go.setToolTip('제목 · 종류에 맞춰 초안을 다시 넣어요 (Ctrl+R)')
         self._set_go_key('Ctrl+R')
