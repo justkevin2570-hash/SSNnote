@@ -1892,8 +1892,79 @@ class MemoWindow(QMainWindow):
         for handle in self._handles.values():
             handle.raise_()
 
+    # ── Windows에 맡기는 크기 조절 (EdgeHandle._start_native) ─────────────
+    # 끄는 동안의 크기 · 위치는 Windows가 정하고(흔들림 없음), 앱은 WM_SIZING에서 스냅만 고쳐 준다.
+    def _begin_native_resize(self, handle):
+        import ctypes
+        from ctypes import wintypes
+        self._native_resize = handle
+        self._min_before = self.minimumSize()
+        self.setMinimumSize(EdgeHandle.MIN_W, min(EdgeHandle.MIN_H, self.height()))   # 접힌 창은 높이 그대로
+        if self._link_group:                               # 리사이즈 중 합체 파트너가 딸려오지 않게
+            for m in self._link_group:
+                m._is_syncing_move = True
+        # 물리 픽셀(Windows) ↔ 논리 좌표(Qt) 변환 기준: 지금 창의 두 좌표
+        r = wintypes.RECT()
+        try:
+            ctypes.windll.user32.GetWindowRect(int(self.winId()), ctypes.byref(r))
+            self._native_origin = (r.left, r.top, self.x(), self.y(), self.devicePixelRatioF() or 1.0)
+        except Exception:
+            self._native_origin = None
+
+    def _end_native_resize(self, save=True):
+        handle = getattr(self, '_native_resize', None)
+        self._native_resize = None
+        if getattr(self, '_min_before', None) is not None:
+            self.setMinimumSize(self._min_before)
+            self._min_before = None
+        if self._link_group:
+            for m in self._link_group:
+                m._is_syncing_move = False
+        if handle is not None and save:
+            try:
+                handle._anchor_partner(self)
+            except RuntimeError:
+                pass
+            self.save_state()
+
+    def _native_sizing(self, rect):
+        """WM_SIZING: Windows가 정하려는 창 테두리(물리 픽셀)에 스냅을 적용해 고쳐 쓴다."""
+        o = getattr(self, '_native_origin', None)
+        handle = getattr(self, '_native_resize', None)
+        if o is None or handle is None:
+            return
+        nx0, ny0, lx0, ly0, dpr = o
+        to_log = lambda v, n0, l0: l0 + (v - n0) / dpr
+        to_nat = lambda v, n0, l0: int(round(n0 + (v - l0) * dpr))
+        x, y = to_log(rect.left, nx0, lx0), to_log(rect.top, ny0, ly0)
+        w, h = (rect.right - rect.left) / dpr, (rect.bottom - rect.top) / dpr
+        nx, ny, nw, nh = self._snap_resize(int(round(x)), int(round(y)), int(round(w)), int(round(h)), handle.edge)
+        rect.left, rect.top = to_nat(nx, nx0, lx0), to_nat(ny, ny0, ly0)
+        rect.right, rect.bottom = rect.left + int(round(nw * dpr)), rect.top + int(round(nh * dpr))
+
+    def nativeEvent(self, event_type, message):
+        if getattr(self, '_native_resize', None) is not None and event_type == b'windows_generic_MSG':
+            try:
+                import ctypes
+                from ctypes import wintypes
+                msg = wintypes.MSG.from_address(int(message))
+                if msg.message == 0x0214:                  # WM_SIZING
+                    self._native_sizing(wintypes.RECT.from_address(msg.lParam))
+                    return True, 1
+                if msg.message == 0x0232:                  # WM_EXITSIZEMOVE
+                    self._end_native_resize()
+            except Exception:
+                self._end_native_resize()
+        return super().nativeEvent(event_type, message)
+
     def resizeEvent(self, e):
         super().resizeEvent(e)
+        handle = getattr(self, '_native_resize', None)
+        if handle is not None:                             # Windows가 크기를 바꾸는 중: 합체 파트너만 따라붙게
+            try:
+                handle._anchor_partner(self)
+            except RuntimeError:
+                pass
         if hasattr(self, '_handles'):
             self._reposition_handles()
         if not self.collapsed:

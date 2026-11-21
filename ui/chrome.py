@@ -40,8 +40,34 @@ class EdgeHandle(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
         self.setStyleSheet('background: transparent;')
 
+    _QT_EDGES = {'left': Qt.LeftEdge, 'right': Qt.RightEdge, 'top': Qt.TopEdge, 'bottom': Qt.BottomEdge}
+
+    def _qt_edges(self):
+        edges = Qt.Edges()
+        for part in self.edge.split('-'):
+            edges |= self._QT_EDGES[part]
+        return edges
+
+    def _start_native(self, win):
+        """Windows: 크기 조절을 Windows에 맡긴다 (테두리가 흔들리지 않음). 스냅 · 합체 파트너는
+        업무창 nativeEvent(WM_SIZING · WM_EXITSIZEMOVE)에서 맞춘다. 못 하면 False (예전 방식)."""
+        import sys
+        if sys.platform != 'win32' or not hasattr(win, '_begin_native_resize'):
+            return False
+        handle = win.windowHandle()
+        if handle is None:
+            return False
+        win._begin_native_resize(self)
+        if not handle.startSystemResize(self._qt_edges()):
+            win._end_native_resize(save=False)
+            return False
+        return True
+
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
+            win = self.window()
+            if self._start_native(win):
+                return
             self._drag_start = e.globalPos()
             self._start_geom = self.window().geometry()
             g = self._start_geom
