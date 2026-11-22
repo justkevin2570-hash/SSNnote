@@ -250,7 +250,7 @@ if __name__ == '__main__':
     app.installNativeEventFilter(_hotkey_filter)
     app.aboutToQuit.connect(_hotkey_filter.unregister)
 
-    # Alt+1~4: 앱 창이 눌려 있을 때 아래 줄 그 자리의 버튼 (공문 · 예산 · 달력 · AI가 기본, ui/bottom_bar.py)
+    # Alt+1~4: 앱 창이 눌려 있을 때 아래 줄 그 자리의 버튼 (공문 · 예산 · 달력 · AI가 기본), Alt+N: 업무 추가 칸 (ui/bottom_bar.py)
     from ui.bottom_bar import AltNumberFilter
 
     def _bottom_target():

@@ -151,3 +151,30 @@ def test_closing_child_window_returns_focus(win, monkeypatch):
     for _ in range(5):
         app.processEvents()
     assert back == []
+
+
+def test_alt_n_focuses_add_task(win, monkeypatch):
+    w, app, calls = win
+    from PyQt5.QtCore import QEvent, Qt
+    from PyQt5.QtGui import QKeyEvent
+    import PyQt5.QtWidgets as qw
+    from ui import bottom_bar
+    hits = []
+    monkeypatch.setattr(w, 'focus_add_task', lambda: hits.append('new'))
+    monkeypatch.setattr(qw.QApplication, 'activeWindow', staticmethod(lambda: w))
+    f = bottom_bar.AltNumberFilter(lambda: w)
+    assert f.eventFilter(w, QKeyEvent(QEvent.KeyPress, Qt.Key_N, Qt.AltModifier)) is True
+    assert f.eventFilter(w, QKeyEvent(QEvent.KeyPress, Qt.Key_N, Qt.NoModifier)) is False
+    assert f.eventFilter(w, QKeyEvent(QEvent.KeyPress, Qt.Key_N, Qt.AltModifier | Qt.ControlModifier)) is False
+    assert hits == ['new'] and calls == []
+    off = bottom_bar.AltNumberFilter(lambda: w, enabled=lambda: False)
+    assert off.eventFilter(w, QKeyEvent(QEvent.KeyPress, Qt.Key_N, Qt.AltModifier)) is False
+
+
+def test_focus_add_task_unfolds_and_focuses(win):
+    w, app, _ = win
+    w.toggle_shade()
+    assert w.collapsed
+    w.focus_add_task()
+    app.processEvents()
+    assert not w.collapsed and w.input_name.isVisible()

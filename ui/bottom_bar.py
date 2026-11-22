@@ -2,6 +2,7 @@
 
 - 순서: db 설정 'bottom_order' (예: 'doc,budget,calendar,ai'). 기본은 공문 · 예산 · 달력 · AI.
 - Alt+숫자: 왼쪽부터 Alt+1 · 2 · 3 · 4 — 버튼 자리를 따라간다. 앱 창이 눌려 있을 때만 (AltNumberFilter).
+- Alt+N: 업무창 「＋ 업무 추가」 칸으로 바로 (같은 필터).
 - BottomOrderDialog: ▲▼로 순서 바꾸기, 바꾸는 즉시 열려 있는 업무창 모두에 반영.
 """
 from PyQt5.QtCore import QEvent, QObject, Qt
@@ -54,7 +55,7 @@ def apply_everywhere():
 
 
 class AltNumberFilter(QObject):
-    """앱 창이 눌려 있을 때 Alt+1~4 → 아래 줄 그 자리의 버튼.
+    """앱 창이 눌려 있을 때 Alt+1~4 → 아래 줄 그 자리의 버튼, Alt+N → 업무 추가 칸.
     get_target(): 버튼을 누를 업무창 (마지막으로 쓴 업무창), enabled(): 「단축키 사용」 설정."""
 
     def __init__(self, get_target, enabled=lambda: True, parent=None):
@@ -66,6 +67,8 @@ class AltNumberFilter(QObject):
         if event.type() != QEvent.KeyPress or event.isAutoRepeat():
             return False
         n = _KEYS.get(event.key())
+        if event.key() == Qt.Key_N:
+            n = 'new'
         mods = event.modifiers() & (Qt.AltModifier | Qt.ControlModifier | Qt.ShiftModifier | Qt.MetaModifier)
         if n is None or mods != Qt.AltModifier or not self._enabled():
             return False
@@ -74,7 +77,10 @@ class AltNumberFilter(QObject):
         target = self._get_target()
         if target is None:
             return False
-        target.trigger_bottom(n)
+        if n == 'new':
+            target.focus_add_task()
+        else:
+            target.trigger_bottom(n)
         return True
 
 

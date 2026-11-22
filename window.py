@@ -204,7 +204,7 @@ class MemoWindow(QMainWindow):
         row1.setSpacing(4)
         self.input_name = QLineEdit()
         self.input_name.setPlaceholderText('＋ 업무 추가')
-        self.input_name.setToolTip('업무 이름을 쓰고 Enter — Tab을 누르면 마감일로')
+        self.input_name.setToolTip('업무 이름을 쓰고 Enter — Tab을 누르면 마감일로 (Alt+N)')
         self.input_name.setFont(note_font(11, self._font_key))
         self._date_touched = False
         self._time_touched = False
@@ -1076,11 +1076,7 @@ class MemoWindow(QMainWindow):
         target = self._task_list_window()
         on_top = bool(self.windowFlags() & Qt.WindowStaysOnTopHint)
 
-        def new_task():
-            target.show()
-            target.raise_()
-            target.activateWindow()
-            target.input_name.setFocus()
+        new_task = self.focus_add_task
 
         new_memo = lambda: self.on_new(offset_from=self, memo_mode=True,  # noqa: E731
                                        on_toggle_hotkey=self._on_toggle_hotkey,
@@ -1091,7 +1087,7 @@ class MemoWindow(QMainWindow):
         return [
             Command('📋 오늘 한눈에 보기', self._open_dashboard, '', 'dashboard today 대시보드 마감'),
             Command('📸 공문 캡처', self._start_ai_capture, 'Ctrl+Shift+X', 'capture ocr 캡쳐 스크린샷 ai 공문 분석 요약'),
-            Command('✏️ 새 업무 입력', new_task, '', 'task add 추가 할일'),
+            Command('✏️ 새 업무 입력', new_task, 'Alt+N', 'task add 추가 할일'),
             Command('💬 AI 대화 열기/숨기기', lambda: target._toggle_ai_chat(), shortcut_text('ai'),
                     'ai chat 채팅 대화 질문 클로드'),
             Command('🆕 새 메모장', new_memo, '', 'new memo 메모'),
@@ -1162,6 +1158,18 @@ class MemoWindow(QMainWindow):
             QMessageBox.critical(self, '오류', f'공문 작성 창 열기 실패:\n{e}')
             return
         ed._start_capture(extra_hide=list(self._open_windows))
+
+    def focus_add_task(self):
+        """Alt+N · 빠른 찾기: 업무 목록 창을 앞으로 띄우고 「＋ 업무 추가」 칸에 커서를 둔다."""
+        target = self._task_list_window()
+        if target.isMinimized():
+            target.showNormal()
+        if getattr(target, 'collapsed', False):
+            target.toggle_shade()
+        target.show()
+        target.raise_()
+        target.activateWindow()
+        target.input_name.setFocus()
 
     def _task_list_window(self):
         """업무를 넣을 창: 자신이 업무 목록 모드면 자신, 아니면 열린 업무 목록 창."""
