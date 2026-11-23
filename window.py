@@ -650,7 +650,7 @@ class MemoWindow(QMainWindow):
                 deadline = _next_recurrence_deadline(yesterday, recurrence) or ''
         else:
             recurrence = _RECUR_MAP.get(idx, '')
-        add_task(self.window_id, name, deadline, recurrence=recurrence)
+        new_id = add_task(self.window_id, name, deadline, recurrence=recurrence)
         self.input_name.clear()
         self.input_date.setDate(QDate(1900, 1, 1))
         self.input_time.setEnabled(False)
@@ -661,6 +661,9 @@ class MemoWindow(QMainWindow):
         self._time_touched = False
         self.input_name.setFocus()
         self._refresh_tasks()
+        tour = getattr(self, '_tour', None)
+        if tour is not None:
+            tour.on_task_added(new_id)
 
     def _delete_task(self, task):
         add_task_history(self.window_id, task['name'], task['deadline'],
@@ -1104,6 +1107,7 @@ class MemoWindow(QMainWindow):
                     self._toggle_privacy_mode, '', 'privacy 보안 마스킹 설정'),
             Command('🔑 AI 연결', self._open_ai_settings, '', 'ai api key opencode 오픈코드 claude 클로드 chatgpt 챗지피티 openai 설정'),
             Command('💡 사용 설명서', self.show_help, '', 'help 도움말'),
+            Command('👆 사용법 다시 보기', self.start_tour, '', 'tour guide onboarding 안내 도움말 처음'),
             Command('⬇️ 업데이트 확인', lambda: updater.check_for_update_manual(self), '', 'update 버전 도움말'),
         ]
 
@@ -1158,6 +1162,19 @@ class MemoWindow(QMainWindow):
             QMessageBox.critical(self, '오류', f'공문 작성 창 열기 실패:\n{e}')
             return
         ed._start_capture(extra_hide=list(self._open_windows))
+
+    def start_tour(self):
+        """첫 사용 안내(코치마크)를 업무 목록 창에서 처음부터 (ui/onboarding.py)."""
+        from ui import onboarding
+        target = self._task_list_window()
+        if target.isMinimized():
+            target.showNormal()
+        if getattr(target, 'collapsed', False):
+            target.toggle_shade()
+        target.show()
+        target.raise_()
+        target.activateWindow()
+        onboarding.start(target)
 
     def focus_add_task(self):
         """Alt+N · 빠른 찾기: 업무 목록 창을 앞으로 띄우고 「＋ 업무 추가」 칸에 커서를 둔다."""
@@ -1304,6 +1321,7 @@ class MemoWindow(QMainWindow):
         # ── 도움말 ──
         help_menu = self._submenu(menu, '도움말', 150, icon='ph.question')
         add(help_menu, '사용 설명서', self.show_help, icon='ph.book-open')
+        add(help_menu, '사용법 다시 보기', self.start_tour, icon='ph.hand-pointing')
         add(help_menu, '업데이트 확인', lambda: updater.check_for_update_manual(self), icon='ph.arrow-clockwise')
 
         # ── 업무창 삭제 (첫 업무창 제외) ──

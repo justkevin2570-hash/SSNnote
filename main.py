@@ -539,6 +539,17 @@ if __name__ == '__main__':
         updater.clear_staged()
         QTimer.singleShot(2500, lambda: _show_update_banner(f'✨ {updater.APP_VERSION}로 업데이트됐어요', 10000))
 
+    # 첫 사용 안내 (코치마크): 처음 켠 PC에서만, 업무 목록 창 위에 (ui/onboarding.py)
+    def _start_onboarding():
+        from ui import onboarding
+        wins = [w for w in _open_windows if not getattr(w, '_memo_mode', True)] or _open_windows
+        if wins:
+            try:
+                onboarding.maybe_start(wins[0])
+            except Exception as e:
+                print(f'[onboarding] {e}')
+    QTimer.singleShot(900, _start_onboarding)
+
     # 트레이 → 종료로 끌 때 받아 둔 업데이트 설치 (Windows 로그오프·종료 중에는 하지 않음)
     _session_ending = [False]
     app.commitDataRequest.connect(lambda *_: _session_ending.__setitem__(0, True))
