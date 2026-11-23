@@ -42,7 +42,7 @@ def test_full_tour(win):
     from ui import onboarding
     t = onboarding.maybe_start(w)
     assert t is not None and w._tour is t and t.step == 0
-    assert not t.bubble.btn_next.isEnabled()                 # 업무를 넣어야 다음
+    assert t.bubble.btn_next.isHidden()                      # 업무를 넣어야 다음 ([다음] 없음)
     w.input_name.setText('체험학습 계획서 제출')
     w._add_task()
     _pump(app)
@@ -90,7 +90,7 @@ def test_existing_user_not_shown(win):
     assert onboarding.maybe_start(w) is None and onboarding.is_done()
 
 
-def test_replay_from_menu_allows_next_with_tasks(win):
+def test_replay_from_menu_still_needs_new_task(win):
     w, app = win
     import db
     from ui import onboarding
@@ -99,4 +99,8 @@ def test_replay_from_menu_allows_next_with_tasks(win):
     _pump(app)
     w.start_tour()
     t = w._tour
-    assert t.step == 0 and t.bubble.btn_next.isEnabled()     # 업무가 있으면 바로 다음 가능
+    assert t.step == 0 and t.bubble.btn_next.isHidden()      # 다시 볼 때도 직접 하나 넣어야
+    w.input_name.setText('새로 넣은 업무')
+    w._add_task()
+    _pump(app)
+    assert t.step == 1 and t._row().task['name'] == '새로 넣은 업무' and not t.bubble.btn_next.isHidden()

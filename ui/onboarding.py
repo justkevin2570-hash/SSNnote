@@ -3,7 +3,7 @@
 - 처음 켰을 때 한 번만 (db 설정 'onboarding_done'). 이미 업무 · 지난 기록이 있는 PC는 건너뜀.
 - 다시 보기: 「…」 → 도움말 → 사용법 다시 보기.
 - 창을 어둡게 덮고 설명하는 곳만 뚫어 둔다 (뚫린 곳은 그대로 누르고 · 쓰고 · 파일을 놓을 수 있음).
-- 1단계는 업무를 하나 넣어야 [다음] (업무가 하나도 없을 때만). Esc · [건너뛰기]는 안내를 끝낸다.
+- 1단계는 [다음] 없이 업무를 하나 넣어야 넘어가고, 2 · 3단계는 그 업무 줄을 비춘다. Esc · [건너뛰기]는 안내를 끝낸다.
 """
 from PyQt5.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer
 from PyQt5.QtGui import QColor, QKeySequence, QPainter, QPainterPath, QPen, QRegion
@@ -17,7 +17,7 @@ TEXT = {
             '할 일을 하나 써 보세요.\n'
             '· Tab → 마감 날짜 → 시간 → 반복\n'
             '· Shift+Tab → 한 칸 뒤로\n'
-            '· Enter → 업무 넣기'),
+            '· Enter → 업무 넣기 (넣으면 다음 설명으로)'),
     'row': ('업무 다루기',
             '· ☆ 누르기 → ★ 중요 표시\n'
             '· 연필 아이콘 · Enter → 메모 쓰기\n'
@@ -91,17 +91,17 @@ class _Bubble(QFrame):
         self.setStyleSheet("""
             QFrame#TourBubble { background: #FFFFFF; border-radius: 10px; }
             QLabel { background: transparent; }
-            QLabel#TourStep { color: #4F46E5; font-weight: 700; font-size: 8pt; }
-            QLabel#TourTitle { color: #1E293B; font-weight: 700; font-size: 11pt; }
-            QLabel#TourBody { color: #475569; }
-            QPushButton#TourSkip { border: none; background: transparent; color: #94A3B8; padding: 4px 2px; }
+            QLabel#TourStep { color: #4F46E5; font-weight: 700; font-size: 10pt; }
+            QLabel#TourTitle { color: #1E293B; font-weight: 700; font-size: 14pt; }
+            QLabel#TourBody { color: #334155; font-size: 12pt; }
+            QPushButton#TourSkip { border: none; background: transparent; color: #94A3B8; padding: 4px 2px; font-size: 11pt; }
             QPushButton#TourSkip:hover { color: #64748B; }
             QPushButton#TourNext { background: #4F46E5; color: white; font-weight: 700; border: none;
-                                   border-radius: 6px; padding: 5px 14px; }
+                                   border-radius: 6px; padding: 6px 18px; font-size: 11pt; }
             QPushButton#TourNext:hover { background: #4338CA; }
             QPushButton#TourNext:disabled { background: #C7D2FE; }
         """)
-        self.setMinimumWidth(px(272))
+        self.setMinimumWidth(px(300))
         v = QVBoxLayout(self)
         v.setContentsMargins(14, 10, 14, 10)
         v.setSpacing(4)
@@ -182,7 +182,11 @@ class TourOverlay(QWidget):
                 r = r.united(self._rect(dr))
             return r
         if key in ('row', 'file'):
-            return self._rect(self._row())
+            row = self._row()
+            sc = getattr(w, 'task_scroll', None)
+            if row is not None and sc is not None:
+                sc.ensureWidgetVisible(row, 0, 8)      # 방금 만든 업무가 보이게
+            return self._rect(row)
         if key == 'bottom':
             return self._rect(w.btn_ai_bottom.parentWidget())
         if key == 'menu':
@@ -206,10 +210,10 @@ class TourOverlay(QWidget):
         b.btn_next.setText('시작하기' if i == len(STEPS) - 1 else '다음')
         self._hole = QRect(-1, -1, 0, 0)                  # 말풍선 크기 · 자리 다시 맞춤
         if key == 'add':
-            b.btn_next.setEnabled(self._has_tasks())
+            b.btn_next.hide()                    # 업무를 직접 하나 넣어야 넘어감 (건너뛰기만)
             self.win.input_name.setFocus()
         else:
-            b.btn_next.setEnabled(True)
+            b.btn_next.show()
         self._tick()
 
     def next(self):
@@ -249,8 +253,6 @@ class TourOverlay(QWidget):
         if self.geometry() != self.win.rect():
             self.setGeometry(self.win.rect())
         key = STEPS[self.step]
-        if key == 'add' and not self.bubble.btn_next.isEnabled() and self._has_tasks():
-            self.bubble.btn_next.setEnabled(True)
         if key == 'file':
             row = self._row()
             n = len(getattr(row, '_attachments', []) or []) if row else 0
