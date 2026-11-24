@@ -299,7 +299,13 @@ class CapturePanel(QFrame):
         if use_text and not text:
             self._fail('글자를 읽지 못했습니다.', gen)
             return
-        w = doc_ai.DocAnalysisWorker(pixmap=None if use_text else self._combined_pixmap(), ocr_text=text)
+        image_ok = False
+        if use_text and self._clean_enough_for_image(text):
+            use_text = False            # 보호 모드여도 개인정보가 안 보이는 캡처는 그림으로 (작은 글자를 AI가 직접 읽게)
+            text = ''
+            image_ok = True
+        w = doc_ai.DocAnalysisWorker(pixmap=None if use_text else self._combined_pixmap(), ocr_text=text,
+                                     image_ok=image_ok)
         _ALIVE_WORKERS.add(w)
         w.finished.connect(lambda: _ALIVE_WORKERS.discard(w))   # QThread 종료 시 정리
         w.progress.connect(lambda m, g=gen: g == self._gen and not self._closed and self._set_status(m + joined))
@@ -307,6 +313,25 @@ class CapturePanel(QFrame):
         w.failed.connect(lambda m, g=gen: self._fail(m, g))
         self._worker = w
         w.start()
+
+    @staticmethod
+    def _clean_enough_for_image(text: str) -> bool:
+        """개인정보 보호 모드에서 이 캡처만 그림으로 보내도 되는지: 그림을 읽는 AI이고,
+        PC가 읽은 글자에서 이름 · 전화번호 같은 개인정보가 하나도 안 보일 때만. (설정은 그대로 켜져 있음)"""
+        try:
+            from ai_client import get_adapter, load_ai_mode, opencode_model_supports_image, load_opencode_model
+            from school_profile import mask_for_ai, privacy_enabled
+            ad = get_adapter()
+            if ad is None or not getattr(ad, 'supports_image', True) or not privacy_enabled():
+                return False
+            if load_ai_mode() == 'opencode' and opencode_model_supports_image(load_opencode_model()) is False:
+                return False
+            if len(text.strip()) < 4:            # 거의 못 읽었으면 확인할 수 없으니 그림을 보내지 않음
+                return False
+            _masked, found = mask_for_ai(text)
+            return not found
+        except Exception:
+            return False
 
     def _on_done(self, a: dict, info: dict, gen=None):
         if self._closed or (gen is not None and gen != self._gen):

@@ -244,8 +244,9 @@ class DocAnalysisWorker(QThread):
     failed = pyqtSignal(str)
     progress = pyqtSignal(str)
 
-    def __init__(self, pixmap=None, ocr_text: str = '', parent=None):
+    def __init__(self, pixmap=None, ocr_text: str = '', parent=None, image_ok: bool = False):
         super().__init__(parent)
+        self._image_ok = image_ok        # 보호 모드여도 이 캡처는 그림으로 (개인정보가 안 보인다고 확인한 경우)
         self._image_b64 = None
         if pixmap is not None:
             from ai_client import _pixmap_to_base64
@@ -265,7 +266,7 @@ class DocAnalysisWorker(QThread):
                 return
 
             info = {'mode': 'image', 'masked': {}, 'ocr_text': self._ocr_text}
-            use_text = bool(self._ocr_text) or text_only_required()
+            use_text = bool(self._ocr_text) or (text_only_required() and not self._image_ok)
             if use_text:
                 text = self._ocr_text
                 if not text:
