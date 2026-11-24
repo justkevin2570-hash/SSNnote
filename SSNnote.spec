@@ -38,6 +38,9 @@ a = Analysis(
         'ui.history_dialog',
         'ui.font_detect',       # 글꼴 설치 확인 (함수 안에서 불러옴)
         'ui.ai_connect',
+        'ui.ai_settings_window',
+        'ui.bottom_bar',
+        'ui.onboarding',        # 첫 사용 안내 (main.py 함수 안에서 불러옴)
         'ui.ai_chat_window',
         'task_ai',
         'ai_actions',

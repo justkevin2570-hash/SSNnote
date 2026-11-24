@@ -178,3 +178,17 @@ def test_focus_add_task_unfolds_and_focuses(win):
     w.focus_add_task()
     app.processEvents()
     assert not w.collapsed and w.input_name.isVisible()
+
+
+def test_alt_keys_rest_while_modal_open(win, monkeypatch):
+    w, app, calls = win
+    from PyQt5.QtCore import QEvent, Qt
+    from PyQt5.QtGui import QKeyEvent
+    import PyQt5.QtWidgets as qw
+    from ui import bottom_bar
+    monkeypatch.setattr(qw.QApplication, 'activeWindow', staticmethod(lambda: w))
+    monkeypatch.setattr(qw.QApplication, 'activeModalWidget', staticmethod(lambda: w))
+    f = bottom_bar.AltNumberFilter(lambda: w)
+    assert f.eventFilter(w, QKeyEvent(QEvent.KeyPress, Qt.Key_1, Qt.AltModifier)) is False
+    assert f.eventFilter(w, QKeyEvent(QEvent.KeyPress, Qt.Key_N, Qt.AltModifier)) is False
+    assert calls == []

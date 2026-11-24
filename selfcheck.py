@@ -112,10 +112,27 @@ def run(result_path: str) -> int:
             w.close()
             db.delete_task(tid)
 
+        def extras_ok():
+            """새 화면들이 설치 파일에 들어 있고 뜨는지: 사용법 안내 · 버튼 순서 · AI 연결 창."""
+            import db
+            import window
+            from ui import onboarding, bottom_bar
+            from ui.ai_settings_window import AiSettingsWindow
+            w = window.MemoWindow(db.get_first_window_id())
+            w.show()
+            t = onboarding.start(w)
+            assert t.step == 0, '사용법 안내가 시작되지 않음'
+            t.finish(mark=False)
+            bottom_bar.BottomOrderDialog(w).close()
+            AiSettingsWindow(w).close()
+            w.close()
+            app.processEvents()
+
         check('메모 창·지난 기록·공문 작성 창·예산 창', windows_ok)
         check('급한 업무 움직임 (왼쪽 세로선)', motion_ok)
         check('대시보드', dialogs_ok)
         check('공문 작성 창의 받은 공문 칸', capture_panel_ok)
+        check('사용법 안내·버튼 순서·AI 연결 창', extras_ok)
     except Exception:
         ok = False
         lines.append('FAIL Qt 시작\n' + traceback.format_exc())

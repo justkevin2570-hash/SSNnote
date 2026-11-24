@@ -74,6 +74,8 @@ class AltNumberFilter(QObject):
             return False
         if QApplication.activeWindow() is None:        # 앱 창이 눌려 있을 때만
             return False
+        if QApplication.activeModalWidget() is not None:   # 설정 창 같은 작은 창이 떠 있으면 쉬기
+            return False
         target = self._get_target()
         if target is None:
             return False

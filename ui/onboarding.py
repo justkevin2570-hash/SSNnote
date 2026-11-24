@@ -142,6 +142,7 @@ class TourOverlay(QWidget):
         self.task_id = None            # 1단계에서 넣은 업무 (없으면 맨 위 업무)
         self._attach_base = None       # 3단계 시작 때 붙임파일 개수
         self._hole = QRect()
+        self._scrolled_step = None
         self.bubble = _Bubble(self)
         self.bubble.btn_skip.clicked.connect(lambda: self.finish())
         self.bubble.btn_next.clicked.connect(self.next)
@@ -184,8 +185,9 @@ class TourOverlay(QWidget):
         if key in ('row', 'file'):
             row = self._row()
             sc = getattr(w, 'task_scroll', None)
-            if row is not None and sc is not None:
-                sc.ensureWidgetVisible(row, 0, 8)      # 방금 만든 업무가 보이게
+            if row is not None and sc is not None and self._scrolled_step != self.step:
+                sc.ensureWidgetVisible(row, 0, 8)      # 방금 만든 업무가 보이게 (단계마다 한 번 — 그 뒤엔 직접 스크롤 가능)
+                self._scrolled_step = self.step
             return self._rect(row)
         if key == 'bottom':
             return self._rect(w.btn_ai_bottom.parentWidget())
