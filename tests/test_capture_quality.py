@@ -67,3 +67,15 @@ def test_overlay_crops_real_pixels_on_hidpi(app):
     ov.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, QPoint(160, 130), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
     assert got and (got[0].width(), got[0].height()) == ((61 + 30) * 2, (31 + 30) * 2)   # QRect는 끝점 포함, 여백 15씩, 2배 픽셀
     assert got[0].devicePixelRatio() == 1.0
+
+
+def test_capture_debug_keeps_only_last(tmp_path, monkeypatch, app):
+    from PyQt5.QtGui import QPixmap
+    import capture_debug
+    monkeypatch.setenv('APPDATA', str(tmp_path))
+    capture_debug.start(QPixmap(30, 10), '첫 캡처')
+    capture_debug.log('하나')
+    capture_debug.start(QPixmap(40, 10), '둘째')
+    log = (tmp_path / 'SSNnote' / 'capture_debug' / 'log.txt').read_text(encoding='utf-8')
+    assert '둘째' in log and '첫 캡처' not in log and '하나' not in log
+    assert (tmp_path / 'SSNnote' / 'capture_debug' / 'capture.png').exists()

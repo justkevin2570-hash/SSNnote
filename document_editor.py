@@ -3115,6 +3115,14 @@ class DocumentEditorWindow(QMainWindow):
         return 'auto'
 
     def _on_capture_complete(self, pixmap):
+        try:
+            import capture_debug
+            import ai_client as _ai
+            import school_profile as _sp
+            scr = [(sc.geometry().getRect(), sc.devicePixelRatio()) for sc in QApplication.screens()]
+            capture_debug.start(pixmap, f'AI={_ai.load_ai_mode()} 보호모드={_sp.privacy_enabled()} 화면={scr}')
+        except Exception:
+            pass
         self._overlay.region_captured.disconnect()
         self._restore_after_capture()
         if load_ai_mode() == 'none':
@@ -3153,14 +3161,24 @@ class DocumentEditorWindow(QMainWindow):
     def _quick_fill_from_ocr(self, text):
         """PC 글자 인식 결과에서 공문번호 · 제목으로 보이는 줄을 찾아 먼저 넣는다.
         AI가 먼저 끝났으면 넣지 않고, AI 결과가 오면 이 값을 더 정확한 값으로 바꾼다."""
+        title, number = _quick_fields(text)
+        try:
+            import capture_debug
+            capture_debug.log(f'PC 빠른 인식: {text[:300]!r} → 제목={title!r} 번호={number!r} (AI 먼저 끝남={getattr(self, "_ai_filled", False)})')
+        except Exception:
+            pass
         if getattr(self, '_ai_filled', False):
             return
-        title, number = _quick_fields(text)
         if not (title or number):
             return
         self._fill_from_capture(title, number)       # 안내 줄은 「읽는 중…」 그대로 — 다 읽은 뒤 채운 칸만 알려 줌
 
     def _on_analyzed(self, title, doc_number):
+        try:
+            import capture_debug
+            capture_debug.log(f'AI 결과: 제목={title!r} 번호={doc_number!r}')
+        except Exception:
+            pass
         self._ai_filled = True
         self._fill_from_capture(title, doc_number)
 

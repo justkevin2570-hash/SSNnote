@@ -40,6 +40,7 @@ a = Analysis(
         'ui.ai_connect',
         'ui.ai_settings_window',
         'ui.bottom_bar',
+        'capture_debug',
         'ui.onboarding',        # 첫 사용 안내 (main.py 함수 안에서 불러옴)
         'ui.ai_chat_window',
         'task_ai',

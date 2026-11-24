@@ -280,6 +280,16 @@ class DocAnalysisWorker(QThread):
             else:
                 self.progress.emit('AI가 이미지를 읽는 중…')
                 raw = adapter.complete(ANALYZE_SYSTEM, build_analyze_prompt(), image_b64=self._image_b64)
+            try:
+                import capture_debug
+                capture_debug.log(f'AI 답 ({info["mode"]}, 그림 {"있음" if self._image_b64 and info["mode"] == "image" else "없음"}): {str(raw)[:600]!r}')
+            except Exception:
+                pass
             self.analyzed.emit(normalize_analysis(parse_json_object(raw)), info)
         except Exception as e:  # 네트워크·키·응답 형식 오류 모두 사용자에게 표시
+            try:
+                import capture_debug
+                capture_debug.log(f'AI 오류: {e!r}')
+            except Exception:
+                pass
             self.failed.emit(friendly_error(e) if getattr(e, 'status_code', None) else str(e))

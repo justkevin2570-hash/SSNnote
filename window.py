@@ -1163,6 +1163,13 @@ class MemoWindow(QMainWindow):
             return
         ed._start_capture(extra_hide=list(self._open_windows))
 
+    def _open_capture_debug(self):
+        """마지막 캡처의 그림 · 단계별 기록이 있는 폴더 (글자 인식이 안 될 때 원인 찾기용)."""
+        import capture_debug
+        from PyQt5.QtCore import QUrl
+        from PyQt5.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(capture_debug.folder()))
+
     def start_tour(self):
         """첫 사용 안내(코치마크)를 업무 목록 창에서 처음부터 (ui/onboarding.py)."""
         from ui import onboarding
@@ -1322,6 +1329,7 @@ class MemoWindow(QMainWindow):
         help_menu = self._submenu(menu, '도움말', 150, icon='ph.question')
         add(help_menu, '사용 설명서', self.show_help, icon='ph.book-open')
         add(help_menu, '사용법 다시 보기', self.start_tour, icon='ph.hand-pointing')
+        add(help_menu, '캡처 확인 기록 열기', self._open_capture_debug, icon='ph.folder-open')
         add(help_menu, '업데이트 확인', lambda: updater.check_for_update_manual(self), icon='ph.arrow-clockwise')
 
         # ── 업무창 삭제 (첫 업무창 제외) ──
