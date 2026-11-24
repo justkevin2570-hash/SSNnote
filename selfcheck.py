@@ -133,6 +133,52 @@ def run(result_path: str) -> int:
         check('대시보드', dialogs_ok)
         check('공문 작성 창의 받은 공문 칸', capture_panel_ok)
         check('사용법 안내·버튼 순서·AI 연결 창', extras_ok)
+
+        # 글자 인식 진단 (결과만 기록, 실패해도 점검은 통과): 실제 캡처처럼 화면에 그린 글자를 단계별로 읽어 본다
+        try:
+            import time
+            import capture
+            from PyQt5.QtGui import QPixmap, QPainter, QColor, QFont
+            pm = QPixmap(360, 40)
+            pm.fill(QColor('white'))
+            pnt = QPainter(pm)
+            f = QFont('Malgun Gothic')
+            f.setPixelSize(13)
+            pnt.setFont(f)
+            pnt.setPen(QColor('black'))
+            pnt.drawText(6, 26, 'Notice 2026 school-12873 (2026. 11. 18.)')
+            pnt.end()
+            try:
+                from winrt.windows.media.ocr import OcrEngine
+                lines.append(f'INFO OCR 최대 크기: {OcrEngine.max_image_dimension}')
+            except Exception as e:
+                lines.append(f'INFO OCR 최대 크기 확인 실패: {e!r}')
+            try:
+                full = capture.grab_fullscreen()
+                lines.append(f'INFO 화면 캡처: {full.width()}x{full.height()} dpr={full.devicePixelRatio()} '
+                             f'화면={[(sc.geometry().getRect(), sc.devicePixelRatio()) for sc in app.screens()]}')
+            except Exception as e:
+                lines.append(f'INFO 화면 캡처 오류: {e!r}')
+            variants = capture.ocr_variants(pm)
+            for i, png in enumerate(variants):
+                t0 = time.time()
+                try:
+                    txt = capture._winrt_ocr(png)
+                    lines.append(f'INFO OCR 판{i} ({len(png)}B, {time.time() - t0:.1f}s): {txt!r}')
+                except Exception as e:
+                    lines.append(f'INFO OCR 판{i} 오류: {e!r}')
+            got = []
+            w = capture.OcrWorker(variants)
+            w.result.connect(lambda t, e: got.append((t, e)))
+            w.run()
+            lines.append(f'INFO OCR 최종: {got!r}')
+            old = pm.scaled(pm.width() * 3, pm.height() * 3)
+            try:
+                lines.append(f'INFO OCR 예전 방식: {capture._winrt_ocr(capture._pixmap_to_png_bytes(old))!r}')
+            except Exception as e:
+                lines.append(f'INFO OCR 예전 방식 오류: {e!r}')
+        except Exception:
+            lines.append('INFO OCR 진단 오류\n' + traceback.format_exc())
     except Exception:
         ok = False
         lines.append('FAIL Qt 시작\n' + traceback.format_exc())
