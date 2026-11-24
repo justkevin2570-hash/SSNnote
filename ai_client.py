@@ -939,24 +939,55 @@ def _claude_result_text(p: subprocess.CompletedProcess) -> str:
     return str(data.get('result') or '').strip()
 
 
-def _claude_ask(system: str, prompt: str, model: str = None, timeout: int = CLAUDE_CODE_TIMEOUT) -> str:
-    """질문 한 번 → 답 글. 도구는 모두 끄고, 질문은 표준입력으로 보낸다."""
-    args = ['-p', '--output-format', 'json', '--no-session-persistence', '--tools', '']
+def _claude_stream_result_text(p: subprocess.CompletedProcess) -> str:
+    """--output-format stream-json 결과에서 마지막 result 줄의 답 글만 꺼낸다. 실패면 ClaudeCodeError."""
+    data = None
+    for line in (p.stdout or '').splitlines():
+        line = line.strip()
+        if not line.startswith('{'):
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and d.get('type') == 'result':
+            data = d
+    if data is None or p.returncode != 0 or data.get('is_error') is True:
+        detail = str((data or {}).get('result') or '') or (p.stderr or '').strip() or (p.stdout or '')[-300:]
+        raise ClaudeCodeError(_claude_friendly(detail) or f'Claude 연결 실패: {detail[-300:]}')
+    return str(data.get('result') or '').strip()
+
+
+def _claude_ask(system: str, prompt: str, model: str = None, timeout: int = CLAUDE_CODE_TIMEOUT,
+                image_b64: str = None) -> str:
+    """질문 한 번 → 답 글. 도구는 모두 끄고, 질문은 표준입력으로 보낸다.
+    image_b64가 있으면 그림과 질문을 한 메시지(stream-json)로 보내 Claude가 그림을 직접 읽는다."""
     model = load_claude_code_model() if model is None else model
+    if image_b64:
+        args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+                '--no-session-persistence', '--tools', '']
+    else:
+        args = ['-p', '--output-format', 'json', '--no-session-persistence', '--tools', '']
     if model:
         args += ['--model', model]
-    stdin_text = prompt
+    text = prompt
     if len(system) > _SYSTEM_ARG_MAX:
-        stdin_text = system + '\n\n' + prompt
+        text = system + '\n\n' + prompt
     else:
         args += ['--system-prompt', system]
-    return _claude_result_text(_run_claude(args, stdin_text, timeout=timeout))
+    if not image_b64:
+        return _claude_result_text(_run_claude(args, text, timeout=timeout))
+    msg = {'type': 'user', 'message': {'role': 'user', 'content': [
+        {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/png', 'data': image_b64}},
+        {'type': 'text', 'text': text}]}}
+    stdin_text = json.dumps(msg, ensure_ascii=False) + '\n'
+    return _claude_stream_result_text(_run_claude(args, stdin_text, timeout=timeout))
 
 
 class ClaudeCodeAdapter:
     """이 PC에 설치된 Claude Code로 Claude 구독(Pro/Max)을 쓴다. 본인 전용, 사용량은 구독 한도에서 차감."""
     requires_api_key = False     # 키가 없다: 로그인 여부는 호출할 때 Claude Code가 확인한다
-    supports_image = False       # 이미지는 보내지 않고 PC에서 읽은 글자로 대신 보낸다
+    supports_image = True        # 캡처 그림을 그대로 보내 Claude가 직접 읽는다 (개인정보 보호 모드면 글자만)
 
     @staticmethod
     def get_api_key() -> str:
@@ -965,7 +996,7 @@ class ClaudeCodeAdapter:
     @classmethod
     def complete(cls, system: str, prompt: str, image_b64: str = None, max_tokens: int = 4000) -> str:
         """한 번에 답 전체를 받는다. 글 한도(max_tokens)는 CLI에 대응 옵션이 없어 무시한다."""
-        return _claude_ask(system, prompt)
+        return _claude_ask(system, prompt, image_b64=image_b64)
 
     @classmethod
     def stream_text(cls, prompt: str, on_chunk, on_done, on_error, system=EXTERNAL_DOC_SYSTEM_PROMPT):

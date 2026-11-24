@@ -159,10 +159,26 @@ def test_cancel_terminates_and_reports_cancel(cc):
     assert FakeProc.calls[-1].terminated
 
 
-def test_image_is_ignored_and_adapter_is_text_only(cc):
+def test_image_is_sent_as_stream_json(cc):
+    import json as _json
+    FakeProc.script = {'stdout': '{"type":"system"}\n{"type":"assistant"}\n'
+                                 '{"type":"result","result":"교무기획부-4821","is_error":false}\n'}
     out = cc.ClaudeCodeAdapter.complete('지시', '질문', image_b64='aGk=')
-    assert out == '안녕하세요' and cc.ClaudeCodeAdapter.supports_image is False
+    call = FakeProc.calls[-1]
+    assert out == '교무기획부-4821' and cc.ClaudeCodeAdapter.supports_image is True
+    assert '--input-format' in call.args and 'stream-json' in call.args and '--verbose' in call.args
+    msg = _json.loads(call.input.strip())
+    content = msg['message']['content']
+    assert content[0]['type'] == 'image' and content[0]['source']['data'] == 'aGk='
+    assert content[1] == {'type': 'text', 'text': '질문'}
     assert cc.ClaudeCodeAdapter.requires_api_key is False
+
+
+def test_image_error_is_friendly(cc):
+    FakeProc.script = {'stdout': '{"type":"result","result":"Please run /login","is_error":true}\n',
+                       'returncode': 1}
+    with pytest.raises(cc.ClaudeCodeError, match='로그인'):
+        cc.ClaudeCodeAdapter.complete('지시', '질문', image_b64='aGk=')
 
 
 def test_stream_gives_whole_answer_or_friendly_error(cc):
@@ -232,7 +248,10 @@ def test_registered_as_a_provider(cc):
 def test_text_only_and_privacy_follow_the_setting(cc, monkeypatch):
     import school_profile
     cc.save_ai_mode('claude_code')
-    assert cc.text_only_required() is True                              # 이미지는 글자로만
+    monkeypatch.setattr(school_profile, 'privacy_enabled', lambda: False)
+    assert cc.text_only_required() is False                             # 그림을 직접 보냄
+    monkeypatch.setattr(school_profile, 'privacy_enabled', lambda: True)
+    assert cc.text_only_required() is True                              # 보호 모드면 글자만
     monkeypatch.setattr(school_profile, 'privacy_enabled', lambda: False)
     assert cc.masking_required() is False                               # 보호 모드를 따름 (항상 가리지 않음)
     monkeypatch.setattr(school_profile, 'privacy_enabled', lambda: True)
