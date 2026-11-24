@@ -89,6 +89,30 @@ class ScreenCaptureOverlay(QWidget):
             pen = QPen(QColor('#f7c948'), 2)
             painter.setPen(pen)
             painter.drawRect(sel)
+        self._paint_status(painter)
+
+    def _paint_status(self, painter):
+        """위쪽 가운데에 한 줄: 브라우저를 키웠는지 · 못 키운 까닭."""
+        try:
+            import browser_zoom
+            text = browser_zoom.last_status if browser_zoom.enabled() else ''
+        except Exception:
+            text = ''
+        if not text:
+            return
+        screen = QApplication.primaryScreen().geometry().translated(-self.geometry().topLeft())
+        f = painter.font()
+        f.setPointSize(11)
+        f.setBold(True)
+        painter.setFont(f)
+        w = painter.fontMetrics().horizontalAdvance(text) + 32
+        box = QRect(screen.center().x() - w // 2, screen.top() + 24, w, 36)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(15, 23, 42, 215))
+        painter.drawRoundedRect(box, 8, 8)
+        painter.setPen(QColor('#FFFFFF'))
+        painter.drawText(box, Qt.AlignCenter, text)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -118,10 +142,12 @@ class ScreenCaptureOverlay(QWidget):
         if event.key() == Qt.Key_Escape:
             self.close()
 
-    @staticmethod
-    def _unzoom():
+    def _unzoom(self):
         try:
             import browser_zoom
+            if browser_zoom._zoomed is not None:
+                self.hide()                 # 휠이 이 화면이 아니라 브라우저로 가도록 먼저 숨김
+                QApplication.processEvents()
             browser_zoom.restore()
         except Exception:
             pass

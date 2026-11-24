@@ -21,18 +21,20 @@ def bz(tmp_path, monkeypatch):
     monkeypatch.setattr(browser_zoom, '_process_name', lambda h: state['proc'].get(h, ''))
     monkeypatch.setattr(browser_zoom, '_set_foreground', lambda h: state.__setitem__('fg', h) or True)
     monkeypatch.setattr(browser_zoom, '_key_down', lambda vk: False)
-    monkeypatch.setattr(browser_zoom, '_send_ctrl', lambda vk, n: sent.append((vk, n)))
+    monkeypatch.setattr(browser_zoom, '_window_center', lambda h: (500, 400))
+    monkeypatch.setattr(browser_zoom, '_root_at', lambda x, y: state.get('under', 100))
+    monkeypatch.setattr(browser_zoom, '_ctrl_wheel', lambda x, y, n: sent.append(n))
     monkeypatch.setattr(browser_zoom, '_zoomed', None)
     return browser_zoom, sent, state
 
 
 def test_zoom_and_restore_once(bz):
     b, sent, state = bz
-    assert b.zoom_in() is True and sent == [(b._VK_OEM_PLUS, b.STEPS)]
+    assert b.zoom_in() is True and sent == [b.STEPS]
     assert b.zoom_in() is False                               # 이미 키운 상태면 또 키우지 않음
     state['fg'] = 300                                         # 그 사이 캡처 화면이 앞에 있어도
     assert b.restore() is True and state['fg'] == 100         # 브라우저를 앞으로 가져와 되돌림
-    assert sent == [(b._VK_OEM_PLUS, b.STEPS), (b._VK_OEM_MINUS, b.STEPS)]
+    assert sent == [b.STEPS, -b.STEPS]
     assert b.restore() is False and len(sent) == 2            # 한 번만
 
 
@@ -45,6 +47,18 @@ def test_not_a_browser_or_disabled(bz):
     assert not b.enabled() and b.zoom_in() is False and sent == []
     b.set_enabled(True)
     assert b.zoom_in() is True
+
+
+def test_status_tells_why(bz):
+    b, sent, state = bz
+    state['fg'] = 200
+    b.zoom_in()
+    assert 'notepad.exe' in b.last_status and b.last_status.startswith('확대 안 함')
+    state['fg'] = 100
+    state['under'] = 999                                      # 브라우저 가운데가 다른 창에 가려짐
+    assert b.zoom_in() is False and '가려져' in b.last_status and sent == []
+    state['under'] = 100
+    assert b.zoom_in() is True and b.last_status.startswith('🔍')
 
 
 def test_keys_still_held_means_no_zoom(bz, monkeypatch):
@@ -83,4 +97,4 @@ def test_overlay_restores_on_cancel(bz):
     got = []
     ov.cancelled.connect(lambda: got.append('cancel'))
     ov.close()
-    assert got == ['cancel'] and sent[-1] == (b._VK_OEM_MINUS, b.STEPS) and b._zoomed is None
+    assert got == ['cancel'] and sent[-1] == -b.STEPS and b._zoomed is None

@@ -1,8 +1,8 @@
 """캡처할 때 브라우저 잠깐 확대 (Windows 전용).
 
 공문을 100%로 띄운 채 캡처하면 글자가 작아 글자 인식이 자주 틀린다. 그래서 캡처 직전에
-맨 앞 창이 브라우저(엣지 · 크롬 등)면 Ctrl+'+'를 몇 번 보내 화면을 키우고, 캡처가 끝나면(취소해도)
-Ctrl+'-'를 같은 횟수만큼 보내 되돌린다.
+맨 앞 창이 브라우저(엣지 · 크롬 등)면 그 창 가운데에 Ctrl+휠을 몇 칸 굴려 화면을 키우고, 캡처가 끝나면(취소해도)
+반대로 같은 칸만큼 굴려 되돌린다 (v3.59의 Ctrl+'+' 키 방식은 실제 PC에서 안 먹어서 휠로 바꿈).
 
 - zoom_then(callback): 키울 수 있으면 키운 뒤 다시 그려질 시간을 두고 callback, 아니면 바로 callback.
 - restore(): 키워 둔 게 있으면 되돌림 (여러 번 불러도 한 번만).
@@ -16,10 +16,10 @@ STEPS = 3                      # 크롬 · 엣지 확대 단계: 100 → 110 →
 RENDER_WAIT_MS = 450           # 키운 화면이 다시 그려질 시간
 BROWSERS = ('msedge.exe', 'chrome.exe', 'whale.exe', 'firefox.exe', 'brave.exe')
 
-_zoomed = None                 # (hwnd, 보낸 횟수) — 되돌릴 것이 있을 때만
+_zoomed = None                 # (hwnd, 굴린 칸 수) — 되돌릴 것이 있을 때만
+last_status = ''               # 이번 캡처에서 키웠는지 · 못 키운 까닭 (캡처 화면 위쪽에 보여 줌)
 
 _VK_CONTROL, _VK_SHIFT, _VK_MENU, _VK_X = 0x11, 0x10, 0x12, 0x58
-_VK_OEM_PLUS, _VK_OEM_MINUS = 0xBB, 0xBD
 _KEYEVENTF_KEYUP = 0x0002
 
 
@@ -108,16 +108,45 @@ def _key_down(vk) -> bool:
     return bool(ctypes.windll.user32.GetAsyncKeyState(vk) & 0x8000)
 
 
-def _send_ctrl(vk, times):
+def _window_center(hwnd):
     import ctypes
-    kb = ctypes.windll.user32.keybd_event
-    kb(_VK_CONTROL, 0, 0, 0)
-    for _ in range(times):
-        kb(vk, 0, 0, 0)
-        kb(vk, 0, _KEYEVENTF_KEYUP, 0)
-        time.sleep(0.03)
-    kb(_VK_CONTROL, 0, _KEYEVENTF_KEYUP, 0)
-    time.sleep(0.06)                                         # 브라우저가 키를 받아 갈 틈
+    from ctypes import wintypes
+    rc = wintypes.RECT()
+    if not ctypes.windll.user32.GetWindowRect(wintypes.HWND(hwnd), ctypes.byref(rc)):
+        return None
+    return (rc.left + rc.right) // 2, (rc.top + rc.bottom) // 2
+
+
+def _root_at(x, y) -> int:
+    """그 점에 보이는 창의 맨 위 부모 창."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    user32.WindowFromPoint.restype = ctypes.c_void_p
+    user32.GetAncestor.restype = ctypes.c_void_p
+    h = user32.WindowFromPoint(wintypes.POINT(x, y))
+    return (user32.GetAncestor(wintypes.HWND(h), 2) or 0) if h else 0     # GA_ROOT
+
+
+def _ctrl_wheel(x, y, notches):
+    """마우스를 (x, y)에 잠깐 두고 Ctrl+휠을 notches칸 (양수: 확대) 굴린 뒤 마우스를 제자리로."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    old = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(old))
+    user32.SetCursorPos(x, y)
+    time.sleep(0.03)
+    user32.keybd_event(_VK_CONTROL, 0, 0, 0)
+    try:
+        step = 120 if notches > 0 else -120
+        for _ in range(abs(notches)):
+            user32.mouse_event(0x0800, 0, 0, ctypes.c_ulong(step & 0xFFFFFFFF), 0)   # MOUSEEVENTF_WHEEL
+            time.sleep(0.05)
+    finally:
+        user32.keybd_event(_VK_CONTROL, 0, _KEYEVENTF_KEYUP, 0)
+    time.sleep(0.08)                                         # 브라우저가 휠을 받아 갈 틈
+    user32.SetCursorPos(old.x, old.y)
 
 
 def _wait_keys_released(timeout=0.8):
@@ -132,21 +161,48 @@ def _wait_keys_released(timeout=0.8):
 
 # ── 공개 함수 ────────────────────────────────────────────────────
 def find_browser() -> int:
-    """지금 화면 맨 앞에 있는 브라우저 창 (없으면 0)."""
+    """지금 화면 맨 앞에 있는 브라우저 창 (없으면 0). 못 찾은 까닭은 last_status에."""
+    global last_status
     if sys.platform != 'win32':
         return 0
+    seen = ''
     try:
         for hwnd in (_foreground_window(), _top_other_window()):
-            if hwnd and _process_name(hwnd) in BROWSERS:
+            if not hwnd:
+                continue
+            name = _process_name(hwnd)
+            if name in BROWSERS:
                 return hwnd
-    except Exception:
-        pass
+            seen = seen or name
+    except Exception as e:
+        last_status = f'확대 안 함: 창 확인 오류 ({type(e).__name__})'
+        return 0
+    last_status = f'확대 안 함: 맨 앞 창이 브라우저가 아니에요 ({seen or "창 없음"})'
     return 0
 
 
+def _wheel_at(hwnd, notches) -> bool:
+    global last_status
+    pt = _window_center(hwnd)
+    if pt is None:
+        last_status = '확대 안 함: 브라우저 창 위치를 못 읽었어요'
+        return False
+    try:
+        _set_foreground(hwnd)                                # 되면 좋고, 안 돼도 휠은 마우스 아래 창으로 감
+    except Exception:
+        pass
+    time.sleep(0.05)
+    if _root_at(*pt) != hwnd:
+        last_status = '확대 안 함: 브라우저가 다른 창에 가려져 있어요'
+        return False
+    _ctrl_wheel(pt[0], pt[1], notches)
+    return True
+
+
 def zoom_in() -> bool:
-    """맨 앞 브라우저를 STEPS단계 키운다. 키웠으면 True."""
-    global _zoomed
+    """맨 앞 브라우저에 Ctrl+휠을 STEPS칸 굴려 키운다. 키웠으면 True."""
+    global _zoomed, last_status
+    last_status = ''
     if _zoomed is not None or not enabled():
         return False
     hwnd = find_browser()
@@ -154,32 +210,27 @@ def zoom_in() -> bool:
         return False
     try:
         if not _wait_keys_released():
+            last_status = '확대 안 함: 단축키를 아직 누르고 있어요 (누르고 바로 떼 주세요)'
             return False
-        _set_foreground(hwnd)
-        time.sleep(0.05)
-        if _foreground_window() != hwnd:
-            return False                                     # 앞으로 못 가져왔으면 엉뚱한 창에 키를 보내지 않음
-        _send_ctrl(_VK_OEM_PLUS, STEPS)
+        if not _wheel_at(hwnd, STEPS):
+            return False
         _zoomed = (hwnd, STEPS)
+        last_status = '🔍 화면을 잠깐 키웠어요 — 끝나면 원래 크기로 돌아가요'
         return True
-    except Exception:
+    except Exception as e:
+        last_status = f'확대 안 함: 오류 ({type(e).__name__})'
         return False
 
 
 def restore():
-    """zoom_in으로 키운 것을 되돌린다 (키운 게 없으면 아무것도 안 함)."""
+    """zoom_in으로 키운 것을 되돌린다 (키운 게 없으면 아무것도 안 함). 캡처 화면을 숨긴 뒤에 부를 것."""
     global _zoomed
     if _zoomed is None:
         return False
     hwnd, steps = _zoomed
     _zoomed = None
     try:
-        _set_foreground(hwnd)
-        time.sleep(0.05)
-        if _foreground_window() != hwnd:
-            return False
-        _send_ctrl(_VK_OEM_MINUS, steps)
-        return True
+        return _wheel_at(hwnd, -steps)
     except Exception:
         return False
 
