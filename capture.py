@@ -105,6 +105,7 @@ class ScreenCaptureOverlay(QWidget):
             self._end = event.pos()
             sel = QRect(self._start, self._end).normalized()
             if sel.width() > 5 and sel.height() > 5:
+                self._unzoom()              # 우리 창을 다시 띄우기 전에 브라우저 크기부터 되돌림
                 padding = 15
                 sel = sel.adjusted(-padding, -padding, padding, padding)
                 sel = sel.intersected(QRect(0, 0, self._screenshot.width(), self._screenshot.height()))
@@ -117,7 +118,16 @@ class ScreenCaptureOverlay(QWidget):
         if event.key() == Qt.Key_Escape:
             self.close()
 
+    @staticmethod
+    def _unzoom():
+        try:
+            import browser_zoom
+            browser_zoom.restore()
+        except Exception:
+            pass
+
     def closeEvent(self, event):
+        self._unzoom()
         if not self._captured:
             self.cancelled.emit()
         super().closeEvent(event)

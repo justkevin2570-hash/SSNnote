@@ -3071,7 +3071,8 @@ class DocumentEditorWindow(QMainWindow):
             w.hide()
         self.hide()
         QApplication.processEvents()
-        self._later(250, self._show_capture_overlay)
+        import browser_zoom
+        self._later(250, lambda: browser_zoom.zoom_then(self._show_capture_overlay))   # 브라우저면 잠깐 확대해서 찍음
 
     def _show_capture_overlay(self):
         from capture import grab_fullscreen, ScreenCaptureOverlay
