@@ -1,0 +1,69 @@
+"""캡처 글자 인식 개선: 화면 배율과 관계없이 실제 픽셀로 자르기 · 여러 판을 읽고 가장 그럴듯한 결과 고르기."""
+import pytest
+
+pytest.importorskip('PyQt5')
+_APP = None
+
+
+@pytest.fixture
+def app():
+    global _APP
+    from PyQt5.QtWidgets import QApplication
+    _APP = QApplication.instance() or QApplication([])
+    return _APP
+
+
+def test_best_text_prefers_doc_number():
+    from capture import best_ocr_text
+    texts = ['교무기획부 -1Z34 (2O26 . 3 , 4.)', '교무기획부-1234(2026. 3. 4.)', '']
+    assert best_ocr_text(texts) == '교무기획부-1234(2026. 3. 4.)'
+    assert best_ocr_text(['가나다', '가나다라마']) == '가나다라마'      # 한글을 더 많이 읽은 쪽
+    assert best_ocr_text(['가나 다', '가나@#$ 다']) == '가나 다'          # 이상한 기호가 많으면 깎음
+    assert best_ocr_text([]) == ''
+
+
+def test_variants(app):
+    from PyQt5.QtGui import QPixmap
+    from capture import ocr_variants
+    v = ocr_variants(QPixmap(200, 40))
+    assert len(v) == 4 and all(isinstance(b, bytes) and b[:4] == b'\x89PNG' for b in v)
+    assert len(ocr_variants(QPixmap(2000, 300))) == 1                 # 큰 캡처는 한 판만
+
+
+def test_worker_picks_best(app, monkeypatch):
+    import capture
+    outs = iter(['교무기획부 -1Z34', '교무기획부-1234(2026. 3. 4.)', '', '흐림'])
+    monkeypatch.setattr(capture, '_winrt_ocr', lambda png: next(outs))
+    got = []
+    w = capture.OcrWorker([b'a', b'b', b'c', b'd'])
+    w.result.connect(lambda t, e: got.append((t, e)))
+    w.run()
+    assert got == [('교무기획부-1234(2026. 3. 4.)', '')]
+
+
+def test_worker_error_when_nothing(app, monkeypatch):
+    import capture
+
+    def boom(png):
+        raise RuntimeError('언어팩 없음')
+    monkeypatch.setattr(capture, '_winrt_ocr', boom)
+    got = []
+    w = capture.OcrWorker(b'a')
+    w.result.connect(lambda t, e: got.append((t, e)))
+    w.run()
+    assert got[0][0] == '' and '언어팩 없음' in got[0][1]
+
+
+def test_overlay_crops_real_pixels_on_hidpi(app):
+    from PyQt5.QtCore import QPoint, Qt, QEvent
+    from PyQt5.QtGui import QPixmap, QMouseEvent
+    from capture import ScreenCaptureOverlay
+    shot = QPixmap(800, 600)                    # 400x300 화면을 배율 200%로 찍은 것
+    shot.setDevicePixelRatio(2.0)
+    ov = ScreenCaptureOverlay(shot)
+    got = []
+    ov.region_captured.connect(got.append)
+    ov.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, QPoint(100, 100), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+    ov.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, QPoint(160, 130), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+    assert got and (got[0].width(), got[0].height()) == ((61 + 30) * 2, (31 + 30) * 2)   # QRect는 끝점 포함, 여백 15씩, 2배 픽셀
+    assert got[0].devicePixelRatio() == 1.0

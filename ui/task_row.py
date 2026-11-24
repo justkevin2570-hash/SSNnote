@@ -496,8 +496,7 @@ class _InlineNoteEdit(QWidget):
         if self._capture_win is not None:
             self._capture_win.hide()
         QApplication.processEvents()
-        import browser_zoom
-        QTimer.singleShot(250, lambda: browser_zoom.zoom_then(self._show_inline_capture_overlay))
+        QTimer.singleShot(250, self._show_inline_capture_overlay)
 
     def _show_inline_capture_overlay(self):
         screenshot = grab_fullscreen()

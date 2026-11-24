@@ -85,34 +85,15 @@ class ScreenCaptureOverlay(QWidget):
         painter.fillRect(self.rect(), QColor(0, 0, 0, 100))
         if self._start and self._end:
             sel = QRect(self._start, self._end).normalized()
-            painter.drawPixmap(sel, self._screenshot, sel)
+            painter.drawPixmap(sel, self._screenshot, self._px(sel))
             pen = QPen(QColor('#f7c948'), 2)
             painter.setPen(pen)
             painter.drawRect(sel)
-        self._paint_status(painter)
 
-    def _paint_status(self, painter):
-        """위쪽 가운데에 한 줄: 브라우저를 키웠는지 · 못 키운 까닭."""
-        try:
-            import browser_zoom
-            text = browser_zoom.last_status if browser_zoom.enabled() else ''
-        except Exception:
-            text = ''
-        if not text:
-            return
-        screen = QApplication.primaryScreen().geometry().translated(-self.geometry().topLeft())
-        f = painter.font()
-        f.setPointSize(11)
-        f.setBold(True)
-        painter.setFont(f)
-        w = painter.fontMetrics().horizontalAdvance(text) + 32
-        box = QRect(screen.center().x() - w // 2, screen.top() + 24, w, 36)
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(15, 23, 42, 215))
-        painter.drawRoundedRect(box, 8, 8)
-        painter.setPen(QColor('#FFFFFF'))
-        painter.drawText(box, Qt.AlignCenter, text)
+    def _px(self, rect):
+        """화면 좌표 → 캡처 그림의 실제 픽셀 좌표 (화면 배율 200%면 2배)."""
+        r = self._screenshot.devicePixelRatio() or 1.0
+        return QRect(round(rect.x() * r), round(rect.y() * r), round(rect.width() * r), round(rect.height() * r))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -129,11 +110,11 @@ class ScreenCaptureOverlay(QWidget):
             self._end = event.pos()
             sel = QRect(self._start, self._end).normalized()
             if sel.width() > 5 and sel.height() > 5:
-                self._unzoom()              # 우리 창을 다시 띄우기 전에 브라우저 크기부터 되돌림
                 padding = 15
                 sel = sel.adjusted(-padding, -padding, padding, padding)
-                sel = sel.intersected(QRect(0, 0, self._screenshot.width(), self._screenshot.height()))
-                cropped = self._screenshot.copy(sel)
+                sel = self._px(sel).intersected(self._screenshot.rect())
+                cropped = self._screenshot.copy(sel)       # 줄이지 않은 실제 화면 픽셀 그대로
+                cropped.setDevicePixelRatio(1.0)
                 self._captured = True
                 self.region_captured.emit(cropped)  # emit 먼저, close 나중
             self.close()
@@ -142,18 +123,7 @@ class ScreenCaptureOverlay(QWidget):
         if event.key() == Qt.Key_Escape:
             self.close()
 
-    def _unzoom(self):
-        try:
-            import browser_zoom
-            if browser_zoom._zoomed is not None:
-                self.hide()                 # 휠이 이 화면이 아니라 브라우저로 가도록 먼저 숨김
-                QApplication.processEvents()
-            browser_zoom.restore()
-        except Exception:
-            pass
-
     def closeEvent(self, event):
-        self._unzoom()
         if not self._captured:
             self.cancelled.emit()
         super().closeEvent(event)
@@ -166,37 +136,114 @@ class OcrWorker(QThread):
     # 신호를 덮어써서, 결과를 받자마자 스레드를 지우다 아직 돌고 있는 스레드를 지워 앱이 멈출 수 있었다
     result = pyqtSignal(str, str)  # (text, error_msg)
 
-    def __init__(self, png_bytes: bytes):
+    def __init__(self, png_bytes):
         super().__init__()
-        self._png_bytes = png_bytes
+        # 한 장 또는 여러 판(크기 · 흑백을 달리한 같은 그림) — 여러 판이면 모두 읽고 가장 그럴듯한 글을 고른다
+        self._variants = list(png_bytes) if isinstance(png_bytes, (list, tuple)) else [png_bytes]
 
     def run(self):
-        text = ''
-        error_msg = ''
-        try:
-            raw = _winrt_ocr(self._png_bytes)
-            text = raw.strip()
-            if not text:
-                error_msg = 'OCR 텍스트를 인식하지 못했습니다.'
-        except Exception as e:
-            error_msg = f'OCR 오류: {e}'
+        texts, error_msg = [], ''
+        for png in self._variants:
+            try:
+                t = _winrt_ocr(png).strip()
+            except Exception as e:
+                error_msg = f'OCR 오류: {e}'
+                continue
+            if t:
+                texts.append(t)
+        text = best_ocr_text(texts)
+        if text:
+            error_msg = ''
+        elif not error_msg:
+            error_msg = 'OCR 텍스트를 인식하지 못했습니다.'
         self.result.emit(text, error_msg)
 
 
 _OCR_ALIVE = set()     # 끝날 때까지 스레드 객체를 붙잡아 둔다 (중간에 지워지지 않게)
 
 
-def run_ocr(pixmap: QPixmap, callback, error_callback=None):
-    """pixmap을 OCR하여 결과를 callback(text)으로 전달. 에러 시 error_callback(msg) 호출."""
-    # OCR 인식률 향상: 3배 확대 후 전달 (Windows OCR은 글자 높이 40px 이상에서 정확도 극대화)
-    pixmap = pixmap.scaled(
-        min(pixmap.width() * 3, 4000),
-        min(pixmap.height() * 3, 4000),
-        Qt.KeepAspectRatio, Qt.SmoothTransformation
-    )
-    png_bytes = _pixmap_to_png_bytes(pixmap)
+def _ocr_score(text: str) -> float:
+    """글자 인식 결과가 얼마나 그럴듯한지: 공문번호 · 날짜 모양이 있으면 크게, 한글이 많을수록, 이상한 기호가 많을수록 깎음."""
+    import re
+    score = 0.0
+    if re.search(r'[가-힣A-Za-z]{2,}\s*-\s*\d{1,7}', text):
+        score += 100
+    if re.search(r'(19|20)\d{2}\s*[.,]\s*\d{1,2}\s*[.,]\s*\d{1,2}', text):
+        score += 40
+    score += len(re.findall(r'[가-힣]', text))
+    score -= 3 * len(re.findall(r'[^\w\s가-힣().,\-:·/\[\]「」『』~%"\'※○●□■]', text))
+    return score
 
-    worker = OcrWorker(png_bytes)
+
+def best_ocr_text(texts) -> str:
+    """여러 판을 읽은 결과 중 가장 그럴듯한 글 (점수가 같으면 앞의 것)."""
+    best, best_score = '', None
+    for t in texts:
+        if not t:
+            continue
+        sc = _ocr_score(t)
+        if best_score is None or sc > best_score:
+            best, best_score = t, sc
+    return best
+
+
+_OCR_MAX = 4000            # 너무 크면 Windows 글자 인식이 느려지고 거절함
+
+
+def _scaled(img, k):
+    w, h = img.width(), img.height()
+    k = min(k, _OCR_MAX / max(w, 1), _OCR_MAX / max(h, 1))
+    if k <= 1.01:
+        return img
+    return img.scaled(round(w * k), round(h * k), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+
+def _bw(img):
+    """흑백 · 대비를 또렷하게 (흐린 회색 글자 · 색 바탕 공문용). numpy가 없으면 회색조만."""
+    from PyQt5.QtGui import QImage
+    g = img.convertToFormat(QImage.Format_Grayscale8)
+    try:
+        import numpy as np
+        w, h, bpl = g.width(), g.height(), g.bytesPerLine()
+        ptr = g.constBits()
+        ptr.setsize(bpl * h)
+        a = np.frombuffer(ptr, np.uint8).reshape(h, bpl)[:, :w].astype(np.float32)
+        lo, hi = np.percentile(a, 2), np.percentile(a, 98)
+        if hi - lo < 10:
+            return g
+        a = np.clip((a - lo) * (255.0 / (hi - lo)), 0, 255)
+        a = np.where(a < 160, a * 0.6, 255.0)          # 글자는 더 진하게, 바탕은 하얗게
+        out = np.ascontiguousarray(a.astype(np.uint8))
+        res = QImage(out.data, w, h, w, QImage.Format_Grayscale8)
+        return res.copy()
+    except Exception:
+        return g
+
+
+def ocr_variants(pixmap: QPixmap) -> list:
+    """같은 캡처를 여러 판으로: 3배 · 3배 흑백 · 4배 · 2배 (작은 글자는 판마다 다르게 틀려서 여럿 읽고 고름)."""
+    img = pixmap.toImage()
+    img.setDevicePixelRatio(1.0)
+    small = max(img.width(), img.height()) <= 1400      # 아주 큰 캡처는 3배 한 판만 (시간)
+    out = [_scaled(img, 3)]
+    if small:
+        out += [_bw(_scaled(img, 3)), _scaled(img, 4), _scaled(img, 2)]
+    return [_image_to_png_bytes(x) for x in out]
+
+
+def _image_to_png_bytes(img) -> bytes:
+    from PyQt5.QtCore import QBuffer, QIODevice
+    buf = QBuffer()
+    buf.open(QIODevice.WriteOnly)
+    img.save(buf, 'PNG')
+    buf.close()
+    return bytes(buf.data())
+
+
+def run_ocr(pixmap: QPixmap, callback, error_callback=None):
+    """pixmap을 OCR하여 결과를 callback(text)으로 전달. 에러 시 error_callback(msg) 호출.
+    작은 글자도 잘 읽게 크기 · 흑백을 달리한 여러 판을 모두 읽고 가장 그럴듯한 결과를 고른다."""
+    worker = OcrWorker(ocr_variants(pixmap))
 
     def _on_result(text, error_msg):
         try:
@@ -315,16 +362,21 @@ def _clean_prefix(text: str) -> str:
 
 
 def grab_fullscreen() -> QPixmap:
-    """현재 가상 데스크탑 전체를 QPixmap으로 캡처."""
+    """현재 가상 데스크탑 전체를 QPixmap으로 캡처 — 화면 배율과 관계없이 실제 픽셀 그대로 (줄이지 않음).
+    (예전에는 화면 크기로 줄여 담아서 배율 200% 화면에서 글자가 절반 해상도로 찍혔다)"""
+    screens = QApplication.screens()
     virtual = QRect()
-    for screen in QApplication.screens():
+    for screen in screens:
         virtual = virtual.united(screen.geometry())
-    result = QPixmap(virtual.size())
+    dpr = max([sc.devicePixelRatio() for sc in screens] or [1.0])
+    result = QPixmap(round(virtual.width() * dpr), round(virtual.height() * dpr))
+    result.setDevicePixelRatio(dpr)
     result.fill(Qt.black)
     painter = QPainter(result)
-    for screen in QApplication.screens():
+    painter.setRenderHint(QPainter.SmoothPixmapTransform)
+    for screen in screens:
         geo = screen.geometry()
         pix = screen.grabWindow(0)
-        painter.drawPixmap(geo.x() - virtual.x(), geo.y() - virtual.y(), pix)
+        painter.drawPixmap(QRect(geo.x() - virtual.x(), geo.y() - virtual.y(), geo.width(), geo.height()), pix)
     painter.end()
     return result

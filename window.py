@@ -1031,8 +1031,7 @@ class MemoWindow(QMainWindow):
         for win in self._open_windows:
             win.hide()
         QApplication.processEvents()
-        import browser_zoom
-        QTimer.singleShot(250, lambda: browser_zoom.zoom_then(self._show_capture_overlay))   # 브라우저면 잠깐 확대
+        QTimer.singleShot(250, self._show_capture_overlay)
 
     def _show_capture_overlay(self):
         screenshot = grab_fullscreen()
@@ -1307,9 +1306,6 @@ class MemoWindow(QMainWindow):
 
         sc_enabled = self._get_shortcut_enabled() if self._get_shortcut_enabled else True
         add(settings, '단축키 사용', lambda: self._toggle_shortcut(not sc_enabled), checked=sc_enabled)
-        import browser_zoom
-        zoom_on = browser_zoom.enabled()
-        add(settings, '캡처할 때 브라우저 확대', lambda: browser_zoom.set_enabled(not zoom_on), checked=zoom_on)
         autostart_on = autostart_is_enabled()
         add(settings, '시작 시 자동실행', lambda: autostart_set(not autostart_on), checked=autostart_on)
         auto_up = updater.auto_enabled()
