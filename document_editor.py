@@ -1013,7 +1013,8 @@ def _quick_fields(text):
     for l in lines:
         m = re.search(r'[가-힣](?:\s?[가-힣])+\s*[-—–]\s*[\dOolI|SBZ][\dOolI|SBZ ]+', l)
         if m:
-            cand = _normalize_doc_number(l[m.start():])
+            head = re.sub(r'^(?:시\s?행|관\s?련|접\s?수|문\s?서\s?번\s?호)\s+', '', l[m.start():])   # 「관련 교육과정과-…」의 이름표는 빼고
+            cand = _normalize_doc_number(head)
             if re.search(r'-\d', cand):
                 number = cand
                 break

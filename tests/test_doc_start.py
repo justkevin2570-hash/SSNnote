@@ -150,3 +150,10 @@ def test_quick_fields():
     t, n = de._quick_fields('제목: 학부모 상담 주간 운영 안내\n중 등 교 육 과-56 7 8(2026.3.2.)')
     assert t == '학부모 상담 주간 운영 안내' and n == '중등교육과-5678(2026. 3. 2.)'
     assert de._quick_fields('아무 글자')[0] == ''                       # 「제목」 줄이 없으면 제목은 비움
+
+
+def test_quick_fields_drops_labels():
+    import document_editor as de
+    assert de._quick_fields('관련 교육과정과-12873(2026. 11. 18.)')[1] == '교육과정과-12873(2026. 11. 18.)'
+    assert de._quick_fields('시행  교육과정과-12873 (2026. 11. 18.)')[1] == '교육과정과-12873(2026. 11. 18.)'
+    assert de._quick_fields('관련과-12(2026. 1. 2.)')[1] == '관련과-12(2026. 1. 2.)'      # 부서 이름은 그대로
