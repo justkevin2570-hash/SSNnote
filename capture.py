@@ -105,7 +105,7 @@ class ScreenCaptureOverlay(QWidget):
             self._end = event.pos()
             sel = QRect(self._start, self._end).normalized()
             if sel.width() > 5 and sel.height() > 5:
-                padding = 15
+                padding = 5            # 그린 네모보다 사방 5픽셀만 넓게 (글자 끝은 지키고 옆 줄은 덜 들어오게)
                 sel = sel.adjusted(-padding, -padding, padding, padding)
                 sel = sel.intersected(QRect(0, 0, self._screenshot.width(), self._screenshot.height()))
                 cropped = self._screenshot.copy(sel)

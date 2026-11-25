@@ -64,3 +64,15 @@ def test_capture_debug_keeps_only_last(tmp_path, monkeypatch, app):
     log = (tmp_path / 'SSNnote' / 'capture_debug' / 'log.txt').read_text(encoding='utf-8')
     assert '둘째' in log and '첫 캡처' not in log and '하나' not in log
     assert (tmp_path / 'SSNnote' / 'capture_debug' / 'capture.png').exists()
+
+
+def test_overlay_pads_5px(app):
+    from PyQt5.QtCore import QPoint, Qt, QEvent
+    from PyQt5.QtGui import QPixmap, QMouseEvent
+    from capture import ScreenCaptureOverlay
+    ov = ScreenCaptureOverlay(QPixmap(800, 600))
+    got = []
+    ov.region_captured.connect(got.append)
+    ov.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, QPoint(100, 100), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+    ov.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, QPoint(160, 130), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
+    assert (got[0].width(), got[0].height()) == (61 + 10, 31 + 10)     # 사방 5픽셀씩
