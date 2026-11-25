@@ -85,15 +85,10 @@ class ScreenCaptureOverlay(QWidget):
         painter.fillRect(self.rect(), QColor(0, 0, 0, 100))
         if self._start and self._end:
             sel = QRect(self._start, self._end).normalized()
-            painter.drawPixmap(sel, self._screenshot, self._px(sel))
+            painter.drawPixmap(sel, self._screenshot, sel)
             pen = QPen(QColor('#f7c948'), 2)
             painter.setPen(pen)
             painter.drawRect(sel)
-
-    def _px(self, rect):
-        """화면 좌표 → 캡처 그림의 실제 픽셀 좌표 (화면 배율 200%면 2배)."""
-        r = self._screenshot.devicePixelRatio() or 1.0
-        return QRect(round(rect.x() * r), round(rect.y() * r), round(rect.width() * r), round(rect.height() * r))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -112,9 +107,8 @@ class ScreenCaptureOverlay(QWidget):
             if sel.width() > 5 and sel.height() > 5:
                 padding = 15
                 sel = sel.adjusted(-padding, -padding, padding, padding)
-                sel = self._px(sel).intersected(self._screenshot.rect())
-                cropped = self._screenshot.copy(sel)       # 줄이지 않은 실제 화면 픽셀 그대로
-                cropped.setDevicePixelRatio(1.0)
+                sel = sel.intersected(QRect(0, 0, self._screenshot.width(), self._screenshot.height()))
+                cropped = self._screenshot.copy(sel)
                 self._captured = True
                 self.region_captured.emit(cropped)  # emit 먼저, close 나중
             self.close()
@@ -362,21 +356,16 @@ def _clean_prefix(text: str) -> str:
 
 
 def grab_fullscreen() -> QPixmap:
-    """현재 가상 데스크탑 전체를 QPixmap으로 캡처 — 화면 배율과 관계없이 실제 픽셀 그대로 (줄이지 않음).
-    (예전에는 화면 크기로 줄여 담아서 배율 200% 화면에서 글자가 절반 해상도로 찍혔다)"""
-    screens = QApplication.screens()
+    """현재 가상 데스크탑 전체를 QPixmap으로 캡처. (v3.60에서 배율에 맞춰 바꿨다가 노트북에서 영역이 어긋나 되돌림)"""
     virtual = QRect()
-    for screen in screens:
+    for screen in QApplication.screens():
         virtual = virtual.united(screen.geometry())
-    dpr = max([sc.devicePixelRatio() for sc in screens] or [1.0])
-    result = QPixmap(round(virtual.width() * dpr), round(virtual.height() * dpr))
-    result.setDevicePixelRatio(dpr)
+    result = QPixmap(virtual.size())
     result.fill(Qt.black)
     painter = QPainter(result)
-    painter.setRenderHint(QPainter.SmoothPixmapTransform)
-    for screen in screens:
+    for screen in QApplication.screens():
         geo = screen.geometry()
         pix = screen.grabWindow(0)
-        painter.drawPixmap(QRect(geo.x() - virtual.x(), geo.y() - virtual.y(), geo.width(), geo.height()), pix)
+        painter.drawPixmap(geo.x() - virtual.x(), geo.y() - virtual.y(), pix)
     painter.end()
     return result

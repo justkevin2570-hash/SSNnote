@@ -54,21 +54,6 @@ def test_worker_error_when_nothing(app, monkeypatch):
     assert got[0][0] == '' and '언어팩 없음' in got[0][1]
 
 
-def test_overlay_crops_real_pixels_on_hidpi(app):
-    from PyQt5.QtCore import QPoint, Qt, QEvent
-    from PyQt5.QtGui import QPixmap, QMouseEvent
-    from capture import ScreenCaptureOverlay
-    shot = QPixmap(800, 600)                    # 400x300 화면을 배율 200%로 찍은 것
-    shot.setDevicePixelRatio(2.0)
-    ov = ScreenCaptureOverlay(shot)
-    got = []
-    ov.region_captured.connect(got.append)
-    ov.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, QPoint(100, 100), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
-    ov.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, QPoint(160, 130), Qt.LeftButton, Qt.LeftButton, Qt.NoModifier))
-    assert got and (got[0].width(), got[0].height()) == ((61 + 30) * 2, (31 + 30) * 2)   # QRect는 끝점 포함, 여백 15씩, 2배 픽셀
-    assert got[0].devicePixelRatio() == 1.0
-
-
 def test_capture_debug_keeps_only_last(tmp_path, monkeypatch, app):
     from PyQt5.QtGui import QPixmap
     import capture_debug
