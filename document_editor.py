@@ -1006,18 +1006,10 @@ from ui import ai_connect  # noqa: E402
 
 def _quick_fields(text):
     """캡처 글자에서 (제목, 공문번호)를 빠르게 찾는다 (못 찾으면 빈 글자). 「제목」 줄이 있으면 그 뒤를 제목으로."""
-    from capture import _normalize_doc_number
+    from capture import find_doc_number
     lines = [re.sub(r'\s+', ' ', l).strip() for l in (text or '').splitlines()]
     lines = [l for l in lines if l]
-    number = ''
-    for l in lines:
-        m = re.search(r'[가-힣](?:\s?[가-힣])+\s*[-—–]\s*[\dOolI|SBZ][\dOolI|SBZ ]+', l)
-        if m:
-            head = re.sub(r'^(?:시\s?행|관\s?련|접\s?수|문\s?서\s?번\s?호)\s+', '', l[m.start():])   # 「관련 교육과정과-…」의 이름표는 빼고
-            cand = _normalize_doc_number(head)
-            if re.search(r'-\d', cand):
-                number = cand
-                break
+    number = find_doc_number(text)
     title = ''
     for l in lines:
         m = re.match(r'^제\s*목\s*[:：]?\s*(.+)$', l)

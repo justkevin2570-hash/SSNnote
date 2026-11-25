@@ -18,7 +18,7 @@ from db import (update_task,
                 set_task_priority, set_task_recurrence, get_task_notes, set_task_notes,
                 get_task_related_no, set_task_related_no,
                 get_task_attachments, set_task_attachments)
-from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number
+from capture import ScreenCaptureOverlay, run_ocr, grab_fullscreen, _normalize_doc_number, find_doc_number
 from .common import _base_path, _svg_icon, MAT, mat_font, MI, mi_font, pr_font, note_font, note_scale, set_note_bold, themed_pixmap, px
 from .dates import calc_dday
 from .widgets import AddDateButton, CustomCalendarWidget, DdayLabel, RotatedMenuButton
@@ -521,33 +521,137 @@ class _InlineNoteEdit(QWidget):
             self._capture_win = None
 
     def _on_inline_capture_complete(self, pixmap):
+        """업무 메모 [스크린샷] — 공문 캡처(Ctrl+Shift+X)와 같은 방법으로 관련 번호를 읽는다.
+        ① PC 글자 인식으로 번호 줄을 찾아 바로 넣고 ② AI가 연결돼 있으면 AI가 다시 읽어 더 정확한 값으로 바꾼다.
+        개인정보 보호 모드면 공문 캡처처럼: 개인정보가 안 보일 때만 그림, 보이면 가린 글자만 보낸다."""
         if hasattr(self, '_overlay'):
-            self._overlay.region_captured.disconnect()  # 중복 호출 방지
+            try:
+                self._overlay.region_captured.disconnect()  # 중복 호출 방지
+            except TypeError:
+                pass
         self._restore_inline_window()
-
+        try:
+            import capture_debug
+            capture_debug.start(pixmap, '업무 메모 스크린샷')
+        except Exception:
+            pass
         try:
             import winrt  # noqa: F401
+            has_ocr = True
         except ImportError:
+            has_ocr = False
+        try:
+            import ai_client
+            ai_on = ai_client.load_ai_mode() != 'none' and ai_client.get_adapter() is not None
+            needs_text = ai_on and ai_client.text_only_required()
+        except Exception:
+            ai_on, needs_text = False, False
+        if needs_text and not has_ocr:
+            ai_on = False                     # 글자만 보내야 하는데 PC 글자 인식이 없으면 AI도 못 씀
+        if not has_ocr and not ai_on:
             QMessageBox.warning(
-                self, 'OCR 불가',
-                'Windows OCR(winrt) 모듈이 없습니다.\n\n'
-                '① 터미널에서 pip install winsdk 를 실행하거나\n'
-                '② 공문번호를 직접 입력해 주세요.'
-            )
+                self, '글자 인식 불가',
+                'Windows 글자 인식(OCR)을 쓸 수 없고 AI도 연결돼 있지 않아요.\n'
+                '관련 번호를 직접 적거나, 메뉴 → 설정 → AI 연결을 해 주세요.')
             return
 
-        def _after_ocr(text):
-            if text:
-                normalized = _normalize_doc_number(text)
-                if normalized:
-                    self.ref_edit.setText(normalized)
-            else:
-                QMessageBox.information(self, '알림', 'OCR 텍스트를 인식하지 못했습니다.')
+        task_id = getattr(self, 'task_id', None)
+        st = {'ocr': not has_ocr, 'ai': not ai_on, 'found': False, 'ai_filled': False,
+              'auto': None, 'ai_started': False}
+        edit = self.ref_edit
+        old_ph = edit._ph_text
+        edit._ph_text = 'AI가 번호를 읽는 중…' if ai_on else '번호를 읽는 중…'
+        edit.update()
 
-        def _on_error(msg):
-            QMessageBox.warning(self, 'OCR 오류', msg)
+        def put(num):
+            if not num:
+                return
+            st['found'] = True
+            try:
+                cur = edit.text().strip()
+                if not cur or cur == st['auto']:
+                    edit.setText(num)
+                    edit.setCursorPosition(0)
+                    st['auto'] = num
+            except RuntimeError:                         # 그 사이 메모 칸이 다시 만들어짐 → 저장소에 바로
+                if task_id is not None:
+                    cur = (get_task_related_no(task_id) or '').strip()
+                    if not cur or cur == st['auto']:
+                        set_task_related_no(task_id, num)
+                        st['auto'] = num
 
-        self._ocr_worker = run_ocr(pixmap, _after_ocr, _on_error)
+        def finish():
+            if not (st['ocr'] and st['ai']):
+                return
+            try:
+                edit._ph_text = old_ph
+                edit.update()
+                if not st['found']:
+                    QMessageBox.information(self, '알림', '관련 번호를 찾지 못했어요. 번호 부분을 다시 캡처해 보세요.')
+            except RuntimeError:
+                pass
+
+        def start_ai(text=''):
+            if st['ai_started']:
+                return
+            st['ai_started'] = True
+            import doc_ai
+            from .capture_panel import CapturePanel, _ALIVE_WORKERS
+            use_text = needs_text
+            image_ok = False
+            if use_text and CapturePanel._clean_enough_for_image(text):
+                use_text, image_ok = False, True
+            if use_text and not text.strip():
+                st['ai'] = True
+                finish()
+                return
+            try:
+                import capture_debug
+                capture_debug.log('AI로 보냄: ' + ('글자' if use_text else '그림') + (' (보호 모드 · 개인정보 안 보임)' if image_ok else ''))
+            except Exception:
+                pass
+            w = doc_ai.DocAnalysisWorker(pixmap=None if use_text else pixmap, ocr_text=text if use_text else '',
+                                         image_ok=image_ok)
+            _ALIVE_WORKERS.add(w)
+            w.finished.connect(lambda: _ALIVE_WORKERS.discard(w))
+
+            def done(a, _info):
+                st['ai_filled'] = True
+                put(a.get('doc_number', ''))
+                st['ai'] = True
+                finish()
+
+            def fail(_msg):
+                st['ai'] = True
+                finish()
+            w.analyzed.connect(done)
+            w.failed.connect(fail)
+            w.start()
+
+        if ai_on and not needs_text:
+            start_ai()                        # 그림으로 바로 (글자 인식을 기다리지 않음)
+
+        def after_ocr(text):
+            try:
+                import capture_debug
+                capture_debug.log(f'PC 인식(업무 메모): {text[:300]!r}')
+            except Exception:
+                pass
+            if not st['ai_filled']:
+                put(find_doc_number(text))
+            st['ocr'] = True
+            if ai_on and needs_text:
+                start_ai(text)
+            finish()
+
+        def ocr_error(_msg):
+            st['ocr'] = True
+            if ai_on and needs_text:
+                st['ai'] = True               # 읽은 글자가 없으면 보낼 것도 없음
+            finish()
+
+        if has_ocr:
+            self._ocr_worker = run_ocr(pixmap, after_ocr, ocr_error)
 
     def focus_editor(self):
         self.editor.setFocus()
@@ -809,6 +913,7 @@ class TaskRow(QWidget):
 
         # 메모 에디터 (▼ 클릭 시 행 높이 불변, 행 아래 예약 공간 위에 오버레이로 펼침)
         self.note_editor = _InlineNoteEdit(scale=self._scale)
+        self.note_editor.task_id = self.task['id']       # 스크린샷 결과를 메모 칸이 다시 만들어진 뒤에도 저장하려고
         self.note_editor.closeRequested.connect(self._collapse_note)
         self._note_save_timer = QTimer(self)
         self._note_save_timer.setSingleShot(True)

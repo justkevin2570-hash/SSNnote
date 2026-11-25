@@ -269,6 +269,23 @@ def _pixmap_to_png_bytes(pixmap: QPixmap) -> bytes:
     return bytes(buf.data())
 
 
+def find_doc_number(text: str) -> str:
+    """캡처 글자에서 공문번호 줄을 찾아 「부서명-번호(날짜)」로 (못 찾으면 '').
+    줄마다 찾고, 앞에 붙은 「관련 · 시행 · 접수 · 문서번호」 이름표는 뺀다. (공문 캡처 · 업무 메모 캡처가 같이 씀)"""
+    import re
+    lines = [re.sub(r'\s+', ' ', l).strip() for l in (text or '').splitlines()]
+    for l in lines:
+        if not l:
+            continue
+        m = re.search(r'[가-힣](?:\s?[가-힣])+\s*[-—–]\s*[\dOolI|SBZ][\dOolI|SBZ ]+', l)
+        if m:
+            head = re.sub(r'^(?:시\s?행|관\s?련|접\s?수|문\s?서\s?번\s?호)\s+', '', l[m.start():])
+            cand = _normalize_doc_number(head)
+            if re.search(r'-\d', cand):
+                return cand
+    return ''
+
+
 def _normalize_doc_number(text: str) -> str:
     """
     공문번호 정규화: 부서명-번호(YYYY. MM. DD.)
