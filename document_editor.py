@@ -1218,7 +1218,7 @@ def _capture_result_hint(got):
         parts.append('✓ 관련 번호를 채웠어요.')
     if parts:
         return '&nbsp; '.join(parts), 'done'
-    return '⚠ 글자가 너무 작아요. 화면을 크게 확대해서 다시 캡처해 보세요', 'error'
+    return '⚠ 공문 제목 · 번호를 찾지 못했어요. 글자가 작거나 공문이 아닌 화면일 수 있어요', 'error'
 
 
 EDITOR_HINT = '[다시 초안]을 누르거나, 아래에 AI에게 부탁할 내용을 적어 보세요.'

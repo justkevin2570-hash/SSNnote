@@ -183,7 +183,7 @@ def test_capture_hint_says_what_was_found(ed):
     w._cap_got = {'title': False, 'ref': False}
     w._on_analyzed('', '')
     w._on_panel_status('', 'done')
-    assert '글자가 너무 작아요' in w.lbl_hint.text()
+    assert '찾지 못했어요' in w.lbl_hint.text()
     w._cap_got = {'title': False, 'ref': False}
     w._on_analyzed('2026 진로 특강 계획', '')
     w._on_panel_status('', 'done')

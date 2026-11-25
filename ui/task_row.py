@@ -587,7 +587,7 @@ class _InlineNoteEdit(QWidget):
                 edit._ph_text = old_ph
                 edit.update()
                 if not st['found']:
-                    QMessageBox.information(self, '알림', '관련 번호를 찾지 못했어요. 번호 부분을 다시 캡처해 보세요.')
+                    QMessageBox.information(self, '알림', '관련 번호를 찾지 못했어요. 글자가 작거나 공문번호가 없는 화면일 수 있어요.')
             except RuntimeError:
                 pass
 
