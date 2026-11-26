@@ -1262,7 +1262,7 @@ class TaskRow(QWidget):
         act_strike = ms.add_action(menu, '완료 표시 해제' if self._strikethrough else '완료 표시',
                                    None, icon='ph.arrow-counter-clockwise' if self._strikethrough else 'ph.check-circle',
                                    shortcut='C')
-        act_delete = ms.add_action(menu, '삭제', None, icon='ph.trash', shortcut='Del')
+        act_delete = ms.add_action(menu, '삭제', None, icon='ph.trash', shortcut='D')
         act_strike.triggered.connect(self._toggle_strikethrough)
         act_delete.triggered.connect(lambda: on_delete(task))
 
