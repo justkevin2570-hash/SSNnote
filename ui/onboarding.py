@@ -5,7 +5,7 @@
 - 6단계: 업무 추가 · 업무 다루기 · 파일 바로가기 · 아래 줄 버튼 · AI 연결 · 메뉴 → 클리어 화면.
   단계마다 할 일(퀘스트)을 직접 하면 ✓, 다 하면 「✓ 완료!」 뒤 다음 단계로. [다음] 단추는 없다.
 - 창을 어둡게 덮고 할 곳만 뚫어 빛나는 테두리로 (뚫린 곳은 그대로 누르고 · 쓰고 · 파일을 놓을 수 있음).
-- 「이 단계 건너뛰기」 · 「그만두기(Esc)」. 연습으로 만든 업무는 그대로 둔다.
+- 「이 단계 건너뛰기」 · 「튜토리얼 끝내기(Esc)」. 연습으로 만든 업무는 그대로 둔다.
 """
 import math
 import random
@@ -144,7 +144,7 @@ class TourOverlay(QWidget):
         self._confetti = []
 
         self.btn_skip = _LinkButton('이 단계 건너뛰기', self)
-        self.btn_quit = _LinkButton('그만두기 (Esc)', self)
+        self.btn_quit = _LinkButton('튜토리얼 끝내기 (Esc)', self)
         self.btn_action = _LinkButton('', self, primary=True)
         self.btn_later = _LinkButton('', self)
         self.btn_skip.clicked.connect(self.skip_step)
