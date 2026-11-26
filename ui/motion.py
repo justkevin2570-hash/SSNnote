@@ -226,6 +226,17 @@ _CLOCK = None
 
 def clock() -> _Clock:
     global _CLOCK
-    if _CLOCK is None:
-        _CLOCK = _Clock()
+    if _CLOCK is None or _deleted(_CLOCK) or _deleted(_CLOCK._timer):
+        _CLOCK = _Clock()          # Qt 앱이 새로 만들어져 예전 시계가 지워졌으면 새로
     return _CLOCK
+
+
+def _deleted(obj) -> bool:
+    try:
+        from PyQt5 import sip
+    except ImportError:
+        import sip
+    try:
+        return sip.isdeleted(obj)
+    except Exception:
+        return False
