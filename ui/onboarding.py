@@ -108,9 +108,12 @@ def _yuju_pixmap(n, height, dpr):
     return pm
 
 
+SCALE = 1.3                 # 튜토리얼 전체 크기 (글자 · 그림 · 단추 · 카드)
+
+
 def _font(base: QFont, pt, bold=False):
     f = QFont(base)
-    f.setPointSizeF(pt)
+    f.setPointSizeF(pt * SCALE)
     f.setBold(bold)
     return f
 
@@ -122,12 +125,12 @@ class _LinkButton(QPushButton):
         self.setFocusPolicy(Qt.NoFocus)
         if primary:
             self.setStyleSheet("""
-                QPushButton { color: white; font-weight: 700; border: none; border-radius: 14px; padding: 6px 16px; font-size: 10pt;
+                QPushButton { color: white; font-weight: 700; border: none; border-radius: 18px; padding: 8px 20px; font-size: 13pt;
                               background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366F1, stop:1 #A855F7); }
                 QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4F46E5, stop:1 #9333EA); }""")
         else:
             self.setStyleSheet("""
-                QPushButton { color: rgba(199,210,254,170); border: none; background: transparent; padding: 4px 2px; font-size: 9pt; }
+                QPushButton { color: rgba(199,210,254,170); border: none; background: transparent; padding: 5px 3px; font-size: 11.5pt; }
                 QPushButton:hover { color: #E0E7FF; text-decoration: underline; }""")
 
 
@@ -156,7 +159,7 @@ class TourOverlay(QWidget):
     def __init__(self, win):
         super().__init__(win)
         from .common import px
-        self.px = px
+        self.px = lambda n: px(round(n * SCALE))
         self.win = win
         self.step = 0
         self.task_id = None
