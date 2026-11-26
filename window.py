@@ -254,7 +254,15 @@ class MemoWindow(QMainWindow):
         self.input_recurrence.addItems(['반복 없음', '매주', '격주', '매월', '매년', '사용자 설정...'])
         for _i in range(self.input_recurrence.count()):
             self.input_recurrence.setItemData(_i, Qt.AlignLeft, Qt.TextAlignmentRole)
+            self.input_recurrence.setItemData(_i, QColor(tct('#222')), Qt.ForegroundRole)
         self.input_recurrence.installEventFilter(self)
+        # ::item 스타일(글자색 · 줄 높이)이 먹도록 기본 대리자를 QStyledItemDelegate로
+        from PyQt5.QtWidgets import QStyledItemDelegate
+        self.input_recurrence.setItemDelegate(QStyledItemDelegate(self.input_recurrence))
+        self.input_recurrence.view().setStyleSheet(
+            f"QListView {{ background: {tc('#FFFFFF')}; color: {tct('#222')}; outline: none; }}"
+            f"QListView::item {{ color: {tct('#222')}; background: {tc('#FFFFFF')}; min-height: 26px; padding-left: 8px; border: none; }}"
+            f"QListView::item:selected, QListView::item:hover {{ background: {tc('#EDEDED')}; color: {tct('#222')}; padding-left: 8px; border: none; }}")
         self.input_recurrence.setFont(QFont('Malgun Gothic', 11))
         # 펼친 목록 창은 투명 바탕을 물려받으면 Windows에서 검게 칠해진다 → 불투명하게
         _popup = self.input_recurrence.view().window()
@@ -1375,7 +1383,9 @@ class MemoWindow(QMainWindow):
                 background: {tc('#FFFFFF')}; color: {tct('#222')};
                 border: 1px solid {tc('rgba(0,0,0,0.18)')}; outline: none;
                 selection-background-color: {tc('rgba(0,0,0,0.08)')}; selection-color: {tct('#222')};
-            }}""")
+            }}
+            QComboBox QAbstractItemView::item {{ color: {tct('#222')}; min-height: 1.6em; padding-left: 6px; }}
+            QComboBox QAbstractItemView::item:selected {{ background: {tc('rgba(0,0,0,0.08)')}; }}""")
 
     def _style_inputs(self):
         if not hasattr(self, 'input_name'):
