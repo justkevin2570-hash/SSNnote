@@ -22,11 +22,11 @@ _FILTER = None
 
 def _related(a, b) -> bool:
     """b가 a 자신이거나 a 안의 자식인가."""
-    if a is None or b is None:
-        return False
+    if not isinstance(a, QWidget) or not isinstance(b, QWidget):
+        return False   # 창(QWindow) 같은 위젯이 아닌 것은 비교하지 않음
     try:
         return a is b or a.isAncestorOf(b)   # b가 a(연 단추) 안에 있을 때만
-    except RuntimeError:   # 이미 지워진 위젯
+    except Exception:   # 이미 지워진 위젯 등
         return False
 
 
@@ -43,6 +43,14 @@ class PopupToggleFilter(QObject):
         return isinstance(obj, QWidget) and obj.isWindow() and obj.windowType() == Qt.Popup
 
     def eventFilter(self, obj, event):
+        # 여기서 오류가 나면 PyQt가 앱을 통째로 끈다 → 어떤 경우에도 예외를 밖으로 내보내지 않는다
+        try:
+            return self._filter(obj, event)
+        except Exception:
+            self._swallow = self._eat_release = None
+            return False
+
+    def _filter(self, obj, event):
         t = event.type()
         if t in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
             if not isinstance(obj, QWidget):
@@ -52,15 +60,16 @@ class PopupToggleFilter(QObject):
                 self._swallow = None
                 w, at = sw
                 if time.monotonic() - at < SWALLOW_SEC and _related(w, obj):
-                    self._eat_release = obj
+                    self._eat_release = (obj, time.monotonic())
                     return True
+            self._eat_release = None   # 새로 누름이 왔으면 남은 '떼기 삼키기'는 버림 (이번 누름의 떼기는 그대로)
             if not self._is_popup(obj.window()):
                 self._last_pressed = obj
         elif t == QEvent.MouseButtonRelease:
-            if self._eat_release is not None:
-                eat = _related(self._eat_release, obj)
-                self._eat_release = None
-                if eat:
+            if self._eat_release is not None and isinstance(obj, QWidget):
+                w, at = self._eat_release
+                self._eat_release = None   # 남아 있지 않게 바로 지움 (떼기가 먼저 와 버린 경우 대비)
+                if time.monotonic() - at < SWALLOW_SEC and _related(w, obj):
                     return True
         elif t == QEvent.Show:
             if self._is_popup(obj):

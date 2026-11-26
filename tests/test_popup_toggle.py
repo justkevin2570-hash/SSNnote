@@ -84,3 +84,40 @@ def test_closed_by_keyboard_does_not_swallow_next_click():
         assert opened == [1, 1]
     finally:
         menu.hide(); app.removeEventFilter(f); host.close()
+
+
+def test_release_first_then_window_release_does_not_crash():
+    """떼기가 먼저 와서 '떼기 삼키기'가 남은 채 다음 누름이 창(QWindow)으로 먼저 가도 오류 없이 다시 열림.
+    (v3.69: 세 번째 누름에서 QWindow를 위젯처럼 다루다 오류 → 앱이 꺼짐)"""
+    app, f, host, btn, other, menu, opened = _setup()
+    try:
+        _click(app, btn)                                     # 1. 열기
+        with mock.patch.object(QApplication, 'mouseButtons', return_value=Qt.LeftButton), \
+             mock.patch.object(QApplication, 'widgetAt', return_value=btn):
+            menu.hide(); app.processEvents()                 # 2. 단추 위를 눌러 닫힘
+        app.sendEvent(btn, _press(btn, QEvent.MouseButtonRelease))   # 떼기가 먼저 도착
+        app.sendEvent(btn, _press(btn))                      # 다시 보낸 누름 → 삼킴 (떼기 삼키기가 남음)
+        app.processEvents()
+        assert opened == [1]
+        win = host.windowHandle()
+        # 3. 다음 누름/떼기는 창(QWindow)에도 먼저 간다 — 오류가 나면 안 됨
+        assert f.eventFilter(win, _press(btn, QEvent.MouseButtonRelease)) is False
+        _click(app, btn)
+        assert opened == [1, 1] and menu.isVisible()         # 다시 열림
+        menu.hide(); app.processEvents()
+        for _ in range(3):                                   # 열고 닫기를 여러 번 반복
+            _click(app, btn)
+            with mock.patch.object(QApplication, 'mouseButtons', return_value=Qt.LeftButton), \
+                 mock.patch.object(QApplication, 'widgetAt', return_value=btn):
+                menu.hide(); app.processEvents()
+            _click(app, btn)                                 # 다시 보낸 누름 + 떼기 → 삼킴
+        assert len(opened) == 5
+    finally:
+        menu.hide(); app.removeEventFilter(f); host.close()
+
+
+def test_filter_never_raises():
+    f = popup_toggle.PopupToggleFilter()
+    f._eat_release = ('엉뚱한 값', 0)                         # 망가진 상태라도
+    from PyQt5.QtCore import QObject
+    assert f.eventFilter(QObject(), QEvent(QEvent.MouseButtonRelease)) is False

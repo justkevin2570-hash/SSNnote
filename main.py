@@ -166,6 +166,31 @@ def _launch_window(wid, x, y, width, height, collapsed, color='', scale=1.0, mem
     win.destroyed.connect(lambda _: _open_windows.remove(win) if win in _open_windows else None)
 
 
+
+def _install_error_log():
+    """PyQt는 이벤트 처리 중 처리되지 않은 오류가 나면 앱을 통째로 끈다(기본 excepthook일 때).
+    오류를 %APPDATA%/SSNnote/error.log에 남기고 앱은 계속 돌게 한다 (200KB 넘으면 새 파일로)."""
+    import traceback
+    import datetime
+    from db import DB_DIR
+
+    def hook(etype, value, tb):
+        try:
+            path = os.path.join(DB_DIR, 'error.log')
+            if os.path.exists(path) and os.path.getsize(path) > 200_000:
+                os.replace(path, path + '.old')
+            with open(path, 'a', encoding='utf-8') as f:
+                f.write(f"\n[{datetime.datetime.now():%Y-%m-%d %H:%M:%S}]\n")
+                f.write(''.join(traceback.format_exception(etype, value, tb)))
+        except Exception:
+            pass
+        try:
+            traceback.print_exception(etype, value, tb)
+        except Exception:
+            pass
+
+    sys.excepthook = hook
+
 if __name__ == '__main__':
     # 중복 실행 방지: Windows는 네임드 뮤텍스, 그 외는 포트 바인드 폴백
     _already_running = False
@@ -193,6 +218,7 @@ if __name__ == '__main__':
     QApplication.setAttribute(Qt.AA_DisableWindowContextHelpButton, True)   # 창 제목줄의 쓸모없는 ? 단추 없앰
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    _install_error_log()      # 화면 처리 중 오류가 나도 앱이 꺼지지 않고 기록만 남김
 
     # ── 받아 둔 업데이트가 있으면 지금 화면 없이 설치 → 설치 프로그램이 앱을 다시 켠다 ──
     if updater.install_on_startup():
