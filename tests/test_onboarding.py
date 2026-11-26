@@ -55,10 +55,20 @@ def test_full_tour(win, monkeypatch):
     # 1 업무 추가: 쓰기 → Tab(마감일 칸) → Enter
     w.input_name.setText('체험학습 계획서 제출')
     t._check()
-    assert t.done == [True, False, False]
-    monkeypatch.setattr(qw.QApplication, 'focusWidget', staticmethod(lambda: w.input_date))
+    assert t.done == [False, False, False]                          # 치자마자는 아직
+    t._t += onboarding.TYPE_PAUSE_MS
     t._check()
-    assert t.done == [True, True, False]
+    assert t.done == [True, False, False]                           # 1.5초 멈추면 ✓
+    focus = {'w': w.input_date}
+    monkeypatch.setattr(qw.QApplication, 'focusWidget', staticmethod(lambda: focus['w']))
+    t._check()
+    assert t.done == [True, False, False] and '마감일' in t._line   # 마감일 칸: 아직
+    focus['w'] = w.input_time
+    t._check()
+    assert not t.done[1] and '시간' in t._line
+    focus['w'] = w.input_recurrence
+    t._check()
+    assert t.done == [True, True, False]                            # 반복 칸까지 와야 ✓
     w._add_task()
     _pump(app)
     _finish_step(t)
@@ -176,3 +186,33 @@ def test_replay_from_menu(win):
     w.start_tour()
     t = w._tour
     assert t.step == 0 and t.done == [False, False, False]        # 다시 볼 때도 직접 해야
+
+
+def test_typing_again_restarts_pause(win):
+    w, app = win
+    from ui import onboarding
+    t = onboarding.start(w)
+    w.input_name.setText('체')
+    t._check()
+    t._t += 1000
+    w.input_name.setText('체험')                                   # 다시 치면 처음부터
+    t._check()
+    t._t += 1000
+    t._check()
+    assert not t.done[0]
+    t._t += 600
+    t._check()
+    assert t.done[0]
+
+
+def test_card_goes_beside_window_when_room(win, monkeypatch):
+    w, app = win
+    from PyQt5.QtCore import QPoint
+    from ui import onboarding
+    t = onboarding.start(w)
+    monkeypatch.setattr(t, '_side_spot', lambda pw, ph: QPoint(900, 100))
+    t._tick()
+    assert t._outside and t.btn_quit.parent() is t.panel and t._card.left() < 20
+    monkeypatch.setattr(t, '_side_spot', lambda pw, ph: None)      # 자리가 없으면 창 안쪽
+    t._tick()
+    assert not t._outside and t.btn_quit.parent() is t and t.panel.isHidden()

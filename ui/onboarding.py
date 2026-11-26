@@ -39,6 +39,7 @@ AI_BENEFITS = ('📝  제목만 쓰면 공문 초안을 써 줘요 (내 공문 �
                '📊  예산 화면을 캡처하면 항목별로 정리해 줘요',
                '💬  「이번 주 마감 뭐야?」 물어보면 알려 줘요')
 BURST_MS = 900
+TYPE_PAUSE_MS = 1500        # 할 일을 다 쓰고 타자를 멈춘 뒤 이만큼 지나야 ✓
 
 # 색 (남보라 유리 카드)
 _C_BG1, _C_BG2 = QColor(30, 27, 75, 246), QColor(49, 46, 129, 246)
@@ -129,6 +130,23 @@ class _LinkButton(QPushButton):
                 QPushButton:hover { color: #E0E7FF; text-decoration: underline; }""")
 
 
+class _SidePanel(QWidget):
+    """업무창 바깥 옆에 뜨는 퀘스트 카드 + 유주 (포커스를 가져가지 않아 업무창에서 계속 타자 · Tab 가능)."""
+
+    def __init__(self, tour):
+        super().__init__(tour.win, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+        self.tour = tour
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setFocusPolicy(Qt.NoFocus)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        self.tour._paint_card(p)
+
+
 class TourOverlay(QWidget):
     """업무창을 덮는 어두운 막 + 빛나는 구멍 + 퀘스트 카드 + 유주. 직접 해야 다음으로 간다."""
 
@@ -155,6 +173,9 @@ class TourOverlay(QWidget):
         self._bottom_seen_open = False
         self._menu_seen = False
         self._confetti = []
+        self._outside = False           # 카드를 업무창 바깥 옆 창에 그리는지
+        self._last_text, self._typed_at = '', 0
+        self.panel = _SidePanel(self)
 
         self.btn_skip = _LinkButton('이 단계 건너뛰기', self)
         self.btn_quit = _LinkButton('튜토리얼 끝내기 (Esc)', self)
@@ -254,7 +275,7 @@ class TourOverlay(QWidget):
     def quests(self):
         key = self._key()
         if key == 'add':
-            return ['할 일 쓰기', 'Tab 눌러 마감일 칸으로 가기', 'Enter 눌러 업무 넣기']
+            return ['할 일 쓰기', 'Tab 눌러 마감일 → 시간 → 반복 칸까지 가기', 'Enter 눌러 업무 넣기']
         if key == 'row':
             return ['☆ 눌러 중요 표시하기', '연필 아이콘 눌러 메모 열기', '⋮ 눌러 메뉴 열어 보기']
         if key == 'file':
@@ -272,7 +293,7 @@ class TourOverlay(QWidget):
     def _lines(self):
         key = self._key()
         if key == 'add':
-            return ['할 일을 하나 써 볼까요?', '좋아요! 이제 Tab을 눌러 볼까요?', '마지막! Enter를 눌러 넣어요.']
+            return ['할 일을 하나 써 볼까요?', '좋아요! 이제 Tab을 눌러 반복 칸까지 가 봐요.', '마지막! Enter를 눌러 넣어요.']
         if key == 'row':
             return ['별을 눌러 중요 표시를 해 봐요!', '이번엔 연필 아이콘으로 메모를 열어요.', '⋮ 단추도 눌러 볼까요?']
         if key == 'file':
@@ -338,12 +359,17 @@ class TourOverlay(QWidget):
             return
         key, w, d = self._key(), self.win, self.done
         if key == 'add':
-            if w.input_name.text().strip():
+            text = w.input_name.text().strip()
+            if text != self._last_text:                     # 칠 때마다 1.5초를 처음부터
+                self._last_text, self._typed_at = text, self._t
+            if text and self._t - self._typed_at >= TYPE_PAUSE_MS:
                 d[0] = True
-            fw = QApplication.focusWidget()
-            date = getattr(w, 'input_date', None)
-            if d[0] and fw is not None and date is not None and (fw is date or date.isAncestorOf(fw)):
+            where = self._focus_field()
+            if d[0] and where == 'repeat':
                 d[1] = True
+            if d[0] and not d[1] and where in ('date', 'time'):
+                self._set_line('좋아요, 마감일! 계속 Tab~' if where == 'date' else '이제 시간! 한 번 더 Tab!')
+                return
         elif key == 'row':
             row = self._row()
             if row is not None:
@@ -386,6 +412,17 @@ class TourOverlay(QWidget):
             self._update_line()
         else:
             self._complete()
+
+    def _focus_field(self):
+        """업무 추가 줄에서 지금 커서가 있는 칸: 'date' · 'time' · 'repeat' · ''."""
+        fw = QApplication.focusWidget()
+        if fw is None:
+            return ''
+        for name, attr in (('date', 'input_date'), ('time', 'input_time'), ('repeat', 'input_recurrence')):
+            box = getattr(self.win, attr, None)
+            if box is not None and (fw is box or box.isAncestorOf(fw)):
+                return name
+        return ''
 
     def _close_capture_editor(self):
         """Ctrl+Shift+X 연습으로 열린 공문 작성 창: 캡처가 끝나고 쓴 내용이 없으면 닫고 업무창으로 돌아온다."""
@@ -469,6 +506,11 @@ class TourOverlay(QWidget):
             self.win._tour = None
         if self in _ACTIVE:
             _ACTIVE.remove(self)
+        try:
+            self.panel.hide()
+            self.panel.deleteLater()
+        except RuntimeError:
+            pass
         self.hide()
         self.deleteLater()
 
@@ -497,25 +539,70 @@ class TourOverlay(QWidget):
         for b in (self.btn_skip, self.btn_quit, self.btn_action, self.btn_later):
             b.adjustSize()
 
+    def _host(self):
+        return self.panel if self._outside else self
+
+    def _side_spot(self, pw, ph):
+        """업무창 바깥 오른쪽(없으면 왼쪽)에 옆 창을 둘 자리. 둘 다 모자라면 None."""
+        w = self.win
+        fg = w.frameGeometry()
+        scr = None
+        try:
+            scr = w.screen().availableGeometry()
+        except Exception:
+            sc = QApplication.screenAt(fg.center()) or QApplication.primaryScreen()
+            scr = sc.availableGeometry() if sc else None
+        if scr is None:
+            return None
+        gap = self.px(10)
+        if fg.right() + gap + pw <= scr.right():
+            x = fg.right() + gap
+        elif fg.left() - gap - pw >= scr.left():
+            x = fg.left() - gap - pw
+        else:
+            return None
+        y = fg.top() + (fg.height() - ph) // 2
+        y = max(scr.top(), min(y, scr.bottom() - ph))
+        return QPoint(x, y)
+
     def _place(self):
         px = self.px
         W, H = self.width(), self.height()
         ch = self._card_height()
-        cw = min(W - px(24), px(440))
-        if self.clear:
-            self._card = QRect((W - cw) // 2, max(px(8), (H - ch) // 2), cw, ch)
+        # ① 바깥 옆 창에 둘 수 있으면 거기에
+        cw_out = px(400)
+        top = px(8) if self.clear else px(100)          # 위쪽은 유주 · 말풍선 자리
+        pw, ph = cw_out + px(8), top + ch + px(8)
+        spot = self._side_spot(pw, ph) if self.win.isVisible() else None
+        outside = spot is not None
+        if outside != self._outside:
+            self._outside = outside
+            for b in (self.btn_skip, self.btn_quit, self.btn_action, self.btn_later):
+                vis = not b.isHidden()
+                b.setParent(self._host())
+                b.setVisible(vis)
+        if outside:
+            self.panel.setGeometry(spot.x(), spot.y(), pw, ph)
+            if not self.panel.isVisible():
+                self.panel.show()
+            self._card = QRect(px(4), top, cw_out, ch)
         else:
-            yuju_h = px(84)
-            hole = self._hole if not self._hole.isEmpty() else QRect(0, 0, 0, 0)
-            below_top = hole.bottom() + px(12) if not hole.isEmpty() else px(8)
-            bar = self._rect(self.win.btn_ai_bottom.parentWidget())
-            limit = (bar.top() - px(8)) if (not bar.isEmpty() and self._key() != 'bottom') else H - px(8)
-            if self._key() == 'bottom':
-                limit = hole.top() - px(8)
-            y = limit - ch
-            if y < below_top + yuju_h:                       # 아래 자리가 모자라면 구멍 위쪽에
-                y = max(px(8) + yuju_h, min(y, H - ch - px(8)))
-            self._card = QRect((W - cw) // 2, y, cw, ch)
+            self.panel.hide()
+            cw = min(W - px(24), px(440))
+            if self.clear:
+                self._card = QRect((W - cw) // 2, max(px(8), (H - ch) // 2), cw, ch)
+            else:
+                yuju_h = px(84)
+                hole = self._hole if not self._hole.isEmpty() else QRect(0, 0, 0, 0)
+                below_top = hole.bottom() + px(12) if not hole.isEmpty() else px(8)
+                bar = self._rect(self.win.btn_ai_bottom.parentWidget())
+                limit = (bar.top() - px(8)) if (not bar.isEmpty() and self._key() != 'bottom') else H - px(8)
+                if self._key() == 'bottom':
+                    limit = hole.top() - px(8)
+                y = limit - ch
+                if y < below_top + yuju_h:                   # 아래 자리가 모자라면 구멍 위쪽에
+                    y = max(px(8) + yuju_h, min(y, H - ch - px(8)))
+                self._card = QRect((W - cw) // 2, y, cw, ch)
         c = self._card
         m = px(16)
         if self.clear:
@@ -542,6 +629,10 @@ class TourOverlay(QWidget):
     # ── 시계 ──────────────────────────────────────────────────
     def _tick(self):
         if not self.isVisible():
+            try:
+                self.panel.hide()                    # 업무창이 숨으면 (캡처 중 등) 옆 창도
+            except RuntimeError:
+                pass
             return
         self._t += 33
         if self.geometry() != self.win.rect():
@@ -571,13 +662,14 @@ class TourOverlay(QWidget):
             b.raise_()
         self.raise_()
         self.update()
+        if self._outside:
+            self.panel.update()
 
     # ── 그리기 ────────────────────────────────────────────────
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
-        px = self.px
         full = QPainterPath()
         full.addRect(QRectF(self.rect()))
         if not self._hole.isEmpty():
@@ -593,6 +685,12 @@ class TourOverlay(QWidget):
                 p.drawRoundedRect(QRectF(self._hole).adjusted(-1 - i, -1 - i, 1 + i, 1 + i), 10 + i, 10 + i)
             p.setPen(QPen(_C_LAV, 2))
             p.drawRoundedRect(QRectF(self._hole).adjusted(-1, -1, 1, 1), 10, 10)
+        if not self._outside:
+            self._paint_card(p)
+
+    def _paint_card(self, p):
+        """퀘스트 카드 · 유주 · 완료 연출 · 클리어 화면 (창 안이든 바깥 옆 창이든 self._card 자리에)."""
+        px = self.px
         c = QRectF(self._card)
         g = QLinearGradient(c.topLeft(), c.bottomRight())
         g.setColorAt(0, _C_BG1)
