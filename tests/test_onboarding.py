@@ -50,7 +50,9 @@ def test_full_tour(win, monkeypatch):
     import PyQt5.QtWidgets as qw
     from ui import onboarding
     t = onboarding.maybe_start(w)
-    assert t is not None and w._tour is t and t.step == 0
+    assert t is not None and w._tour is t and t.intro              # 먼저 유주 인사
+    t.begin()
+    assert t.step == 0 and not t.intro
     assert t.btn_action.isHidden()                                 # [다음] 같은 단추 없음 — 직접 해야
     # 1 업무 추가: 쓰기 → Tab(마감일 칸) → Enter
     w.input_name.setText('체험학습 계획서 제출')
@@ -127,6 +129,7 @@ def test_enter_without_tab_needs_another(win):
     w, app = win
     from ui import onboarding
     t = onboarding.start(w)
+    t.begin()
     w.input_name.setText('하나')
     w._add_task()
     _pump(app)
@@ -140,6 +143,7 @@ def test_skip_step_and_ai_later(win, monkeypatch):
     from ui import onboarding
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
     t = onboarding.start(w)
+    t.begin()
     for _ in range(5):
         t.btn_skip.click()
     assert t._key() == 'ai'
@@ -154,6 +158,7 @@ def test_hole_lets_clicks_through(win):
     from PyQt5.QtCore import QPoint
     from ui import onboarding
     t = onboarding.start(w)
+    t.begin()
     t._tick()
     c = t._hole.center()
     assert not t.mask().contains(c)                          # 뚫린 곳은 아래 칸이 받음
@@ -164,6 +169,7 @@ def test_skip_marks_done(win):
     w, app = win
     from ui import onboarding
     t = onboarding.start(w)
+    t.begin()
     t.btn_quit.click()
     _pump(app)
     assert onboarding.is_done() and w._tour is None
@@ -185,6 +191,7 @@ def test_replay_from_menu(win):
     _pump(app)
     w.start_tour()
     t = w._tour
+    t.begin()
     assert t.step == 0 and t.done == [False, False, False]        # 다시 볼 때도 직접 해야
 
 
@@ -192,6 +199,7 @@ def test_typing_again_restarts_pause(win):
     w, app = win
     from ui import onboarding
     t = onboarding.start(w)
+    t.begin()
     w.input_name.setText('체')
     t._check()
     t._t += 1000
@@ -210,9 +218,31 @@ def test_card_goes_beside_window_when_room(win, monkeypatch):
     from PyQt5.QtCore import QPoint
     from ui import onboarding
     t = onboarding.start(w)
+    t.begin()
     monkeypatch.setattr(t, '_side_spot', lambda pw, ph: QPoint(900, 100))
     t._tick()
     assert t._outside and t.btn_quit.parent() is t.panel and t._card.left() < 20
     monkeypatch.setattr(t, '_side_spot', lambda pw, ph: None)      # 자리가 없으면 창 안쪽
     t._tick()
     assert not t._outside and t.btn_quit.parent() is t and t.panel.isHidden()
+
+
+def test_intro_then_auto_start(win):
+    w, app = win
+    from ui import onboarding
+    t = onboarding.start(w)
+    assert t.intro and t.btn_action.text() == '시작하기' and t.btn_quit.isHidden() and t.btn_skip.isHidden()
+    t._typed = len(t._line)
+    t._tick()                                                       # 대사가 다 나온 순간
+    assert t.intro
+    t._t += onboarding.INTRO_WAIT_MS
+    t._tick()                                                       # 2초 뒤 저절로 1단계
+    assert not t.intro and t.step == 0 and not t.btn_quit.isHidden()
+
+
+def test_intro_start_button(win):
+    w, app = win
+    from ui import onboarding
+    t = onboarding.start(w)
+    t.btn_action.click()
+    assert not t.intro and t._key() == 'add'

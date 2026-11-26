@@ -39,7 +39,9 @@ AI_BENEFITS = ('📝  제목만 쓰면 공문 초안을 써 줘요 (내 공문 �
                '📊  예산 화면을 캡처하면 항목별로 정리해 줘요',
                '💬  「이번 주 마감 뭐야?」 물어보면 알려 줘요')
 BURST_MS = 900
-TYPE_PAUSE_MS = 1500        # 할 일을 다 쓰고 타자를 멈춘 뒤 이만큼 지나야 ✓
+TYPE_PAUSE_MS = 1500
+INTRO_TEXT = '안녕하세요! 저는 서서니 노트 도우미 유주예요 🍊\n간단한 사용법을 같이 알아보아요~'
+INTRO_WAIT_MS = 2000        # 인사말이 다 나온 뒤 이만큼 지나면 1단계로        # 할 일을 다 쓰고 타자를 멈춘 뒤 이만큼 지나야 ✓
 
 # 색 (남보라 유리 카드)
 _C_BG1, _C_BG2 = QColor(30, 27, 75, 246), QColor(49, 46, 129, 246)
@@ -92,7 +94,7 @@ def start(win):
         except RuntimeError:
             pass
     win._tour = TourOverlay(win)
-    win._tour.show_step(0)
+    win._tour.show_intro()
     return win._tour
 
 
@@ -162,6 +164,8 @@ class TourOverlay(QWidget):
         self.done = []                  # 이번 단계 퀘스트별 완료 여부
         self.completed = set()          # 끝낸 단계 (클리어 화면 배지)
         self.clear = False
+        self.intro = False              # 맨 앞 유주 인사 화면
+        self._intro_done_at = None
         self._burst = None              # 완료 연출 시작 시각(ms) — 그동안은 입력 대신 연출
         self._t = 0                     # 애니메이션 시계(ms)
         self._line, self._typed = '', 0
@@ -245,7 +249,7 @@ class TourOverlay(QWidget):
             return False
 
     def _target(self):
-        if self.clear:
+        if self.clear or self.intro:
             return QRect()
         key, w = self._key(), self.win
         if key == 'add':
@@ -316,8 +320,27 @@ class TourOverlay(QWidget):
         if text != self._line:
             self._line, self._typed = text, 0
 
+    def show_intro(self):
+        """유주 인사 → 대사가 다 나오고 2초 뒤(또는 [시작하기]) 1단계로. 고를 것 없이 바로 시작."""
+        self.intro = True
+        self.step = 0
+        self.done = [False] * len(self.quests())
+        self._intro_done_at = None
+        self._set_yuju(YUJU['add'])
+        self._line, self._typed = INTRO_TEXT, 0
+        self._layout_buttons()
+        self._hole = QRect(-1, -1, 0, 0)
+        self._tick()
+
+    def begin(self):
+        if self.intro:
+            self.intro = False
+            self._yuju_n = None
+            self.show_step(0)
+
     def show_step(self, i):
         self.step = i
+        self.intro = False
         self.clear = False
         self._burst = None
         self.done = [False] * len(self.quests())
@@ -355,7 +378,7 @@ class TourOverlay(QWidget):
 
     def _check(self):
         """지금 단계의 퀘스트를 살펴 ✓를 켠다 (순서대로)."""
-        if self.clear or self._burst is not None:
+        if self.clear or self.intro or self._burst is not None:
             return
         key, w, d = self._key(), self.win, self.done
         if key == 'add':
@@ -478,6 +501,9 @@ class TourOverlay(QWidget):
         self._tick()
 
     def _on_action(self):
+        if self.intro:
+            self.begin()
+            return
         if self.clear:
             self.finish()
             return
@@ -515,8 +541,13 @@ class TourOverlay(QWidget):
         self.deleteLater()
 
     # ── 배치 ──────────────────────────────────────────────────
+    def _big(self):
+        return self.clear or self.intro
+
     def _card_height(self):
         px = self.px
+        if self.intro:
+            return px(250)
         if self.clear:
             return px(372)
         h = px(78) + len(self.done) * px(28) + px(34)
@@ -527,6 +558,14 @@ class TourOverlay(QWidget):
         return h
 
     def _layout_buttons(self):
+        if self.intro:
+            self.btn_skip.hide()
+            self.btn_quit.hide()
+            self.btn_later.hide()
+            self.btn_action.setText('시작하기')
+            self.btn_action.show()
+            self.btn_action.adjustSize()
+            return
         ai = (not self.clear) and self._key() == 'ai'
         from ai_client import load_ai_mode
         ai_needed = ai and load_ai_mode() == 'none'
@@ -571,7 +610,7 @@ class TourOverlay(QWidget):
         ch = self._card_height()
         # ① 바깥 옆 창에 둘 수 있으면 거기에
         cw_out = px(400)
-        top = px(8) if self.clear else px(100)          # 위쪽은 유주 · 말풍선 자리
+        top = px(8) if self._big() else px(100)         # 위쪽은 유주 · 말풍선 자리
         pw, ph = cw_out + px(8), top + ch + px(8)
         spot = self._side_spot(pw, ph) if self.win.isVisible() else None
         outside = spot is not None
@@ -589,7 +628,7 @@ class TourOverlay(QWidget):
         else:
             self.panel.hide()
             cw = min(W - px(24), px(440))
-            if self.clear:
+            if self._big():
                 self._card = QRect((W - cw) // 2, max(px(8), (H - ch) // 2), cw, ch)
             else:
                 yuju_h = px(84)
@@ -605,7 +644,7 @@ class TourOverlay(QWidget):
                 self._card = QRect((W - cw) // 2, y, cw, ch)
         c = self._card
         m = px(16)
-        if self.clear:
+        if self._big():
             self.btn_action.move(c.center().x() - self.btn_action.width() // 2, c.bottom() - px(14) - self.btn_action.height())
             return
         yb = c.bottom() - px(10) - self.btn_skip.height()
@@ -620,7 +659,7 @@ class TourOverlay(QWidget):
                 self.btn_later.move(c.right() - m - self.btn_later.width(), yb)
 
     def _set_yuju(self, n):
-        size = self.px(130 if self.clear else 88)
+        size = self.px(130 if self._big() else 88)
         if (n, size) != self._yuju_n:
             self._yuju_n = (n, size)
             dpr = self.devicePixelRatioF() or 1.0
@@ -639,6 +678,12 @@ class TourOverlay(QWidget):
             self.setGeometry(self.win.rect())
         if self._line and self._typed < len(self._line):
             self._typed = min(len(self._line), self._typed + 1)
+        if self.intro and self._typed >= len(self._line or ''):
+            if self._intro_done_at is None:
+                self._intro_done_at = self._t
+            elif self._t - self._intro_done_at >= INTRO_WAIT_MS:
+                self.begin()
+                return
         if self._burst is not None and self._t - self._burst >= BURST_MS:
             self._burst = None
             self._next()
@@ -699,6 +744,9 @@ class TourOverlay(QWidget):
         p.setBrush(QBrush(g))
         p.drawRoundedRect(c, 14, 14)
         base = self.font()
+        if self.intro:
+            self._paint_intro(p, c, base)
+            return
         if self.clear:
             self._paint_clear(p, c, base)
             return
@@ -823,6 +871,21 @@ class TourOverlay(QWidget):
         p.setFont(_font(base, 20 * scale, True))
         p.setPen(QColor(52, 211, 153, int(255 * fade)))
         p.drawText(QRectF(ctr.x() - px(100), ctr.y() - px(24), px(200), px(48)), Qt.AlignCenter, '✓ 완료!')
+
+    def _paint_intro(self, p, c, base):
+        px = self.px
+        pm = self._yuju_pm
+        if not pm.isNull():
+            w = pm.width() / (pm.devicePixelRatio() or 1)
+            pop = min(1.0, self._t / 300.0)
+            bob = math.sin(self._t / 300.0) * px(3) + (1 - pop) * px(18)
+            p.drawPixmap(QPointF(c.center().x() - w / 2, c.top() + px(8) + bob), pm)
+        lines = (self._line or '')[:self._typed].split('\n')
+        for i, line in enumerate(lines):
+            p.setFont(_font(base, 12.5 if i == 0 else 11, i == 0))
+            p.setPen(_C_GOLD if i == 0 else QColor('#E0E7FF'))
+            p.drawText(QRectF(c.left() + px(10), c.top() + px(146) + i * px(26), c.width() - px(20), px(24)),
+                       Qt.AlignCenter, line)
 
     def _paint_clear(self, p, c, base):
         px = self.px
