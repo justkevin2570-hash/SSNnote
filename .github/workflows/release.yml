@@ -59,7 +59,15 @@ jobs:
           pip install -r req-ci.txt pyinstaller pytest
 
       - name: 테스트
-        run: python -m pytest tests -q
+        # 파일마다 따로 실행: 한 프로세스에서 Qt 창 수백 개를 만들고 지우다 보면, 앞 테스트가 남긴 것 때문에
+        # 엉뚱한 테스트에서 Windows가 프로세스를 끊는 일이 있다 (v3.66: 예산 테스트에서 0xc0000374)
+        run: |
+          $failed = @()
+          foreach ($f in (Get-ChildItem tests -Filter 'test_*.py' | Sort-Object Name)) {
+            python -m pytest $f.FullName -q -p no:cacheprovider
+            if ($LASTEXITCODE -ne 0) { $failed += $f.Name }
+          }
+          if ($failed.Count -gt 0) { throw "테스트 실패: $($failed -join ', ')" }
 
       - name: PyInstaller (SSNnote.exe)
         run: |
