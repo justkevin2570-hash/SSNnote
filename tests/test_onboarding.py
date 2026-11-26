@@ -86,6 +86,16 @@ def test_full_tour(win, monkeypatch):
     assert t.done == [True, False]
     state['open'] = False
     _finish_step(t)
+    # 5 단축키: Ctrl+Shift+X → Ctrl+Shift+E → Ctrl+K (순서대로)
+    assert t._key() == 'keys'
+    onboarding.notify('restore')                                    # 순서가 앞서면 아직
+    t._check()
+    assert t.done == [False, False, False]
+    onboarding.notify('capture')
+    t._check()
+    assert t.done == [True, True, False]                            # 앞서 누른 E도 이제 인정
+    onboarding.notify('palette')
+    _finish_step(t)
     # 5 AI: 이미 연결돼 있으면 저절로
     import ai_client
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'claude_code')
@@ -95,7 +105,7 @@ def test_full_tour(win, monkeypatch):
     assert t._key() == 'menu'
     t._menu_seen = True
     _finish_step(t)
-    assert t.clear and t.btn_action.text() == '시작하기' and len(t.completed) == 6
+    assert t.clear and t.btn_action.text() == '시작하기' and len(t.completed) == 7
     assert not onboarding.is_done()
     t.btn_action.click()
     _pump(app)
@@ -120,7 +130,7 @@ def test_skip_step_and_ai_later(win, monkeypatch):
     from ui import onboarding
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
     t = onboarding.start(w)
-    for _ in range(4):
+    for _ in range(5):
         t.btn_skip.click()
     assert t._key() == 'ai'
     t._layout_buttons()

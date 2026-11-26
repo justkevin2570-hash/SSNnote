@@ -227,6 +227,11 @@ if __name__ == '__main__':
         target._start_ai_capture()
 
     def _on_capture_hotkey():
+        try:
+            from ui import onboarding
+            onboarding.notify('capture')
+        except Exception:
+            pass
         active = QApplication.activeWindow()
         if active is not None and type(active).__name__ == 'DocumentEditorWindow' and active.isVisible():
             active._start_capture(extra_hide=list(_open_windows))   # 공문 작성 중: 같은 창에서 캡처
@@ -234,6 +239,11 @@ if __name__ == '__main__':
             _trigger_ai_capture()        # 그 밖: 공문 작성 창을 띄워 캡처
 
     def _show_or_restore():
+        try:
+            from ui import onboarding
+            onboarding.notify('restore')
+        except Exception:
+            pass
         if _open_windows:
             for win in _open_windows:
                 win.show()

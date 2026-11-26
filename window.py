@@ -1114,6 +1114,11 @@ class MemoWindow(QMainWindow):
     def _open_command_palette(self):
         if self._force_memo_mode:
             return
+        try:
+            from ui import onboarding
+            onboarding.notify('palette')
+        except Exception:
+            pass
         from ui.command_palette import CommandPalette
         from db import search_tasks_all
         old = getattr(self, '_palette', None)

@@ -16,11 +16,24 @@ from PyQt5.QtGui import (QBrush, QColor, QFont, QKeySequence, QLinearGradient, Q
 from PyQt5.QtWidgets import QApplication, QMenu, QPushButton, QShortcut, QWidget
 
 DONE_KEY = 'onboarding_done'
-STEPS = ('add', 'row', 'file', 'bottom', 'ai', 'menu')
+STEPS = ('add', 'row', 'file', 'bottom', 'keys', 'ai', 'menu')
 STEP_TITLES = {'add': '업무 추가하기', 'row': '업무 다루기', 'file': '파일 바로가기',
-               'bottom': '아래 줄 버튼', 'ai': 'AI 연결', 'menu': '메뉴'}
-BADGES = ('업무 추가', '업무 다루기', '파일 바로가기', '아래 줄 버튼', 'AI 연결', '메뉴')
-YUJU = {'add': 6, 'row': 5, 'file': 1, 'bottom': 3, 'ai': 4, 'menu': 2, 'clear': 1}
+               'bottom': '아래 줄 버튼', 'keys': '단축키', 'ai': 'AI 연결', 'menu': '메뉴'}
+BADGES = ('업무 추가', '업무 다루기', '파일 바로가기', '아래 줄 버튼', '단축키', 'AI 연결', '메뉴')
+YUJU = {'add': 6, 'row': 5, 'file': 1, 'bottom': 3, 'keys': 2, 'ai': 4, 'menu': 6, 'clear': 1}
+KEY_TIPS = (('Alt+N', '업무 추가 칸으로'), ('Alt+1~4', '아래 줄 버튼'),
+            ('F2', '업무 이름 고치기'), ('Ctrl+Shift+F', '항상 위에 고정'),
+            ('Ctrl+Shift+R', '업무창 접기'), ('Ctrl+1·2·3', '공문 창 복사'))
+_ACTIVE = []          # 지금 떠 있는 안내 (main.py · window.py가 notify로 알려 줌)
+
+
+def notify(event: str):
+    """앱 곳곳에서 튜토리얼에 알려 준다: 'capture'(Ctrl+Shift+X) · 'restore'(Ctrl+Shift+E) · 'palette'(Ctrl+K)."""
+    for t in list(_ACTIVE):
+        try:
+            t.on_event(event)
+        except RuntimeError:
+            _ACTIVE.remove(t)
 AI_BENEFITS = ('📝  제목만 쓰면 공문 초안을 써 줘요 (내 공문 모양대로)',
                '📸  캡처한 공문의 제목 · 번호를 정확하게 읽어요',
                '📊  예산 화면을 캡처하면 항목별로 정리해 줘요',
@@ -159,9 +172,16 @@ class TourOverlay(QWidget):
         self._esc.activated.connect(lambda: self.finish())
         win.installEventFilter(self)
         QApplication.instance().installEventFilter(self)      # ⋮ · 「…」 메뉴가 열렸는지
+        self._events = set()
+        self._closed_editor = False
+        _ACTIVE.append(self)
         self.setGeometry(win.rect())
         self.raise_()
         self.show()
+
+    def on_event(self, event):
+        if not self.clear:
+            self._events.add(event)
 
     # ── 대상 ──────────────────────────────────────────────────
     def _rect(self, w):
@@ -242,6 +262,9 @@ class TourOverlay(QWidget):
         if key == 'bottom':
             _k, label = self._bottom_first()
             return [f'Alt+1 눌러 {label} 열기', 'Alt+1 한 번 더 눌러 닫기']
+        if key == 'keys':
+            return ['Ctrl+Shift+X 눌러 캡처 화면 띄우기',
+                    '다른 창을 누른 뒤 Ctrl+Shift+E로 불러오기', 'Ctrl+K 눌러 빠른 찾기 열기']
         if key == 'ai':
             return ['AI 연결하기']
         return ['「…」 눌러 메뉴 열어 보기']
@@ -257,6 +280,10 @@ class TourOverlay(QWidget):
         if key == 'bottom':
             _k, label = self._bottom_first()
             return [f'Alt+1을 눌러 {label}을(를) 열어 봐요!', '한 번 더 누르면 닫혀요!']
+        if key == 'keys':
+            return ['Ctrl+Shift+X를 누르면 바로 캡처해요! (Esc로 닫아도 돼요)',
+                    '다른 창을 누른 뒤 Ctrl+Shift+E! 어디서든 제가 바로 나와요.',
+                    'Ctrl+K를 누르면 기능 이름으로 바로 찾아 줘요.']
         if key == 'ai':
             from ai_client import load_ai_mode
             if load_ai_mode() != 'none':
@@ -277,6 +304,7 @@ class TourOverlay(QWidget):
         self._scrolled = None
         self._bottom_seen_open = False
         self._menu_seen = False
+        self._events = set()
         if key == 'file':
             row = self._row()
             self._attach_base = len(getattr(row, '_attachments', []) or []) if row else 0
@@ -338,6 +366,15 @@ class TourOverlay(QWidget):
                 self._bottom_seen_open = True
             elif self._bottom_seen_open:
                 d[1] = True
+        elif key == 'keys':
+            ev = self._events
+            if 'capture' in ev:
+                d[0] = True
+                self._close_capture_editor()
+            if d[0] and 'restore' in ev:
+                d[1] = True
+            if d[1] and 'palette' in ev:
+                d[2] = True
         elif key == 'ai':
             from ai_client import load_ai_mode
             if load_ai_mode() != 'none':
@@ -349,6 +386,22 @@ class TourOverlay(QWidget):
             self._update_line()
         else:
             self._complete()
+
+    def _close_capture_editor(self):
+        """Ctrl+Shift+X 연습으로 열린 공문 작성 창: 캡처가 끝나고 쓴 내용이 없으면 닫고 업무창으로 돌아온다."""
+        if self._closed_editor:
+            return
+        try:
+            from document_editor import DocumentEditorWindow
+            ed = DocumentEditorWindow._instance
+            if ed is None or getattr(ed, '_capturing', False) or not ed.isVisible():
+                return
+            self._closed_editor = True
+            if not self.win._doc_has_text(ed):
+                ed.close()
+            QTimer.singleShot(0, self.win._take_focus_back)
+        except Exception:
+            pass
 
     def _task_priority(self):
         try:
@@ -414,6 +467,8 @@ class TourOverlay(QWidget):
             pass
         if getattr(self.win, '_tour', None) is self:
             self.win._tour = None
+        if self in _ACTIVE:
+            _ACTIVE.remove(self)
         self.hide()
         self.deleteLater()
 
@@ -421,10 +476,12 @@ class TourOverlay(QWidget):
     def _card_height(self):
         px = self.px
         if self.clear:
-            return px(330)
+            return px(372)
         h = px(78) + len(self.done) * px(28) + px(34)
         if self._key() == 'ai' and not self.done[0]:
             h += len(AI_BENEFITS) * px(22) + px(8)
+        if self._key() == 'keys':
+            h += px(28) + ((len(KEY_TIPS) + 1) // 2) * px(20)
         return h
 
     def _layout_buttons(self):
@@ -601,6 +658,24 @@ class TourOverlay(QWidget):
                 p.setFont(_font(base, 10))
             p.drawText(QRectF(c.left() + m + px(26), yy, c.width() - 2 * m - px(26), px(20)),
                        Qt.AlignLeft | Qt.AlignVCenter, txt)
+        if self._key() == 'keys':
+            ty = y0 + len(self.done) * px(28) + px(4)
+            p.setPen(QPen(QColor(165, 180, 252, 60), 1))
+            p.drawLine(QPointF(c.left() + m, ty), QPointF(c.right() - m, ty))
+            p.setFont(_font(base, 8.5, True))
+            p.setPen(_C_LAV)
+            p.drawText(QRectF(c.left() + m, ty + px(4), c.width(), px(18)), Qt.AlignLeft | Qt.AlignVCenter,
+                       '이것도 알아 두면 편해요')
+            colw = (c.width() - 2 * m) / 2
+            for i, (k, desc) in enumerate(KEY_TIPS):
+                r = QRectF(c.left() + m + (i % 2) * colw, ty + px(24) + (i // 2) * px(20), colw, px(18))
+                p.setFont(_font(base, 8.5, True))
+                p.setPen(_C_GOLD)
+                kw = p.fontMetrics().horizontalAdvance(k) + px(6)
+                p.drawText(r, Qt.AlignLeft | Qt.AlignVCenter, k)
+                p.setFont(_font(base, 8.5))
+                p.setPen(QColor(224, 231, 255, 200))
+                p.drawText(r.adjusted(kw, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, desc)
         self._paint_yuju(p, c, base)
         if self._burst is not None:
             self._paint_burst(p, c, base)
@@ -683,6 +758,10 @@ class TourOverlay(QWidget):
             p.setFont(_font(base, 8.5, True))
             p.setPen(_C_GOLD if got else QColor(253, 230, 138, 110))
             p.drawText(r, Qt.AlignCenter, ('✓ ' if got else '') + name)
+        p.setFont(_font(base, 8.5))
+        p.setPen(QColor(199, 210, 254, 170))
+        p.drawText(QRectF(c.left(), by + 3 * px(34) - px(2), c.width(), px(18)), Qt.AlignCenter,
+                   '단축키는 빠른 찾기(Ctrl+K)에서도 볼 수 있어요')
 
     # ── 입력 ──────────────────────────────────────────────────
     def mousePressEvent(self, e):          # 어두운 곳을 눌러도 아무 일 없음
