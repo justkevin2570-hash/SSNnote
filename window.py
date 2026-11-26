@@ -251,7 +251,7 @@ class MemoWindow(QMainWindow):
         self._cal_popup.clicked.connect(self._on_cal_date_selected)
 
         self.input_recurrence = QComboBox()
-        self.input_recurrence.addItems(['반복 없음', '매주', '격주', '매월', '매년', '사용자 설정...'])
+        self.input_recurrence.addItems(['반복 없음', '매주', '격주', '매월', '매년', '사용자 설정'])
         for _i in range(self.input_recurrence.count()):
             self.input_recurrence.setItemData(_i, Qt.AlignLeft, Qt.TextAlignmentRole)
             self.input_recurrence.setItemData(_i, QColor(tct('#222')), Qt.ForegroundRole)
