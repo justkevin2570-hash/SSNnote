@@ -129,7 +129,7 @@ def run(result_path: str) -> int:
             app.processEvents()
 
         check('메모 창·지난 기록·공문 작성 창·예산 창', windows_ok)
-        check('급한 업무 움직임 (왼쪽 세로선)', motion_ok)
+        check('마감 임박 효과 (왼쪽 세로선)', motion_ok)
         check('대시보드', dialogs_ok)
         check('공문 작성 창의 받은 공문 칸', capture_panel_ok)
         check('사용법 안내·버튼 순서·AI 연결 창', extras_ok)

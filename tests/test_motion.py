@@ -95,6 +95,6 @@ def test_wave_shapes():
 
 
 def test_describe():
-    assert motion.describe(DEFAULT) == '5일 전부터 움직임 · 남은 시간 3시간 전'
-    assert motion.describe({**DEFAULT, 'countdown_hours': 0}) == '5일 전부터 움직임 · 남은 시간 끔'
-    assert motion.describe(OFF) == '움직임 끔'
+    assert motion.describe(DEFAULT) == '마감 5일 전부터 · 남은 시간 3시간 전'
+    assert motion.describe({**DEFAULT, 'countdown_hours': 0}) == '마감 5일 전부터 · 남은 시간 끔'
+    assert motion.describe(OFF) == '효과 끔'

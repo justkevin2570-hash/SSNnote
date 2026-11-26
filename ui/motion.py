@@ -7,8 +7,8 @@
   · 기한이 지난 업무는 움직이지 않고 빨간 「D+n 지남」 표시로만 알린다. D-day 표시는 움직이지 않는다.
   · 창이 가려지거나 접혀 있으면 그리지 않는다.
 
-설정(메뉴 → 설정 → 급함 표시) — app_settings 'motion_profile'(JSON {"enabled", "countdown_hours"})
-  움직임 켜기/끄기 · 남은 시간 표시: 끄기 / 1 / 3(기본) / 6시간 전
+설정(메뉴 → 설정 → 마감 임박 효과) — app_settings 'motion_profile'(JSON {"enabled", "countdown_hours"})
+  효과 켜기/끄기 · 남은 시간 표시: 끄기 / 1 / 3(기본) / 6시간 전
 
     u = urgency(task)            # 이 업무를 지금 어떻게 움직일지
     clock().register(widget, fn)  # fn(t초)를 초당 30번 — 등록한 위젯이 보일 때만
@@ -69,9 +69,9 @@ def save(enabled=None, countdown_hours=None):
 def describe(cfg: dict = None) -> str:
     cfg = cfg or load()
     if not cfg['enabled']:
-        return '움직임 끔'
+        return '효과 끔'
     h = cfg['countdown_hours']
-    return f"5일 전부터 움직임 · 남은 시간 {str(h) + '시간 전' if h else '끔'}"
+    return f"마감 5일 전부터 · 남은 시간 {str(h) + '시간 전' if h else '끔'}"
 
 
 # ── 급한 정도 ─────────────────────────────────────────────────────

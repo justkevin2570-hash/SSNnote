@@ -852,7 +852,7 @@ class MemoWindow(QMainWindow):
         anim.start()
 
     def _set_motion(self, menu=None, **values):
-        """급함 표시 설정 저장 (enabled / countdown_hours) → 열린 창 모두 바로 반영."""
+        """마감 임박 효과 설정 저장 (enabled / countdown_hours) → 열린 창 모두 바로 반영."""
         from ui import motion
         motion.save(**values)
         for win in (self._open_windows or [self]):
@@ -1318,9 +1318,9 @@ class MemoWindow(QMainWindow):
 
         from ui import motion as _motion
         _mcfg = _motion.load()
-        urg = self._submenu(settings, '급함 표시 (움직임)', 230, icon='ph.lightning')
+        urg = self._submenu(settings, '마감 임박 효과', 230, icon='ph.lightning')
         self._menu_header(urg, _motion.describe(_mcfg))
-        add(urg, '움직임 켜기', lambda: self._set_motion(menu, enabled=not _mcfg['enabled']), checked=_mcfg['enabled'])
+        add(urg, '효과 켜기', lambda: self._set_motion(menu, enabled=not _mcfg['enabled']), checked=_mcfg['enabled'])
         urg.addSeparator()
         self._menu_header(urg, '남은 시간 표시 (오늘 마감 시각이 있을 때)')
         for _h in _motion.HOUR_CHOICES:
