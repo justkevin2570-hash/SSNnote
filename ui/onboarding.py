@@ -10,7 +10,7 @@
 import math
 import random
 
-from PyQt5.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QTimer
+from PyQt5.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer
 from PyQt5.QtGui import (QBrush, QColor, QFont, QKeySequence, QLinearGradient, QPainter, QPainterPath,
                          QPen, QPixmap, QRadialGradient, QRegion)
 from PyQt5.QtWidgets import QApplication, QMenu, QPushButton, QShortcut, QWidget
@@ -39,7 +39,7 @@ AI_BENEFITS = ('📝  제목만 쓰면 공문 초안을 써 줘요 (내 공문 �
                '📊  예산 화면을 캡처하면 항목별로 정리해 줘요',
                '💬  「이번 주 마감 뭐야?」 물어보면 알려 줘요')
 BURST_MS = 900
-TYPE_PAUSE_MS = 1500        # 할 일을 다 쓰고 타자를 멈춘 뒤 이만큼 지나야 ✓
+TYPE_PAUSE_MS = 700         # 할 일을 다 쓰고 타자를 멈춘 뒤 이만큼 지나야 ✓
 INTRO_TEXT = '안녕하세요! 저는 서서니 노트 도우미 유주예요 🍊\n간단한 사용법을 같이 알아보아요~'
 
 # 색 (남보라 유리 카드)
@@ -119,19 +119,65 @@ def _font(base: QFont, pt, bold=False):
 
 
 class _LinkButton(QPushButton):
+    """튜토리얼 단추. QSS 대신 직접 그린다 — Pretendard 진짜 굵기 + 부드러운 가장자리.
+    (QSS 글자는 글꼴이 정해지지 않아 Windows 기본 글꼴의 가짜 굵게로 그려지고,
+     투명 바탕 창 위에서는 ClearType도 꺼져 흐리게 보였다.)"""
+
     def __init__(self, text, parent, primary=False):
         super().__init__(text, parent)
+        from .common import pr_font
+        self.primary = primary
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.NoFocus)
+        self.setAttribute(Qt.WA_Hover)
+        self.setFlat(True)
+        f = pr_font(10)
+        f.setFamilies([f.family(), 'Pretendard', 'Malgun Gothic'])
         if primary:
-            self.setStyleSheet("""
-                QPushButton { color: white; font-weight: 700; border: none; border-radius: 18px; padding: 8px 20px; font-size: 13pt;
-                              background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366F1, stop:1 #A855F7); }
-                QPushButton:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4F46E5, stop:1 #9333EA); }""")
+            f.setPointSizeF(10.5 * SCALE)
+            f.setWeight(QFont.DemiBold)
         else:
-            self.setStyleSheet("""
-                QPushButton { color: rgba(199,210,254,170); border: none; background: transparent; padding: 5px 3px; font-size: 11.5pt; }
-                QPushButton:hover { color: #E0E7FF; text-decoration: underline; }""")
+            f.setPointSizeF(9 * SCALE)
+            f.setWeight(QFont.Medium)
+        f.setHintingPreference(QFont.PreferNoHinting)
+        f.setStyleStrategy(QFont.PreferAntialias)
+        self.setFont(f)
+
+    def _pad(self):
+        from .common import px
+        return (px(round(20 * SCALE)), px(round(8 * SCALE))) if self.primary else (px(4), px(round(4 * SCALE)))
+
+    def sizeHint(self):
+        fm = self.fontMetrics()
+        px_, py = self._pad()
+        return QSize(fm.horizontalAdvance(self.text()) + 2 * px_ + 2, fm.height() + 2 * py)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.TextAntialiasing)
+        hover = self.underMouse()
+        r = QRectF(self.rect())
+        if self.primary:
+            g = QLinearGradient(r.topLeft(), r.topRight())
+            g.setColorAt(0, QColor('#4F46E5' if hover else '#6366F1'))
+            g.setColorAt(1, QColor('#9333EA' if hover else '#A855F7'))
+            p.setPen(Qt.NoPen)
+            p.setBrush(g)
+            rad = r.height() / 2.0
+            p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), rad, rad)
+            p.setPen(QColor('#FFFFFF'))
+        else:
+            p.setPen(QColor('#E0E7FF') if hover else QColor(199, 210, 254, 185))
+        f = QFont(self.font())
+        if hover and not self.primary:
+            f.setUnderline(True)
+        p.setFont(f)
+        p.drawText(r, Qt.AlignCenter, self.text())
+        p.end()
 
 
 class _SidePanel(QWidget):
@@ -383,7 +429,7 @@ class TourOverlay(QWidget):
         key, w, d = self._key(), self.win, self.done
         if key == 'add':
             text = w.input_name.text().strip()
-            if text != self._last_text:                     # 칠 때마다 1.5초를 처음부터
+            if text != self._last_text:                     # 칠 때마다 0.7초를 처음부터
                 self._last_text, self._typed_at = text, self._t
             if text and self._t - self._typed_at >= TYPE_PAUSE_MS:
                 d[0] = True

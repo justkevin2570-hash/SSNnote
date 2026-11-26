@@ -60,7 +60,7 @@ def test_full_tour(win, monkeypatch):
     assert t.done == [False, False, False]                          # 치자마자는 아직
     t._t += onboarding.TYPE_PAUSE_MS
     t._check()
-    assert t.done == [True, False, False]                           # 1.5초 멈추면 ✓
+    assert t.done == [True, False, False]                           # 0.7초 멈추면 ✓
     focus = {'w': w.input_date}
     monkeypatch.setattr(qw.QApplication, 'focusWidget', staticmethod(lambda: focus['w']))
     t._check()
@@ -202,15 +202,15 @@ def test_typing_again_restarts_pause(win):
     t.begin()
     w.input_name.setText('체')
     t._check()
-    t._t += 1000
+    t._t += 500
     w.input_name.setText('체험')                                   # 다시 치면 처음부터
     t._check()
-    t._t += 1000
+    t._t += 500
     t._check()
-    assert not t.done[0]
-    t._t += 600
+    assert not t.done[0]                                            # 다시 친 뒤 0.5초 — 아직
+    t._t += 300
     t._check()
-    assert t.done[0]
+    assert t.done[0]                                                # 0.8초 — ✓
 
 
 def test_card_goes_beside_window_when_room(win, monkeypatch):
