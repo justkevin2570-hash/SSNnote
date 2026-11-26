@@ -261,8 +261,8 @@ class MemoWindow(QMainWindow):
         self.input_recurrence.setItemDelegate(QStyledItemDelegate(self.input_recurrence))
         self.input_recurrence.view().setStyleSheet(
             f"QListView {{ background: {tc('#FFFFFF')}; color: {tct('#222')}; outline: none; }}"
-            f"QListView::item {{ color: {tct('#222')}; background: {tc('#FFFFFF')}; min-height: 26px; padding-left: 8px; border: none; }}"
-            f"QListView::item:selected, QListView::item:hover {{ background: {tc('#EDEDED')}; color: {tct('#222')}; padding-left: 8px; border: none; }}")
+            f"QListView::item {{ color: {tct('#222')}; background: {tc('#FFFFFF')}; min-height: 26px; padding-left: 8px; padding-top: 4px; padding-bottom: 0px; border: none; }}"
+            f"QListView::item:selected, QListView::item:hover {{ background: {tc('#EDEDED')}; color: {tct('#222')}; padding-left: 8px; padding-top: 4px; padding-bottom: 0px; border: none; }}")
         self.input_recurrence.setFont(QFont('Malgun Gothic', 11))
         # 펼친 목록 창은 투명 바탕을 물려받으면 Windows에서 검게 칠해진다 → 불투명하게
         _popup = self.input_recurrence.view().window()
