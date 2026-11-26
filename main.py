@@ -269,6 +269,8 @@ if __name__ == '__main__':
         return _last_active_window if _last_active_window in _open_windows else _open_windows[0]
     _alt_filter = AltNumberFilter(_bottom_target, lambda: _shortcut_enabled[0], app)
     app.installEventFilter(_alt_filter)
+    from ui import popup_toggle
+    popup_toggle.install(app)   # 메뉴 단추: 한 번 누르면 열고, 다시 누르면 닫기
 
     # ── 단축키 켬/끔 상태 관리 ──────────────────────────────────────
     _sc_settings = _load_settings()
