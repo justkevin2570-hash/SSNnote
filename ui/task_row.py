@@ -531,11 +531,6 @@ class _InlineNoteEdit(QWidget):
                 pass
         self._restore_inline_window()
         try:
-            import capture_debug
-            capture_debug.start(pixmap, '업무 메모 스크린샷')
-        except Exception:
-            pass
-        try:
             import winrt  # noqa: F401
             has_ocr = True
         except ImportError:
@@ -605,11 +600,6 @@ class _InlineNoteEdit(QWidget):
                 st['ai'] = True
                 finish()
                 return
-            try:
-                import capture_debug
-                capture_debug.log('AI로 보냄: ' + ('글자' if use_text else '그림') + (' (보호 모드 · 개인정보 안 보임)' if image_ok else ''))
-            except Exception:
-                pass
             w = doc_ai.DocAnalysisWorker(pixmap=None if use_text else pixmap, ocr_text=text if use_text else '',
                                          image_ok=image_ok)
             _ALIVE_WORKERS.add(w)
@@ -632,11 +622,6 @@ class _InlineNoteEdit(QWidget):
             start_ai()                        # 그림으로 바로 (글자 인식을 기다리지 않음)
 
         def after_ocr(text):
-            try:
-                import capture_debug
-                capture_debug.log(f'PC 인식(업무 메모): {text[:300]!r}')
-            except Exception:
-                pass
             if not st['ai_filled']:
                 put(find_doc_number(text))
             st['ocr'] = True

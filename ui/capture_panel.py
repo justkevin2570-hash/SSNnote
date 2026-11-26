@@ -282,11 +282,6 @@ class CapturePanel(QFrame):
                 return
             if i < len(self._ocr_texts) and self._pixmaps[i] is pixmap:
                 self._ocr_texts[i] = text.strip()
-            try:
-                import capture_debug
-                capture_debug.log(f'PC 인식(분석용): {text[:300]!r}')
-            except Exception:
-                pass
             self._ocr_pending(gen)
 
         def fail(msg):
@@ -309,11 +304,6 @@ class CapturePanel(QFrame):
             use_text = False            # 보호 모드여도 개인정보가 안 보이는 캡처는 그림으로 (작은 글자를 AI가 직접 읽게)
             text = ''
             image_ok = True
-        try:
-            import capture_debug
-            capture_debug.log('AI로 보냄: ' + ('글자' if use_text else '그림') + (' (보호 모드 · 개인정보 안 보임)' if image_ok else ''))
-        except Exception:
-            pass
         w = doc_ai.DocAnalysisWorker(pixmap=None if use_text else self._combined_pixmap(), ocr_text=text,
                                      image_ok=image_ok)
         _ALIVE_WORKERS.add(w)
@@ -367,11 +357,6 @@ class CapturePanel(QFrame):
     def _fail(self, msg: str, gen=None):
         if self._closed or (gen is not None and gen != self._gen):
             return
-        try:
-            import capture_debug
-            capture_debug.log(f'분석 실패: {msg}')
-        except Exception:
-            pass
         self._set_busy(False)
         self._set_status(f'분석 실패: {msg}\n다시 캡처하거나 요약을 직접 적어도 됩니다.', 'error')
         text = self._combined_text()

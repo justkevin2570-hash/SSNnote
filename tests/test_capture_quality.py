@@ -54,18 +54,6 @@ def test_worker_error_when_nothing(app, monkeypatch):
     assert got[0][0] == '' and '언어팩 없음' in got[0][1]
 
 
-def test_capture_debug_keeps_only_last(tmp_path, monkeypatch, app):
-    from PyQt5.QtGui import QPixmap
-    import capture_debug
-    monkeypatch.setenv('APPDATA', str(tmp_path))
-    capture_debug.start(QPixmap(30, 10), '첫 캡처')
-    capture_debug.log('하나')
-    capture_debug.start(QPixmap(40, 10), '둘째')
-    log = (tmp_path / 'SSNnote' / 'capture_debug' / 'log.txt').read_text(encoding='utf-8')
-    assert '둘째' in log and '첫 캡처' not in log and '하나' not in log
-    assert (tmp_path / 'SSNnote' / 'capture_debug' / 'capture.png').exists()
-
-
 def test_overlay_pads_5px(app):
     from PyQt5.QtCore import QPoint, Qt, QEvent
     from PyQt5.QtGui import QPixmap, QMouseEvent
