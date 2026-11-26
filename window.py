@@ -256,6 +256,16 @@ class MemoWindow(QMainWindow):
             self.input_recurrence.setItemData(_i, Qt.AlignLeft, Qt.TextAlignmentRole)
         self.input_recurrence.installEventFilter(self)
         self.input_recurrence.setFont(QFont('Malgun Gothic', 11))
+        # 펼친 목록 창은 투명 바탕을 물려받으면 Windows에서 검게 칠해진다 → 불투명하게
+        _popup = self.input_recurrence.view().window()
+        _popup.setAttribute(Qt.WA_TranslucentBackground, False)
+        _popup.setAutoFillBackground(True)
+        self.input_recurrence.view().setAutoFillBackground(True)
+        from PyQt5.QtGui import QPalette as _QP, QColor as _QC
+        _pal = self.input_recurrence.view().palette()
+        _pal.setColor(_QP.Base, _QC(tc('#FFFFFF'))); _pal.setColor(_QP.Window, _QC(tc('#FFFFFF')))
+        _pal.setColor(_QP.Text, _QC(tct('#222')))
+        self.input_recurrence.view().setPalette(_pal); _popup.setPalette(_pal)
         self._custom_recurrence_val = ''
         self.input_recurrence.currentIndexChanged.connect(self._on_recurrence_index_changed)
 
@@ -1359,7 +1369,13 @@ class MemoWindow(QMainWindow):
     def _recur_style(self, chosen: bool) -> str:
         return (self._chip('QComboBox', tct('#333') if chosen else tc('rgba(0,0,0,0.42)'))
                 + "QComboBox::drop-down { border: none; width: 0px; }"
-                  "QComboBox QAbstractItemView { font-family: 'Malgun Gothic'; font-size: 11pt; }")
+                + f"""
+            QComboBox QAbstractItemView {{
+                font-family: 'Malgun Gothic'; font-size: 11pt;
+                background: {tc('#FFFFFF')}; color: {tct('#222')};
+                border: 1px solid {tc('rgba(0,0,0,0.18)')}; outline: none;
+                selection-background-color: {tc('rgba(0,0,0,0.08)')}; selection-color: {tct('#222')};
+            }}""")
 
     def _style_inputs(self):
         if not hasattr(self, 'input_name'):
