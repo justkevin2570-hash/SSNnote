@@ -37,29 +37,96 @@ def _pump(app, n=5):
         app.processEvents()
 
 
-def test_full_tour(win):
+def _finish_step(t):
+    """퀘스트를 다 했으면 완료 연출을 건너뛰고 다음 단계로."""
+    t._check()
+    assert t._burst is not None, f'완료되지 않음: {t._key()} {t.done}'
+    t._burst -= 10_000
+    t._tick()
+
+
+def test_full_tour(win, monkeypatch):
     w, app = win
+    import PyQt5.QtWidgets as qw
     from ui import onboarding
     t = onboarding.maybe_start(w)
     assert t is not None and w._tour is t and t.step == 0
-    assert t.bubble.btn_next.isHidden()                      # 업무를 넣어야 다음 ([다음] 없음)
+    assert t.btn_action.isHidden()                                 # [다음] 같은 단추 없음 — 직접 해야
+    # 1 업무 추가: 쓰기 → Tab(마감일 칸) → Enter
     w.input_name.setText('체험학습 계획서 제출')
+    t._check()
+    assert t.done == [True, False, False]
+    monkeypatch.setattr(qw.QApplication, 'focusWidget', staticmethod(lambda: w.input_date))
+    t._check()
+    assert t.done == [True, True, False]
     w._add_task()
     _pump(app)
-    assert t.step == 1 and t._row().task['name'] == '체험학습 계획서 제출'
-    t.next()
-    assert t.step == 2 and t.bubble.lbl_body.text() == onboarding.TEXT['file'][1]
+    _finish_step(t)
+    assert t._key() == 'row' and t._row().task['name'] == '체험학습 계획서 제출'
+    # 2 업무 다루기: 별 → 메모 → ⋮ 메뉴
+    import db
+    db.update_task(t.task_id, '체험학습 계획서 제출', '', 0, 1, '')
+    t._check()
+    assert t.done[0] and not t.done[1]
     row = t._row()
-    row._attachments.append('C:/문서/계획서.hwp')
-    t._tick()
-    assert t.bubble.lbl_body.text() == onboarding.TEXT['file_done'][1]
-    t.next(); t.next()
-    assert t.step == 4 and t.bubble.btn_next.text() == '시작하기'
+    row._expanded = True
+    t._check()
+    assert t.done[1]
+    t._menu_seen = True
+    _finish_step(t)
+    # 3 파일
+    assert t._key() == 'file'
+    t._row()._attachments.append('C:/문서/계획서.hwp')
+    _finish_step(t)
+    # 4 아래 줄 버튼: 열기 → 닫기
+    assert t._key() == 'bottom'
+    state = {'open': True}
+    monkeypatch.setattr(t, '_bottom_open', lambda k: state['open'])
+    t._check()
+    assert t.done == [True, False]
+    state['open'] = False
+    _finish_step(t)
+    # 5 AI: 이미 연결돼 있으면 저절로
+    import ai_client
+    monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'claude_code')
+    assert t._key() == 'ai'
+    _finish_step(t)
+    # 6 메뉴 → 클리어
+    assert t._key() == 'menu'
+    t._menu_seen = True
+    _finish_step(t)
+    assert t.clear and t.btn_action.text() == '시작하기' and len(t.completed) == 6
     assert not onboarding.is_done()
-    t.next()
+    t.btn_action.click()
     _pump(app)
     assert onboarding.is_done() and w._tour is None
-    assert onboarding.maybe_start(w) is None                 # 한 번만
+    assert onboarding.maybe_start(w) is None                       # 한 번만
+
+
+def test_enter_without_tab_needs_another(win):
+    w, app = win
+    from ui import onboarding
+    t = onboarding.start(w)
+    w.input_name.setText('하나')
+    w._add_task()
+    _pump(app)
+    t._check()
+    assert t.step == 0 and t.done == [True, False, False] and t._burst is None
+
+
+def test_skip_step_and_ai_later(win, monkeypatch):
+    w, app = win
+    import ai_client
+    from ui import onboarding
+    monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
+    t = onboarding.start(w)
+    for _ in range(4):
+        t.btn_skip.click()
+    assert t._key() == 'ai'
+    t._layout_buttons()
+    assert not t.btn_action.isHidden() and t.btn_later.text() == '나중에' and t.btn_skip.isHidden()
+    t.btn_later.click()
+    assert t._key() == 'menu'
 
 
 def test_hole_lets_clicks_through(win):
@@ -77,7 +144,7 @@ def test_skip_marks_done(win):
     w, app = win
     from ui import onboarding
     t = onboarding.start(w)
-    t.bubble.btn_skip.click()
+    t.btn_quit.click()
     _pump(app)
     assert onboarding.is_done() and w._tour is None
 
@@ -90,17 +157,12 @@ def test_existing_user_not_shown(win):
     assert onboarding.maybe_start(w) is None and onboarding.is_done()
 
 
-def test_replay_from_menu_still_needs_new_task(win):
+def test_replay_from_menu(win):
     w, app = win
     import db
-    from ui import onboarding
     db.add_task(w.window_id, '쓰던 업무', '')
     w._refresh_tasks()
     _pump(app)
     w.start_tour()
     t = w._tour
-    assert t.step == 0 and t.bubble.btn_next.isHidden()      # 다시 볼 때도 직접 하나 넣어야
-    w.input_name.setText('새로 넣은 업무')
-    w._add_task()
-    _pump(app)
-    assert t.step == 1 and t._row().task['name'] == '새로 넣은 업무' and not t.bubble.btn_next.isHidden()
+    assert t.step == 0 and t.done == [False, False, False]        # 다시 볼 때도 직접 해야
