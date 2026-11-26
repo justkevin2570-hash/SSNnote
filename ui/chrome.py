@@ -102,12 +102,13 @@ class EdgeHandle(QWidget):
         d   = e.globalPos() - self._drag_start
         g   = self._start_geom
         win = self.window()
+        min_w = max(self.MIN_W, win.minimumWidth())   # 글자 크기 · 화면 배율에 따라 커짐
 
         nx, ny = g.x(), g.y()
         nw, nh = g.width(), g.height()
 
         if self.edge == 'left':
-            nx = min(g.x() + d.x(), self._right_anchor - self.MIN_W)
+            nx = min(g.x() + d.x(), self._right_anchor - min_w)
             nw = self._right_anchor - nx
         elif self.edge == 'right':
             nw = g.width() + d.x()
@@ -120,7 +121,7 @@ class EdgeHandle(QWidget):
             nw = g.width() + d.x()
             nh = g.height() + d.y()
         elif self.edge == 'bottom-left':
-            nx = min(g.x() + d.x(), self._right_anchor - self.MIN_W)
+            nx = min(g.x() + d.x(), self._right_anchor - min_w)
             nw = self._right_anchor - nx
             nh = g.height() + d.y()
         elif self.edge == 'top-right':
@@ -128,12 +129,12 @@ class EdgeHandle(QWidget):
             ny = min(g.y() + d.y(), self._bottom_anchor - self.MIN_H)
             nh = self._bottom_anchor - ny
         elif self.edge == 'top-left':
-            nx = min(g.x() + d.x(), self._right_anchor - self.MIN_W)
+            nx = min(g.x() + d.x(), self._right_anchor - min_w)
             nw = self._right_anchor - nx
             ny = min(g.y() + d.y(), self._bottom_anchor - self.MIN_H)
             nh = self._bottom_anchor - ny
 
-        nw = max(self.MIN_W, nw)
+        nw = max(min_w, nw)
         nh = max(self.MIN_H, nh)
 
         nx, ny, nw, nh = win._snap_resize(nx, ny, nw, nh, self.edge)

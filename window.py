@@ -112,7 +112,7 @@ class MemoWindow(QMainWindow):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.setMinimumWidth(EdgeHandle.MIN_W)
+        self.setMinimumWidth(self._min_width())
         self._build_ui()
         # 메모장(메모 전용 창)은 단축키 없이 마우스로만 쓴다 — 핀·접기는 제목 표시줄 버튼과 더블클릭으로 충분
         self._shortcuts = []
@@ -131,10 +131,33 @@ class MemoWindow(QMainWindow):
                 for sc in self._shortcuts:
                     sc.setEnabled(False)
 
+    def _min_width(self, scale=None) -> int:
+        """업무창 최소 폭: 기본 320px에 Windows 배율(125%·150%)과 글자 크기를 곱한다.
+        (글자만 커지고 창은 그대로면 제목 · 반복 칸 · 아래 단추가 잘린다.) 화면 폭의 95%는 넘지 않게."""
+        s = self._scale if scale is None else scale
+        w = int(round(px(EdgeHandle.MIN_W) * s))
+        scr = self.screen() if hasattr(self, 'screen') else None
+        scr = scr or QApplication.primaryScreen()
+        if scr is not None:
+            w = min(w, int(scr.availableGeometry().width() * 0.95))
+        return max(EdgeHandle.MIN_W, w)
+
+    def _ensure_min_width(self):
+        """최소 폭을 다시 정하고, 창이 그보다 좁으면 넓힌다 (화면 오른쪽 밖으로 나가면 왼쪽으로 당김)."""
+        mw = self._min_width()
+        self.setMinimumWidth(mw)
+        if self.width() < mw:
+            x, y, w, h = fit_to_screen(self.x(), self.y(), mw, self.height(), max_frac=0.95, min_w=mw)
+            self.move(x, y)
+            self.resize(w, h)
+
     def apply_state(self, x, y, width, height, collapsed, color='', scale=1.0, row_gap=0):
         # 큰 모니터에서 쓰던 위치·크기라도 지금 화면 안에 들어오게 (노트북·모니터 분리 대비)
-        x, y, width, height = fit_to_screen(x, y, max(width, EdgeHandle.MIN_W), height, max_frac=0.95,
-                                            min_w=EdgeHandle.MIN_W)
+        mw = self._min_width(scale)
+        self.setMinimumWidth(mw)
+        if (width, height) == (320, 400):   # 한 번도 크기를 바꾸지 않은 처음 크기 → Windows 배율만큼 키움
+            height = px(400)
+        x, y, width, height = fit_to_screen(x, y, max(width, mw), height, max_frac=0.95, min_w=mw)
         self.expanded_height = height
         self.collapsed       = collapsed
         self.move(x, y)
@@ -1826,11 +1849,11 @@ class MemoWindow(QMainWindow):
                 if moves_left:
                     new_nx = snap_x
                     new_nw = right_anchor - new_nx
-                    if new_nw >= EdgeHandle.MIN_W:
+                    if new_nw >= self.minimumWidth():
                         nx, nw = new_nx, new_nw
                 else:
                     new_nw = snap_x - nx
-                    if new_nw >= EdgeHandle.MIN_W:
+                    if new_nw >= self.minimumWidth():
                         nw = new_nw
 
         if moves_top or moves_bot:
@@ -2134,6 +2157,7 @@ class MemoWindow(QMainWindow):
 
     def _set_scale(self, scale, menu=None):
         self._scale = scale
+        self._ensure_min_width()
         self._apply_scale_to_inputs()
         self._refresh_tasks()
         self.save_state()

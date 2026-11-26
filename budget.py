@@ -170,6 +170,11 @@ def _pt(n):
     return round(n * _TEXT_SCALE * 2) / 2
 
 
+def _isz(n):
+    """단추 아이콘 크기(px): Windows 배율과 글자 크기를 함께 따라간다."""
+    return px(n * _TEXT_SCALE)
+
+
 def _sz(n):
     """글자를 따라 커져야 하는 고정 크기(px)."""
     return int(round(n * _TEXT_SCALE))
@@ -1315,12 +1320,12 @@ class BudgetWindow(QMainWindow):
 
         self.btn_import = QPushButton('가져오기')
         self.btn_import.setIcon(qta.icon('fa5s.file-import', color=C.MUTED))
-        self.btn_import.setIconSize(QSize(13, 13))
+        self.btn_import.setIconSize(QSize(_isz(13), _isz(13)))
         self.btn_import.setToolTip('엑셀 파일, 엑셀에서 복사한 표, 예산 화면 캡처를 가져와 세부항목별로 정리')
         self.btn_import.clicked.connect(lambda: self._exec_menu(self._import_menu(), self.btn_import))
         self.btn_manage = QPushButton('세부항목 관리')
         self.btn_manage.setIcon(qta.icon('fa5s.folder-open', color=C.MUTED))
-        self.btn_manage.setIconSize(QSize(11, 11))
+        self.btn_manage.setIconSize(QSize(_isz(11), _isz(11)))
         self.btn_manage.setToolTip('세부항목을 만들고 이름을 바꾸거나 지웁니다')
         self.btn_manage.clicked.connect(lambda: self._open_category_manager())
         self.btn_more = QPushButton()
@@ -1331,7 +1336,7 @@ class BudgetWindow(QMainWindow):
         self.btn_more.clicked.connect(lambda: self._exec_menu(self._more_menu(), self.btn_more))
         # AI 연결 (공문 작성 창과 같은 메뉴 · 같은 설정)
         self.btn_ai = QPushButton()
-        self.btn_ai.setIconSize(QSize(9, 9))
+        self.btn_ai.setIconSize(QSize(_isz(9), _isz(9)))
         self.btn_ai.setToolTip('AI 연결 바꾸기')
         self.btn_ai.clicked.connect(lambda: self._ai_menu())
         for b in (self.btn_ai, self.btn_import, self.btn_manage):
@@ -1497,13 +1502,13 @@ class BudgetWindow(QMainWindow):
         if state == 'off':                     # 꺼져 있으면 누를 수 있는 단추로 보이게
             self.btn_ai.setText('AI 연결하기')
             self.btn_ai.setIcon(qta.icon('fa5s.magic', color=C.ACCENT))
-            self.btn_ai.setIconSize(QSize(12, 12))
+            self.btn_ai.setIconSize(QSize(_isz(12), _isz(12)))
             self.btn_ai.setStyleSheet(f'QPushButton {{ color: {C.ACCENT}; }}')
             return
         self.btn_ai.setStyleSheet('')
         self.btn_ai.setText(text)
         self.btn_ai.setIcon(qta.icon(icon, color=color))
-        self.btn_ai.setIconSize(QSize(12, 12) if state == 'legacy' else QSize(9, 9))
+        self.btn_ai.setIconSize(QSize(_isz(12), _isz(12)) if state == 'legacy' else QSize(_isz(9), _isz(9)))
 
     def _ai_menu(self):
         from ui import ai_connect
@@ -1638,7 +1643,7 @@ class BudgetWindow(QMainWindow):
                                     ('직접 만들기', 'fa5s.folder-plus', lambda: self._open_category_manager())):
             b = QPushButton(text)
             b.setIcon(qta.icon(icon_name, color=C.MUTED))
-            b.setIconSize(QSize(13, 13))
+            b.setIconSize(QSize(_isz(13), _isz(13)))
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(fn)
             row.addWidget(b)
@@ -3570,7 +3575,7 @@ class _ItemDialog(QDialog):
             self.btn_delete = QPushButton('삭제')
             self.btn_delete.setObjectName('Danger')
             self.btn_delete.setIcon(qta.icon('fa5s.trash-alt', color='#E11D48'))
-            self.btn_delete.setIconSize(QSize(11, 11))
+            self.btn_delete.setIconSize(QSize(_isz(11), _isz(11)))
             self.btn_delete.setCursor(Qt.PointingHandCursor)
             self.btn_delete.setAutoDefault(False)         # Enter로 삭제되는 일이 없게
             self.btn_delete.setToolTip('이 예산 항목을 지웁니다')
@@ -3798,7 +3803,7 @@ class _CategoryManagerDialog(QDialog):
         self.btn_import = QPushButton('엑셀 가져오기')
         self.btn_import.setObjectName('Ghost')
         self.btn_import.setIcon(qta.icon('fa5s.file-import', color=C.MUTED))
-        self.btn_import.setIconSize(QSize(14, 14))
+        self.btn_import.setIconSize(QSize(_isz(14), _isz(14)))
         self.btn_import.setToolTip('사업관리카드(예산) 엑셀 파일(.xls/.xlsx)을 가져와 '
                                    '세부항목을 자동 생성합니다.')
         self.btn_import.clicked.connect(lambda: self._import_excel())
