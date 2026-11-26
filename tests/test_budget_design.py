@@ -86,7 +86,7 @@ def test_office_text_contrast(win):
 def test_text_size_menu_and_scaling(win):
     w, db, budget = win
     menu = next(a.menu() for a in w._more_menu().actions() if a.text() == '글자 크기')
-    assert [a.text() for a in menu.actions()] == ['기본', '크게', '더 크게']
+    assert [a.text() for a in menu.actions()] == ['기본', '크게', '더 크게', '더더 크게', '아주 크게']
     assert menu.actions()[0].isChecked()
     base_row = budget._sizes()['row_h']
     base_font = w.font().pointSizeF()
@@ -97,6 +97,11 @@ def test_text_size_menu_and_scaling(win):
     assert budget._sizes()['row_h'] > base_row                    # 줄 높이도 글자를 따라 커짐
     w.set_text_size('large')
     assert budget._pt(10) == 11.5
+    w.set_text_size('xxlarge')
+    assert budget._pt(10) == 14.5
+    w.set_text_size('huge')
+    assert budget._pt(10) == 16.0
+    assert budget._sizes()['row_h'] > base_row
     w.set_text_size('base')
     assert budget._pt(10) == 10 and budget._sizes()['row_h'] == base_row
     assert w.font().pointSizeF() == base_font

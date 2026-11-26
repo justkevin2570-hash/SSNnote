@@ -342,6 +342,9 @@ class UrgentBadge(QWidget):
             clock().unregister(self)
         self.updateGeometry()
         self.update()
+        fit = getattr(self.parent(), '_fit', None)
+        if fit:
+            fit()
 
     def sizeHint(self):
         from PyQt5.QtGui import QFontMetrics
@@ -485,6 +488,19 @@ class TitleBar(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.status_label.setGeometry(0, 0, self.width(), self.height())
+        self._fit()
+
+    def _fit(self):
+        """창이 좁거나 글자가 크면 제목 줄이 넘친다 → 날짜부터 숨겨 배지 · 아이콘이 잘리지 않게."""
+        if not hasattr(self, 'date_label'):
+            return
+        lay = self.layout()
+        m = lay.contentsMargins()
+        items = [self.label, self.badge, self.btn_mode, self.btn_history, self.btn_menu, self.btn_pin, self.btn_close]
+        need = m.left() + m.right() + 4 + sum(w.sizeHint().width() + lay.spacing()
+                                              for w in items if not w.isHidden())
+        date_w = self.date_label.sizeHint().width() + lay.spacing()
+        self.date_label.setVisible(need + date_w <= self.width())
 
     # ── 모양 ────────────────────────────────────────────────────
     @staticmethod
@@ -503,7 +519,7 @@ class TitleBar(QWidget):
         return b
 
     def set_icon_scale(self, scale: float):
-        """「글자 크기」(기본·크게·더 크게)에 맞춰 제목 줄 아이콘도 키운다 (제목 줄 높이 안에서)."""
+        """「글자 크기」(기본 ~ 아주 크게)에 맞춰 제목 줄 아이콘도 키운다 (제목 줄 높이 안에서)."""
         size = min(px(round(self._ICON_PX * scale)), TITLE_BAR_HEIGHT - 12)
         for b in (self.btn_history, self.btn_mode, self.btn_menu, self.btn_pin, self.btn_close):
             b.setIconSize(QSize(size, size))
@@ -511,6 +527,7 @@ class TitleBar(QWidget):
         f = self.label.font()
         f.setPointSizeF(10 * scale)
         self.label.setFont(f)
+        self._fit()
 
     def set_active(self, button, on: bool, icon_name=None):
         """켜진 상태(메모 모드·항상 위·AI 대화 열림)는 진한 아이콘 + 옅은 바탕."""

@@ -12,7 +12,7 @@ from .common import NOTE_FONTS, note_font, note_font_available, refresh_installe
 from .theme import PALETTE, PALETTE_NAMES, accent_for_note, note_color, tc
 
 TITLE = '배경색·글자·줄간격'
-SIZES = (('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2))
+SIZES = (('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2), ('더더 크게', 1.35), ('아주 크게', 1.5))
 SAME_AS_NOTE = '='                 # AI 창: 「업무창과 같게」
 
 

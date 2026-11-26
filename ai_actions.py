@@ -26,7 +26,7 @@ COLOR_ALIASES = {'노란색': '노랑', '진노랑': '노랑', '주황': '노랑
                  '보라': '라벤더', '파랑': '하늘', '초록': '연두', '민트': '연두', '베이지': '연회색', '갈색': '연회색',
                  '모래': '연회색', '회색': '연회색', '하얀색': '흰색'}
 FONT_KEYS = {'pretendard': 'Pretendard', 'reatic': '리틱체', 'reatic_narrow': '리틱체 Narrow', 'malgun': '맑은 고딕'}
-SIZE_VALUES = {'기본': 1.0, '크게': 1.1, '더 크게': 1.2}
+SIZE_VALUES = {'기본': 1.0, '크게': 1.1, '더 크게': 1.2, '더더 크게': 1.35, '아주 크게': 1.5}
 GAP_VALUES = (0, 5, 10, 15)
 REPEATS = {'none': '반복 없음', 'weekly': '매주', 'biweekly': '격주', 'monthly': '매월', 'yearly': '매년'}
 OPEN_TARGETS = {'calendar': '달력', 'dashboard': '오늘 한눈에 보기', 'history': '지난 기록(지난 업무)',
@@ -131,9 +131,9 @@ def _size(v):
     try:
         f = float(v)
     except (TypeError, ValueError):
-        raise Reject('글자 크기는 기본·크게·더 크게 중 하나예요')
+        raise Reject('글자 크기는 기본·크게·더 크게·더더 크게·아주 크게 중 하나예요')
     if f not in SIZE_VALUES.values():
-        raise Reject('글자 크기는 기본·크게·더 크게 중 하나예요')
+        raise Reject('글자 크기는 기본·크게·더 크게·더더 크게·아주 크게 중 하나예요')
     return f
 
 
@@ -464,7 +464,7 @@ class MemoWrite:
 
 
 @action('window.style', CHANGE, 'window.style {window_id, color?: 색 이름, font?: pretendard|reatic|reatic_narrow|malgun, '
-        'size?: 기본|크게|더 크게, gap?: 0|5|10|15} — 업무창·메모장 배경색·글자·줄간격')
+        'size?: 기본|크게|더 크게|더더 크게|아주 크게, gap?: 0|5|10|15} — 업무창·메모장 배경색·글자·줄간격')
 class WindowStyle:
     @staticmethod
     def check(p, ctx):

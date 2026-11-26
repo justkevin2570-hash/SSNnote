@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QHeaderView, QDialog, QMessageBox, QComboBox, QAbstractItemView,
     QProgressBar, QFileDialog, QButtonGroup, QTextEdit, QPlainTextEdit,
     QMenu, QRadioButton, QProgressDialog, QLayout, QCompleter, QTextBrowser,
-    QInputDialog, QCheckBox
+    QInputDialog, QCheckBox, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QEvent, QSize, QBuffer, QIODevice, QPoint, QRect, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QImage, QPixmap, QIcon
@@ -139,8 +139,9 @@ def current_design():
     return d if d in DESIGNS else 'base'
 
 
-# ── 글자 크기 (⋯ → 글자 크기): 기본 · 크게 · 더 크게 ─────────────────────
-TEXT_SIZES = {'base': ('기본', 1.0), 'large': ('크게', 1.15), 'xlarge': ('더 크게', 1.3)}
+# ── 글자 크기 (⋯ → 글자 크기): 기본 · 크게 · 더 크게 · 더더 크게 · 아주 크게 ─────────────────────
+TEXT_SIZES = {'base': ('기본', 1.0), 'large': ('크게', 1.15), 'xlarge': ('더 크게', 1.3),
+              'xxlarge': ('더더 크게', 1.45), 'huge': ('아주 크게', 1.6)}
 TEXT_SIZE_KEY = 'budget_text_size'
 _TEXT_SCALE = 1.0
 
@@ -1223,6 +1224,36 @@ _IMAGE_METHOD = {
 }
 
 
+class _ElideLabel(QLabel):
+    """자리가 모자라면 끝을 '…'로 줄여 보여 주는 한 줄 글 (글자를 크게 해도 단추를 밀어내지 않게)."""
+
+    def __init__(self, *a):
+        super().__init__(*a)
+        self._full = ''
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def setText(self, text):
+        self._full = text or ''
+        self.setToolTip(self._full)
+        self._elide()
+
+    def sizeHint(self):
+        sh = super().sizeHint()
+        return QSize(self.fontMetrics().horizontalAdvance(self._full) + 4, sh.height())
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self._elide()
+
+    def changeEvent(self, e):
+        super().changeEvent(e)
+        if e.type() in (QEvent.FontChange, QEvent.StyleChange):
+            self._elide()
+
+    def _elide(self):
+        QLabel.setText(self, self.fontMetrics().elidedText(self._full, Qt.ElideRight, max(0, self.width())))
+
+
 class BudgetWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1246,7 +1277,7 @@ class BudgetWindow(QMainWindow):
         self._expenses_by_item = {}       # 항목별 사용 내역 (최근 날짜 먼저)
         self._expense_ui = {}             # 이번 창을 여는 동안만 기억: 펼침 · 더 보기 (창을 닫으면 사라짐)
         self._restore_window_state()
-        self.text_size = apply_text_size(current_text_size())   # 기본 · 크게 · 더 크게 (⋯ → 글자 크기)
+        self.text_size = apply_text_size(current_text_size())   # 기본 ~ 아주 크게 (⋯ → 글자 크기)
         self.design = apply_design(current_design())   # 기본 · 사무형 (⋯ → 디자인)
         self._init_ui()
         self._apply_ai_btn()
@@ -1275,11 +1306,11 @@ class BudgetWindow(QMainWindow):
         tb.setSpacing(10)
         title = QLabel('예산 관리')
         title.setObjectName('Title')
-        self.lbl_meta = QLabel()
+        self.lbl_meta = _ElideLabel()
         self.lbl_meta.setObjectName('Meta')
         tb.addWidget(title)
-        tb.addWidget(self.lbl_meta, 0, Qt.AlignBottom)
-        header.addLayout(tb)
+        tb.addWidget(self.lbl_meta, 1, Qt.AlignBottom)
+        header.addLayout(tb, 1)
         header.addStretch()
 
         self.btn_import = QPushButton('가져오기')
@@ -1669,7 +1700,7 @@ class BudgetWindow(QMainWindow):
         self._redraw()
 
     def set_text_size(self, name):
-        """글자 크기 바꾸기 (기본 · 크게 · 더 크게): 글자와 칸 크기를 다시 재고 창 안을 다시 그린다."""
+        """글자 크기 바꾸기 (기본 ~ 아주 크게): 글자와 칸 크기를 다시 재고 창 안을 다시 그린다."""
         if name not in TEXT_SIZES:
             return
         from db import set_setting
