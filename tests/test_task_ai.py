@@ -427,5 +427,7 @@ def test_left_edge_drag_falls_back_off_windows(win):
     w._toggle_ai_chat()
     c = acw.instance()
     c.set_side('left')
+    if sys.platform == 'win32':
+        pytest.skip('Windows에서는 창 크기 조절을 Windows에 맡긴다 (이 시험은 그 밖의 환경용)')
     assert not c.start_system_resize(Qt.LeftEdge)          # 이 테스트 환경(리눅스)에서는 앱이 직접 바꿈
     assert not c._sys_resizing
