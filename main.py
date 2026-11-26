@@ -588,6 +588,16 @@ if __name__ == '__main__':
                 print(f'[onboarding] {e}')
     QTimer.singleShot(900, _start_onboarding)
 
+    def _open_calendar_on_start():
+        """📌 고정 메뉴의 「서서니 노트를 켤 때 달력도 열기」 (컴퓨터를 켜면 자동 실행과 함께)."""
+        try:
+            from ui.calendar_view import startup_enabled
+            if startup_enabled() and _open_windows:
+                _open_windows[0]._show_monthly_calendar()
+        except Exception:
+            pass
+    QTimer.singleShot(1200, _open_calendar_on_start)
+
     # 트레이 → 종료로 끌 때 받아 둔 업데이트 설치 (Windows 로그오프·종료 중에는 하지 않음)
     _session_ending = [False]
     app.commitDataRequest.connect(lambda *_: _session_ending.__setitem__(0, True))

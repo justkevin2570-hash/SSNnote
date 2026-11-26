@@ -1064,8 +1064,9 @@ class MemoWindow(QMainWindow):
         dlg.finished.connect(lambda *_: settings.setValue('calendar_dlg/geometry', dlg.saveGeometry()))
         dlg.finished.connect(lambda *_: setattr(self, '_calendar_dlg', None))
         dlg.show()
-        dlg.raise_()
-        dlg.activateWindow()
+        if dlg._pin != 'desktop':           # 바탕화면에 붙인 달력은 다른 창 위로 올리지 않음
+            dlg.raise_()
+            dlg.activateWindow()
 
     def _start_capture(self):
         # 모든 메모 창 숨기고 화면 캡처 후 오버레이 표시
@@ -1354,6 +1355,9 @@ class MemoWindow(QMainWindow):
         add(settings, '단축키 사용', lambda: self._toggle_shortcut(not sc_enabled), checked=sc_enabled)
         autostart_on = autostart_is_enabled()
         add(settings, '시작 시 자동실행', lambda: autostart_set(not autostart_on), checked=autostart_on)
+        from ui.calendar_view import startup_enabled as _cal_on, set_startup as _cal_set
+        _cal_start = _cal_on()
+        add(settings, '시작할 때 달력도 열기', lambda: _cal_set(not _cal_start), checked=_cal_start)
         auto_up = updater.auto_enabled()
         add(settings, '자동 업데이트', lambda: updater.set_auto_enabled(not auto_up), checked=auto_up)
         settings.addSeparator()

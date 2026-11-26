@@ -42,6 +42,7 @@ a = Analysis(
         'ui.bottom_bar',
         'ui.onboarding',        # 첫 사용 안내 (main.py 함수 안에서 불러옴)
         'ui.popup_toggle',      # 메뉴 단추 다시 누르면 닫기 (main.py 함수 안에서 불러옴)
+        'ui.native_frame',      # 제목표시줄 숨기기 (공문 작성 · 달력)
         'ui.ai_chat_window',
         'task_ai',
         'ai_actions',

@@ -56,14 +56,15 @@ def test_deleted_task_stays_gray_in_calendar(env):
     btns = {b.full_text: b for b in cell.findChildren(TaskButton)}
     assert btns['협의회 자료']._past and not btns['공문 회신']._past
 
-    cal._on_cell_clicked(ds)                                            # 그날 목록: 지운 업무는 보기 전용
-    rows = cal._detail_dlg.findChildren(DetailTaskRow)
+    cal._on_cell_clicked(ds)                                            # 그날 목록(오른쪽 패널): 지운 업무는 보기 전용
+    _APP.sendPostedEvents(None, __import__('PyQt5.QtCore', fromlist=['QEvent']).QEvent.DeferredDelete)
+    rows = cal._panel.findChildren(DetailTaskRow)
     assert len(rows) == 2
     past_row = rows[1]
-    assert past_row.findChildren(type(cal._detail_dlg._panel._count_label)) and \
-        any(l.text() == '지난 업무' for l in past_row.findChildren(type(cal._detail_dlg._panel._count_label)))
+    assert past_row.findChildren(type(cal._panel._count_label)) and \
+        any(l.text() == '지난 업무' for l in past_row.findChildren(type(cal._panel._count_label)))
     assert not [b for b in past_row.findChildren(__import__('PyQt5.QtWidgets', fromlist=['QPushButton']).QPushButton)]
-    assert cal._detail_dlg._panel._count_label.text() == '할 일 1개 · 지난 업무 1개'
+    assert cal._panel._count_label.text() == '할 일 1개 · 지난 업무 1개'
 
     hist = next(h for h in db.get_all_task_history() if h['name'] == '협의회 자료')
     db.delete_task_history(hist['id'])                                  # 지난 기록에서 지우면 달력에서도 사라짐
@@ -83,7 +84,7 @@ def test_calendar_delete_also_keeps_history(env):
     _APP.processEvents()
     cal._on_cell_clicked(ds)
     task = next(t for t in cal._task_data[ds] if t['id'] == tid)
-    cal._detail_dlg._panel._on_delete_task(task)                         # 달력에서 지워도
+    cal._panel._on_delete_task(task)                         # 달력에서 지워도
     assert tid not in [t['id'] for t in db.get_tasks(w.window_id)]
     assert [(t['name'], t['_source']) for t in db.get_calendar_items(ds)] == [('수행평가 채점', 'history')]
     assert [(t['name'], t['_source']) for t in _cell(cal, ds)._tasks] == [('수행평가 채점', 'history')]
