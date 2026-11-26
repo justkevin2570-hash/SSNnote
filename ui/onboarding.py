@@ -39,9 +39,8 @@ AI_BENEFITS = ('📝  제목만 쓰면 공문 초안을 써 줘요 (내 공문 �
                '📊  예산 화면을 캡처하면 항목별로 정리해 줘요',
                '💬  「이번 주 마감 뭐야?」 물어보면 알려 줘요')
 BURST_MS = 900
-TYPE_PAUSE_MS = 1500
+TYPE_PAUSE_MS = 1500        # 할 일을 다 쓰고 타자를 멈춘 뒤 이만큼 지나야 ✓
 INTRO_TEXT = '안녕하세요! 저는 서서니 노트 도우미 유주예요 🍊\n간단한 사용법을 같이 알아보아요~'
-INTRO_WAIT_MS = 2000        # 인사말이 다 나온 뒤 이만큼 지나면 1단계로        # 할 일을 다 쓰고 타자를 멈춘 뒤 이만큼 지나야 ✓
 
 # 색 (남보라 유리 카드)
 _C_BG1, _C_BG2 = QColor(30, 27, 75, 246), QColor(49, 46, 129, 246)
@@ -165,7 +164,6 @@ class TourOverlay(QWidget):
         self.completed = set()          # 끝낸 단계 (클리어 화면 배지)
         self.clear = False
         self.intro = False              # 맨 앞 유주 인사 화면
-        self._intro_done_at = None
         self._burst = None              # 완료 연출 시작 시각(ms) — 그동안은 입력 대신 연출
         self._t = 0                     # 애니메이션 시계(ms)
         self._line, self._typed = '', 0
@@ -321,13 +319,12 @@ class TourOverlay(QWidget):
             self._line, self._typed = text, 0
 
     def show_intro(self):
-        """유주 인사 → 대사가 다 나오고 2초 뒤(또는 [시작하기]) 1단계로. 고를 것 없이 바로 시작."""
+        """유주 인사 → [시작하기]를 누르면 1단계로."""
         self.intro = True
         self.step = 0
         self.done = [False] * len(self.quests())
-        self._intro_done_at = None
         self._set_yuju(YUJU['add'])
-        self._line, self._typed = INTRO_TEXT, 0
+        self._line, self._typed = INTRO_TEXT, len(INTRO_TEXT)      # 한 글자씩이 아니라 한 번에
         self._layout_buttons()
         self._hole = QRect(-1, -1, 0, 0)
         self._tick()
@@ -547,7 +544,7 @@ class TourOverlay(QWidget):
     def _card_height(self):
         px = self.px
         if self.intro:
-            return px(250)
+            return px(268)
         if self.clear:
             return px(372)
         h = px(78) + len(self.done) * px(28) + px(34)
@@ -609,7 +606,7 @@ class TourOverlay(QWidget):
         W, H = self.width(), self.height()
         ch = self._card_height()
         # ① 바깥 옆 창에 둘 수 있으면 거기에
-        cw_out = px(400)
+        cw_out = px(440) if self.intro else px(400)
         top = px(8) if self._big() else px(100)         # 위쪽은 유주 · 말풍선 자리
         pw, ph = cw_out + px(8), top + ch + px(8)
         spot = self._side_spot(pw, ph) if self.win.isVisible() else None
@@ -678,12 +675,6 @@ class TourOverlay(QWidget):
             self.setGeometry(self.win.rect())
         if self._line and self._typed < len(self._line):
             self._typed = min(len(self._line), self._typed + 1)
-        if self.intro and self._typed >= len(self._line or ''):
-            if self._intro_done_at is None:
-                self._intro_done_at = self._t
-            elif self._t - self._intro_done_at >= INTRO_WAIT_MS:
-                self.begin()
-                return
         if self._burst is not None and self._t - self._burst >= BURST_MS:
             self._burst = None
             self._next()
@@ -743,7 +734,10 @@ class TourOverlay(QWidget):
         p.setPen(QPen(_C_EDGE, 1.2))
         p.setBrush(QBrush(g))
         p.drawRoundedRect(c, 14, 14)
-        base = self.font()
+        from .common import pr_font
+        base = pr_font(10)
+        base.setStyleStrategy(QFont.PreferAntialias)
+        p.setRenderHint(QPainter.TextAntialiasing)
         if self.intro:
             self._paint_intro(p, c, base)
             return
@@ -881,11 +875,17 @@ class TourOverlay(QWidget):
             bob = math.sin(self._t / 300.0) * px(3) + (1 - pop) * px(18)
             p.drawPixmap(QPointF(c.center().x() - w / 2, c.top() + px(8) + bob), pm)
         lines = (self._line or '')[:self._typed].split('\n')
+        y = c.top() + px(146)
+        side = px(24)                                     # 양옆 여백 — 글이 길면 줄을 바꿔 잘리지 않게
         for i, line in enumerate(lines):
-            p.setFont(_font(base, 12.5 if i == 0 else 11, i == 0))
+            f = _font(base, 12.5 if i == 0 else 11, False)
+            f.setWeight(QFont.DemiBold if i == 0 else QFont.Normal)
+            p.setFont(f)
             p.setPen(_C_GOLD if i == 0 else QColor('#E0E7FF'))
-            p.drawText(QRectF(c.left() + px(10), c.top() + px(146) + i * px(26), c.width() - px(20), px(24)),
-                       Qt.AlignCenter, line)
+            box = QRectF(c.left() + side, y, c.width() - 2 * side, px(80))
+            r = p.boundingRect(box, Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, line)
+            p.drawText(box, Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, line)
+            y += r.height() + px(6)
 
     def _paint_clear(self, p, c, base):
         px = self.px

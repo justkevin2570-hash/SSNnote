@@ -227,17 +227,15 @@ def test_card_goes_beside_window_when_room(win, monkeypatch):
     assert not t._outside and t.btn_quit.parent() is t and t.panel.isHidden()
 
 
-def test_intro_then_auto_start(win):
+def test_intro_waits_for_start_button(win):
     w, app = win
     from ui import onboarding
     t = onboarding.start(w)
     assert t.intro and t.btn_action.text() == '시작하기' and t.btn_quit.isHidden() and t.btn_skip.isHidden()
-    t._typed = len(t._line)
-    t._tick()                                                       # 대사가 다 나온 순간
-    assert t.intro
-    t._t += onboarding.INTRO_WAIT_MS
-    t._tick()                                                       # 2초 뒤 저절로 1단계
-    assert not t.intro and t.step == 0 and not t.btn_quit.isHidden()
+    assert t._typed == len(t._line)                                 # 글은 한 번에
+    t._t += 60_000
+    t._tick()
+    assert t.intro                                                  # 기다려도 저절로 넘어가지 않음
 
 
 def test_intro_start_button(win):
