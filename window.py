@@ -535,6 +535,12 @@ class MemoWindow(QMainWindow):
             self._toggle_cal_popup()
             return True
         if event.type() == QEvent.KeyPress:
+            # Esc: 업무 추가 칸 · 시간 · 반복 칸에서 빠져나오기 (쓰던 글자는 그대로)
+            if event.key() == Qt.Key_Escape and (
+                    obj is self.input_name or obj is self.input_recurrence
+                    or (hasattr(self, 'input_time') and (obj is self.input_time or self.input_time.isAncestorOf(obj)))):
+                self._leave_input()
+                return True
             if obj is self.input_name and event.key() == Qt.Key_Tab:
                 if self.input_date.date() == QDate(1900, 1, 1):
                     self.input_date.setDate(QDate.currentDate())
@@ -543,6 +549,9 @@ class MemoWindow(QMainWindow):
             if obj is self.input_date:
                 if event.key() in (Qt.Key_Return, Qt.Key_Enter):
                     self._add_task()
+                    return True
+                if event.key() == Qt.Key_Escape and self.input_date.date() == QDate(1900, 1, 1):
+                    self._leave_input()                  # 날짜가 비어 있으면 빠져나오기
                     return True
                 if event.key() == Qt.Key_Escape:
                     self.input_date.setDate(QDate(1900, 1, 1))
@@ -1465,6 +1474,14 @@ class MemoWindow(QMainWindow):
         except RuntimeError:        # 닫혀서 정리된 창
             pass
 
+    def _leave_input(self):
+        """Esc: 업무 추가 칸(마감일 · 시간 · 반복 포함)에서 커서를 빼낸다. 쓰던 글자 · 고른 값은 그대로."""
+        fw = QApplication.focusWidget()
+        if fw is not None:
+            fw.clearFocus()
+        self.setFocus(Qt.OtherFocusReason)       # 창은 그대로 눌린 상태 (Alt+N · Ctrl+K 등 단축키 그대로)
+        self._sync_input_details()
+
     def _sync_input_details(self):
         """마감일·시각·반복 줄은 업무 추가 칸을 쓰고 있거나 값을 골랐을 때만 보인다."""
         if not hasattr(self, 'date_row_widget'):
@@ -1478,6 +1495,18 @@ class MemoWindow(QMainWindow):
         show = (in_form or bool(self.input_name.text().strip()) or self._date_touched
                 or self.input_recurrence.currentIndex() != 0
                 or (hasattr(self, '_cal_popup') and self._cal_popup.isVisible()))
+        if not show and self.date_row_widget.isVisible() and (
+                QApplication.mouseButtons() != Qt.NoButton or QApplication.activePopupWidget() is not None):
+            # 마우스를 누르는 중(또는 메뉴 · 목록이 열린 중)에 접으면 목록이 한 줄 올라가 클릭이 엇나간다
+            # (예: 업무 추가 칸을 쓰다가 별을 눌러도 안 눌림) → 손을 떼고 메뉴가 닫힌 뒤에 접는다
+            t = getattr(self, '_details_timer', None)
+            if t is None:
+                t = self._details_timer = QTimer(self)          # 창과 함께 사라짐 (닫힌 뒤에 불리지 않음)
+                t.setSingleShot(True)
+                t.setInterval(60)
+                t.timeout.connect(self._on_app_focus_changed)
+            t.start()
+            return
         if show != self.date_row_widget.isVisible():
             self.date_row_widget.setVisible(show)
 
