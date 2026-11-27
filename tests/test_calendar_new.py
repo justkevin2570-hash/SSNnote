@@ -113,36 +113,54 @@ def test_startup_setting(env):
     assert not cv.startup_enabled()
 
 
-def test_text_size_menu_scales_cells_and_panel(env):
+def test_text_size_split_task_and_other(env):
+    """Aa: 「업무 글자」(칸 안 알약 · 패널 할 일 줄)와 「날짜 · 요일 글자」를 따로."""
     db, app = env
     from ui import calendar_view as cv
-    from ui.calendar_view import TaskButton
+    from ui.calendar_view import TaskButton, DetailTaskRow
+    from PyQt5.QtCore import QEvent
     wid = db.get_first_window_id()
     db.add_task(wid, '글자 크기 확인', date.today().isoformat())
     cal = _cal(app)
-    assert cal.btn_size.isVisible()
     assert cal.btn_size.geometry().left() > cal.btn_pin.geometry().left()   # 📌 고정 오른쪽
+
     def chip_pt():
-        from PyQt5.QtCore import QEvent
         app.sendPostedEvents(None, QEvent.DeferredDelete)
-        b = next(b for b in cal.findChildren(TaskButton) if b.full_text == '글자 크기 확인')
-        return b.font().pointSizeF()
-    base_chip, base_date = chip_pt(), cal._panel._date_label.font().pointSizeF()
-    base_dow = cal._dow_labels[0].font().pointSizeF()
+        return next(b for b in cal.findChildren(TaskButton) if b.full_text == '글자 크기 확인').font().pointSizeF()
+
+    def row_name_pt():
+        app.sendPostedEvents(None, QEvent.DeferredDelete)
+        app.processEvents()
+        return next(r for r in cal._panel.findChildren(DetailTaskRow) if not r.isHidden())._name_lbl.font().pointSizeF()
+
+    chip0, row0 = chip_pt(), row_name_pt()
+    date0, dow0 = cal._panel._date_label.font().pointSizeF(), cal._dow_labels[0].font().pointSizeF()
     month_pt = cal._month_title.font().pointSizeF()
-    cal.set_text_scale(1.5)
+    cal.set_task_scale(1.5)                                                   # 업무 글자만
     app.processEvents()
-    assert abs(chip_pt() - base_chip * 1.5) < 0.6
-    assert cal._panel._date_label.font().pointSizeF() > base_date
-    assert cal._dow_labels[0].font().pointSizeF() > base_dow
+    assert abs(chip_pt() - chip0 * 1.5) < 0.6 and row_name_pt() > row0
+    assert cal._panel._date_label.font().pointSizeF() == date0 and cal._dow_labels[0].font().pointSizeF() == dow0
+    cal.set_text_scale(1.35)                                                  # 날짜 · 요일 글자만
+    app.processEvents()
+    assert cal._panel._date_label.font().pointSizeF() > date0 and cal._dow_labels[0].font().pointSizeF() > dow0
+    assert abs(chip_pt() - chip0 * 1.5) < 0.6                                 # 업무 글자는 그대로
     assert cal._month_title.font().pointSizeF() == month_pt                  # 머리줄은 그대로
-    assert db.get_setting(cv.TEXT_SCALE_KEY) == '1.5'
+    assert db.get_setting(cv.TASK_SCALE_KEY) == '1.5' and db.get_setting(cv.TEXT_SCALE_KEY) == '1.35'
     cal.close()
     cal2 = _cal(app)                                                          # 다음에 열어도 그대로
-    assert abs(cv._TEXT_SCALE[0] - 1.5) < 0.01
-    cal2.set_text_scale(9.9)                                                  # 없는 크기는 무시
-    assert abs(cv._TEXT_SCALE[0] - 1.5) < 0.01
-    for v in (1.1, 1.2, 1.35, 1.0):                                           # 여러 번 바꿔도 오류 없음
+    assert abs(cv._TASK_SCALE[0] - 1.5) < 0.01 and abs(cv._TEXT_SCALE[0] - 1.35) < 0.01
+    cal2.set_task_scale(9.9)                                                  # 없는 크기는 무시
+    assert abs(cv._TASK_SCALE[0] - 1.5) < 0.01
+    for v in (1.1, 1.2, 1.0):                                                 # 여러 번 바꿔도 오류 없음
+        cal2.set_task_scale(v)
         cal2.set_text_scale(v)
         app.processEvents()
     cal2.close()
+
+
+def test_task_scale_inherits_old_setting(env):
+    """예전 버전에서 고른 달력 글자 크기는 업무 글자에도 그대로 이어진다."""
+    db, app = env
+    from ui import calendar_view as cv
+    db.set_setting(cv.TEXT_SCALE_KEY, '1.2')
+    assert cv.load_task_scale() == 1.2 and cv.load_text_scale() == 1.2

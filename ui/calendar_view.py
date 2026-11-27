@@ -65,23 +65,45 @@ def chip_kind(task, today=None) -> str:
     return 'soon' if days <= 3 else 'norm'
 
 
-TEXT_SCALE_KEY = 'calendar_text_scale'     # 달력 글자 크기 (업무창과 따로)
+TEXT_SCALE_KEY = 'calendar_text_scale'     # 달력 「날짜 · 요일 글자」 크기 (업무창과 따로)
+TASK_SCALE_KEY = 'calendar_task_scale'     # 달력 「업무 글자」 크기 (없으면 위 값을 이어받음)
 TEXT_SIZES = (('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2), ('더더 크게', 1.35), ('아주 크게', 1.5))
-_TEXT_SCALE = [1.0]
+_TEXT_SCALE = [1.0]                         # 날짜 숫자 · 요일 · +N개 더 · 패널 날짜 제목 등
+_TASK_SCALE = [1.0]                         # 칸 안 업무 알약 · 패널 할 일 줄
+
+
+def _valid_scale(v):
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if any(abs(v - x) < 0.01 for _, x in TEXT_SIZES) else None
 
 
 def load_text_scale() -> float:
     try:
         from db import get_setting
-        v = float(get_setting(TEXT_SCALE_KEY, '1.0'))
+        return _valid_scale(get_setting(TEXT_SCALE_KEY, '1.0')) or 1.0
     except Exception:
-        v = 1.0
-    return v if any(abs(v - x) < 0.01 for _, x in TEXT_SIZES) else 1.0
+        return 1.0
+
+
+def load_task_scale() -> float:
+    try:
+        from db import get_setting
+        return _valid_scale(get_setting(TASK_SCALE_KEY, '')) or load_text_scale()
+    except Exception:
+        return 1.0
 
 
 def _cf(pt, weight=QFont.Normal):
-    """달력 칸 · 옆 패널 글자 (가ᴬ 글자 크기를 따라 커짐)."""
+    """달력 날짜 · 요일 · 패널 머리 글자 (Aa → 날짜 · 요일 글자)."""
     return _ui_font(pt * _TEXT_SCALE[0], weight)
+
+
+def _tf(pt, weight=QFont.Normal):
+    """달력 업무 글자: 칸 안 알약 · 패널 할 일 줄 (Aa → 업무 글자)."""
+    return _ui_font(pt * _TASK_SCALE[0], weight)
 
 
 def _ui_font(pt, weight=QFont.Normal):
@@ -142,7 +164,7 @@ class TaskButton(QPushButton):
         self._past = past                  # 업무 목록에서 지운 업무 (지난 기록) → 회색
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setCursor(Qt.PointingHandCursor)
-        f = _cf(10, QFont.Medium)                       # 작은 칸 글씨도 또렷하게 (9pt 보통 → 10pt 중간)
+        f = _tf(10, QFont.Medium)                       # 작은 칸 글씨도 또렷하게 (9pt 보통 → 10pt 중간)
         f.setStrikeOut(strikethrough)
         self.setFont(f)
         self.setFixedHeight(QFontMetrics(f).height() + 8)
@@ -326,7 +348,7 @@ class DayCellWidget(QFrame):
 
     def _capacity(self):
         """지금 칸 높이에 들어가는 알약 수 (최소 1, 최대 MAX_VISIBLE)."""
-        chip_h = QFontMetrics(_cf(10, QFont.Medium)).height() + 8
+        chip_h = QFontMetrics(_tf(10, QFont.Medium)).height() + 8
         top = self.day_label.sizeHint().height() + 6 + 6 + 3      # 날짜 + 위아래 여백 + 간격
         avail = self.height() - top
         return max(1, min(self.MAX_VISIBLE, (avail + 3) // (chip_h + 3)))
@@ -341,7 +363,7 @@ class DayCellWidget(QFrame):
         if len(tasks) <= cap:
             shown = tasks
         else:   # '+N개 더' 글줄은 알약보다 낮으니 그만큼 알약을 더 넣는다
-            chip_h = QFontMetrics(_cf(10, QFont.Medium)).height() + 8
+            chip_h = QFontMetrics(_tf(10, QFont.Medium)).height() + 8
             more_h = QFontMetrics(_cf(8.5)).height() + 3
             avail = self.height() - (self.day_label.sizeHint().height() + 15)
             n = max(0, min(self.MAX_VISIBLE, (avail - more_h) // (chip_h + 3)))
@@ -392,9 +414,9 @@ class DetailTaskRow(QWidget):
         layout.setContentsMargins(12, 10, 8, 10)
         layout.setSpacing(9)
 
-        name_font = _cf(10.5, QFont.DemiBold)
+        name_font = _tf(10.5, QFont.DemiBold)
         star = QLabel('★' if task.get('priority') else '☆')
-        star.setFont(_cf(11.5))
+        star.setFont(_tf(11.5))
         star.setFixedHeight(QFontMetrics(name_font).height())
         star.setStyleSheet(f"color: {'#E9A23B' if (task.get('priority') and not done) else CR.FAINT}; background: transparent; border: none;")
         layout.addWidget(star, 0, Qt.AlignTop)
@@ -422,12 +444,12 @@ class DetailTaskRow(QWidget):
             sub.append(first if len(first) <= 30 else first[:30] + '…')
         if sub:
             notes_lbl = QLabel(' · '.join(sub))
-            notes_lbl.setFont(_cf(9))
+            notes_lbl.setFont(_tf(9))
             notes_lbl.setStyleSheet(f"color: {CR.MUTED}; background: transparent; border: none;")
             text_col.addWidget(notes_lbl)
         if past:                                         # 지운 업무: 보기 전용 (고치려면 지난 기록에서)
             tag = QLabel('지난 업무')
-            tag.setFont(_cf(8.5, QFont.Medium))
+            tag.setFont(_tf(8.5, QFont.Medium))
             tag.setToolTip('업무 목록에서 지운 업무예요. 지난 기록에서 되살리거나 완전히 지울 수 있어요.')
             tag.setStyleSheet(f"color: {CR.MUTED}; background: #F1EADB; border-radius: 4px; padding: 2px 6px; border: none;")
             layout.addLayout(text_col, 1)
@@ -443,7 +465,7 @@ class DetailTaskRow(QWidget):
             kind = chip_kind(task)
             col = {'over': '#E5484D', 'soon': '#F76B15', 'star': '#F76B15' if dd == 'D-day' else '#E9A23B'}.get(kind, '#B8AE9A')
             pill = QLabel(dd.replace('D+', 'D+') + (' 지남' if dd.startswith('D+') else ''))
-            pill.setFont(_cf(8.5, QFont.Bold))
+            pill.setFont(_tf(8.5, QFont.Bold))
             ph = QFontMetrics(pill.font()).height() + 4
             pill.setFixedHeight(ph)
             pill.setStyleSheet(f"color: #FFFFFF; background: {col}; border-radius: {ph // 2}px; padding: 0 8px; border: none;")
@@ -578,6 +600,7 @@ class DayDetailPanel(QWidget):
         while self._task_list_layout.count() > 2:          # [＋ 추가] 단추와 끝 여백만 남기고 비움
             item = self._task_list_layout.takeAt(0)
             if item.widget():
+                item.widget().hide()                     # 지우기 전 줄이 새 줄과 겹쳐 보이지 않게 바로 숨김
                 item.widget().deleteLater()
 
         for i, task in enumerate(tasks):
@@ -981,6 +1004,7 @@ class NativeCalendarDialog(QDialog):
         self._task_data = {}
         self._pin = load_pin()
         _TEXT_SCALE[0] = load_text_scale()
+        _TASK_SCALE[0] = load_task_scale()
         self._lock_frame = False
         self.setMinimumSize(px(900), px(600))
         self._build_ui()
@@ -1054,7 +1078,7 @@ class NativeCalendarDialog(QDialog):
         self.btn_pin.setToolTip('달력 고정: 고정 안 함 · 항상 위에 · 바탕화면에 붙이기')
         self.btn_pin.clicked.connect(self._show_pin_menu)
         rh.addWidget(self.btn_pin)
-        self.btn_size = _arrow_button('ph.text-aa-bold', '글자 크기 (달력 칸 · 오른쪽 패널)')
+        self.btn_size = _arrow_button('ph.text-aa-bold', '글자 크기 (업무 글자 · 날짜 · 요일 글자 따로)')
         self.btn_size.clicked.connect(self._show_size_menu)
         rh.addWidget(self.btn_size)
 
@@ -1123,15 +1147,32 @@ class NativeCalendarDialog(QDialog):
     def _show_size_menu(self):
         from . import menu_style as ms
         menu = ms.make_menu(self)
-        ms.add_header(menu, '달력 글자 크기')
+        ms.add_header(menu, '업무 글자')
+        for label, val in TEXT_SIZES:
+            ms.add_action(menu, label, lambda v=val: self.set_task_scale(v),
+                          checked=abs(_TASK_SCALE[0] - val) < 0.01)
+        menu.addSeparator()
+        ms.add_header(menu, '날짜 · 요일 글자')
         for label, val in TEXT_SIZES:
             ms.add_action(menu, label, lambda v=val: self.set_text_scale(v),
                           checked=abs(_TEXT_SCALE[0] - val) < 0.01)
         menu.exec_(self.btn_size.mapToGlobal(self.btn_size.rect().bottomLeft()))
 
+    def set_task_scale(self, scale):
+        """업무 글자(칸 안 알약 · 패널 할 일 줄) 크기를 바꾸고 기억한다."""
+        if _valid_scale(scale) is None:
+            return
+        _TASK_SCALE[0] = scale
+        try:
+            from db import set_setting
+            set_setting(TASK_SCALE_KEY, str(scale))
+        except Exception:
+            pass
+        self._refresh_fonts()
+
     def set_text_scale(self, scale):
-        """달력 칸 · 요일 · 오른쪽 패널 글자 크기를 바꾸고 기억한다 (머리줄은 그대로)."""
-        if not any(abs(scale - x) < 0.01 for _, x in TEXT_SIZES):
+        """날짜 · 요일 글자(날짜 숫자 · 요일 · +N개 더 · 패널 날짜 제목 등) 크기를 바꾸고 기억한다 (머리줄은 그대로)."""
+        if _valid_scale(scale) is None:
             return
         _TEXT_SCALE[0] = scale
         try:
@@ -1139,6 +1180,9 @@ class NativeCalendarDialog(QDialog):
             set_setting(TEXT_SCALE_KEY, str(scale))
         except Exception:
             pass
+        self._refresh_fonts()
+
+    def _refresh_fonts(self):
         for lbl in self._dow_labels:
             lbl.setFont(_cf(9.5, QFont.DemiBold))
         self._panel.apply_fonts()
