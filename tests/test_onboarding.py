@@ -54,23 +54,39 @@ def test_full_tour(win, monkeypatch):
     t.begin()
     assert t.step == 0 and not t.intro
     assert t.btn_action.isHidden()                                 # [다음] 같은 단추 없음 — 직접 해야
-    # 1 업무 추가: 쓰기 → Tab(마감일 칸) → Enter
+    # 1 업무 추가: 쓰기 → Tab(연 · 월 · 일 → 시 · 분 → 반복) → Enter, 칸마다 유주가 설명
+    from PyQt5.QtWidgets import QDateTimeEdit
     w.input_name.setText('체험학습 계획서 제출')
     t._check()
-    assert t.done == [False, False, False]                          # 치자마자는 아직
+    assert t.done == [False] * 5                                    # 치자마자는 아직
     t._t += onboarding.TYPE_PAUSE_MS
     t._check()
-    assert t.done == [True, False, False]                           # 0.7초 멈추면 ✓
-    focus = {'w': w.input_date}
+    assert t.done == [True, False, False, False, False]             # 0.7초 멈추면 ✓
+    focus = {'w': w.input_name}
     monkeypatch.setattr(qw.QApplication, 'focusWidget', staticmethod(lambda: focus['w']))
     t._check()
-    assert t.done == [True, False, False] and '마감일' in t._line   # 마감일 칸: 아직
+    assert '마감일' in t._line and 'Tab' in t._line
+    focus['w'] = w.input_date
+    sec = {'d': QDateTimeEdit.YearSection, 't': QDateTimeEdit.HourSection}
+    monkeypatch.setattr(w.input_date, 'currentSection', lambda: sec['d'])
+    monkeypatch.setattr(w.input_time, 'currentSection', lambda: sec['t'])
+    t._check()
+    assert '연도' in t._line and not t.done[1]
+    sec['d'] = QDateTimeEdit.MonthSection
+    t._check()
+    assert t._line.startswith('월') and '↑↓' in t._line
+    sec['d'] = QDateTimeEdit.DaySection
+    t._check()
+    assert t._line.startswith('일') and t.done[1]                    # 연 · 월 · 일 ✓
     focus['w'] = w.input_time
     t._check()
-    assert not t.done[1] and '시간' in t._line
+    assert '24시간' in t._line and not t.done[2]
+    sec['t'] = QDateTimeEdit.MinuteSection
+    t._check()
+    assert t._line.startswith('분') and t.done[2]
     focus['w'] = w.input_recurrence
     t._check()
-    assert t.done == [True, True, False]                            # 반복 칸까지 와야 ✓
+    assert '매주' in t._line and t.done == [True, True, True, True, False]   # 반복까지 ✓
     w._add_task()
     _pump(app)
     _finish_step(t)
@@ -84,6 +100,7 @@ def test_full_tour(win, monkeypatch):
     row._expanded = True
     t._check()
     assert t.done[1]
+    assert t._target() == t._rect(row.btn_menu)                     # ⋮ 단추만 밝게
     t._menu_seen = True
     _finish_step(t)
     # 3 파일
@@ -108,10 +125,14 @@ def test_full_tour(win, monkeypatch):
     assert t.done == [True, True, False]                            # 앞서 누른 E도 이제 인정
     onboarding.notify('palette')
     _finish_step(t)
-    # 5 AI: 이미 연결돼 있으면 저절로
+    # 6 AI: 이미 연결돼 있어도 저절로 넘어가지 않음 — [AI] 대화창을 열어 봐야
     import ai_client
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'claude_code')
     assert t._key() == 'ai'
+    t._check()
+    assert t._burst is None and not t.done[0] and '[AI]' in t.quests()[0]
+    assert t._target() == t._rect(w.btn_ai_bottom)
+    monkeypatch.setattr(t, '_bottom_open', lambda k: k == 'ai')
     _finish_step(t)
     # 6 메뉴 → 클리어
     assert t._key() == 'menu'
@@ -134,7 +155,7 @@ def test_enter_without_tab_needs_another(win):
     w._add_task()
     _pump(app)
     t._check()
-    assert t.step == 0 and t.done == [True, False, False] and t._burst is None
+    assert t.step == 0 and t.done == [True, False, False, False, False] and t._burst is None
 
 
 def test_skip_step_and_ai_later(win, monkeypatch):
@@ -148,7 +169,8 @@ def test_skip_step_and_ai_later(win, monkeypatch):
         t.btn_skip.click()
     assert t._key() == 'ai'
     t._layout_buttons()
-    assert not t.btn_action.isHidden() and t.btn_later.text() == '나중에' and t.btn_skip.isHidden()
+    assert not t.btn_action.isHidden() and t.btn_later.text() == '다음에 할게요' and t.btn_skip.isHidden()
+    assert t._notes() == [onboarding.AI_NOTE] and len(t._info()) == 4
     t.btn_later.click()
     assert t._key() == 'menu'
 
@@ -192,7 +214,7 @@ def test_replay_from_menu(win):
     w.start_tour()
     t = w._tour
     t.begin()
-    assert t.step == 0 and t.done == [False, False, False]        # 다시 볼 때도 직접 해야
+    assert t.step == 0 and t.done == [False] * 5                   # 다시 볼 때도 직접 해야
 
 
 def test_typing_again_restarts_pause(win):
@@ -244,3 +266,133 @@ def test_intro_start_button(win):
     t = onboarding.start(w)
     t.btn_action.click()
     assert not t.intro and t._key() == 'add'
+
+
+# ── v3.73: 자세한 Tab 설명 · ⋮ 강조 · 파일 놓는 칸 · Alt+1 표시 · AI 설명 ──
+def _tour_with_task(w, app):
+    from ui import onboarding
+    t = onboarding.start(w)
+    t.begin()
+    w.input_name.setText('계획서')
+    w._add_task()
+    _pump(app)
+    return t
+
+
+def test_add_step_notes_and_calendar(win, monkeypatch):
+    w, app = win
+    from ui import onboarding
+    t = onboarding.start(w)
+    t.begin()
+    notes = ' '.join(t._notes())
+    assert 'Shift+Tab' in notes and '달력' in notes and 'Esc' in notes
+    w.input_name.setText('체험학습')
+    t._check()
+    t._t += onboarding.TYPE_PAUSE_MS
+    t._check()
+    assert t.done[0]
+    monkeypatch.setattr(w._cal_popup, 'isVisible', lambda: True)    # 마감일 칸을 눌러 달력이 뜸
+    t._check()
+    assert t._line == onboarding.ADD_LINES['calendar']
+    monkeypatch.setattr(w._cal_popup, 'isVisible', lambda: False)   # 날짜를 눌러 골랐음
+    w._date_touched = True
+    t._check()
+    assert t.done[1]                                                # 달력으로 골라도 마감일 ✓
+    w._add_task()
+    _pump(app)
+    t._check()
+    assert t._burst is not None                                     # 마감일까지 했으면 Enter로 완료
+
+
+def test_row_step_shows_controls_and_waits_menu_close(win, monkeypatch):
+    w, app = win
+    import db
+    import PyQt5.QtWidgets as qw
+    t = _tour_with_task(w, app)
+    t.show_step(1)
+    row = t._row()
+    db.update_task(row.task['id'], row.task['name'], '', 0, 1, '')
+    row._expanded = True
+    t._check()
+    assert row.btn_menu._row_active                                 # ⋮ 늘 보이게
+    t._menu_seen = True
+    sentinel = object()
+    monkeypatch.setattr(qw.QApplication, 'activePopupWidget', staticmethod(lambda: sentinel))
+    t._check()
+    assert not t.done[2] and 'C' in t._line and t._burst is None    # 메뉴가 열린 동안은 설명만
+    monkeypatch.setattr(qw.QApplication, 'activePopupWidget', staticmethod(lambda: None))
+    t._check()
+    assert t._burst is not None                                     # 닫은 뒤 ✓
+    t.finish(mark=False)
+    _pump(app)
+    assert not row.btn_menu._row_active                             # 끝내면 원래대로 (마우스를 올렸을 때만)
+
+
+def test_file_step_drop_zone(win):
+    w, app = win
+    from PyQt5.QtCore import Qt
+    t = _tour_with_task(w, app)
+    t.show_step(2)
+    t._tick()
+    dz = t.drop_zone
+    assert dz.isVisible() and dz.testAttribute(Qt.WA_TransparentForMouseEvents)   # 끌어 놓기는 업무 줄로 통과
+    row = t._row()
+    assert row.geometry().isValid() and t._rect(row).contains(dz.geometry().center())
+    assert '바탕화면' in t._line and t.btn_later.text() == '다음에 할게요'
+    t._drag_over = True
+    t._tick()
+    assert dz.hover
+    row._attachments.append('C:/바탕화면/사진.png')
+    t._check()
+    assert '더블클릭' in t._line                                     # 붙으면 여는 법 안내
+    t._burst -= 10_000
+    t._tick()
+    assert t._key() == 'bottom' and not dz.isVisible()
+
+
+def test_bottom_step_hole_first_button_and_panel_on_top(win):
+    w, app = win
+    from PyQt5.QtCore import Qt
+    t = _tour_with_task(w, app)
+    t.show_step(3)
+    k, label = t._bottom_first()
+    assert t._target() == t._rect(w._bottom_btns[k])                # 첫 번째 단추만
+    assert '을(를)' not in t._line and f'{label} 창' in t._line
+    assert t._keep_panel_top                                        # 카드를 다른 창 위로 계속 올림
+    assert not (t.panel.windowFlags() & Qt.WindowStaysOnTopHint)    # 창 속성은 안 바꿈 (바꾸면 드물게 튕김)
+    t.show_step(4)
+    assert not t._keep_panel_top
+
+
+def test_ai_step_not_connected_open_window_counts(win, monkeypatch):
+    w, app = win
+    import ai_client
+    from ui import onboarding
+    monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
+    import ui.ai_settings_window as asw
+    monkeypatch.setattr(asw, 'open_ai_settings', lambda *a, **k: None)
+    t = _tour_with_task(w, app)
+    t.show_step(onboarding.STEPS.index('ai'))
+    t._check()
+    assert t._burst is None and len(t._info()) == 4
+    t.btn_action.click()                                             # [AI 연결하기] → 연결 창만 열어도 ✓
+    t._check()
+    assert t._burst is not None
+
+
+def test_tour_cycles_no_crash(win):
+    """단계를 앞뒤로 오가며 그리고 · 끝내기를 반복해도 오류 없음."""
+    w, app = win
+    from ui import onboarding
+    for _ in range(2):
+        t = _tour_with_task(w, app)
+        for i in range(len(onboarding.STEPS)):
+            t.show_step(i)
+            for _ in range(3):
+                t._tick()
+            t.update()
+            t.panel.update()
+            _pump(app)
+            w.grab()
+        t.finish(mark=False)
+        _pump(app)
