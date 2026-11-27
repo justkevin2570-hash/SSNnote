@@ -108,6 +108,15 @@ def _make_tray_icon():
     return app_icon()
 
 
+def _tray_icon(fallback):
+    """작업 표시줄 트레이 아이콘: assets/tray.ico (없으면 앱 아이콘)."""
+    from PyQt5.QtGui import QIcon
+    from ui.common import _base_path
+    path = os.path.join(_base_path(), 'assets', 'tray.ico')
+    icon = QIcon(path) if os.path.exists(path) else QIcon()
+    return fallback if icon.isNull() or not icon.availableSizes() else icon
+
+
 DEFAULT_W, DEFAULT_H = 320, 400
 GAP = 4
 
@@ -321,7 +330,7 @@ if __name__ == '__main__':
     _app_icon = _make_tray_icon()
     app.setWindowIcon(_app_icon)
 
-    tray = QSystemTrayIcon(_app_icon, app)
+    tray = QSystemTrayIcon(_tray_icon(_app_icon), app)
     tray.setToolTip('서서니 노트')
 
     from ui import menu_style

@@ -15,6 +15,7 @@ a = Analysis(
         ('assets/윗방향 아이콘.png', 'assets'),
         ('assets/위화살표.png', 'assets'),
         ('assets/popup_images', 'assets/popup_images'),
+        ('assets/tray.ico', 'assets'),
         ('assets/font/FluentSystemIcons-Regular.ttf', 'assets/font'),
         ('assets/font/FluentSystemIcons-Filled.ttf', 'assets/font'),
         ('assets/font/MaterialIcons-Regular.ttf', 'assets/font'),
