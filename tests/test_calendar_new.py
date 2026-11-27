@@ -140,20 +140,22 @@ def test_text_size_split_task_and_other(env):
     app.processEvents()
     assert abs(chip_pt() - chip0 * 1.5) < 0.6 and row_name_pt() > row0
     assert cal._panel._date_label.font().pointSizeF() == date0 and cal._dow_labels[0].font().pointSizeF() == dow0
-    cal.set_text_scale(1.35)                                                  # 날짜 · 요일 글자만
+    cal.set_text_scale(1.2)                                                   # 날짜 · 요일 글자만 (3단계)
     app.processEvents()
     assert cal._panel._date_label.font().pointSizeF() > date0 and cal._dow_labels[0].font().pointSizeF() > dow0
     assert abs(chip_pt() - chip0 * 1.5) < 0.6                                 # 업무 글자는 그대로
     assert cal._month_title.font().pointSizeF() == month_pt                  # 머리줄은 그대로
-    assert db.get_setting(cv.TASK_SCALE_KEY) == '1.5' and db.get_setting(cv.TEXT_SCALE_KEY) == '1.35'
+    assert db.get_setting(cv.TASK_SCALE_KEY) == '1.5' and db.get_setting(cv.TEXT_SCALE_KEY) == '1.2'
     cal.close()
     cal2 = _cal(app)                                                          # 다음에 열어도 그대로
-    assert abs(cv._TASK_SCALE[0] - 1.5) < 0.01 and abs(cv._TEXT_SCALE[0] - 1.35) < 0.01
+    assert abs(cv._TASK_SCALE[0] - 1.5) < 0.01 and abs(cv._TEXT_SCALE[0] - 1.2) < 0.01
     cal2.set_task_scale(9.9)                                                  # 없는 크기는 무시
     assert abs(cv._TASK_SCALE[0] - 1.5) < 0.01
-    for v in (1.1, 1.2, 1.0):                                                 # 여러 번 바꿔도 오류 없음
+    cal2.set_text_scale(1.35)                                                 # 날짜 글자는 3단계만
+    assert abs(cv._TEXT_SCALE[0] - 1.2) < 0.01
+    for v in (1.1, 1.5, 1.0):                                                 # 여러 번 바꿔도 오류 없음
         cal2.set_task_scale(v)
-        cal2.set_text_scale(v)
+        cal2.set_text_scale(v if v != 1.1 else 1.2)
         app.processEvents()
     cal2.close()
 
@@ -162,5 +164,34 @@ def test_task_scale_inherits_old_setting(env):
     """예전 버전에서 고른 달력 글자 크기는 업무 글자에도 그대로 이어진다."""
     db, app = env
     from ui import calendar_view as cv
-    db.set_setting(cv.TEXT_SCALE_KEY, '1.2')
-    assert cv.load_task_scale() == 1.2 and cv.load_text_scale() == 1.2
+    db.set_setting(cv.TEXT_SCALE_KEY, '1.35')                                # 예전 5단계 값
+    assert cv.load_task_scale() == 1.35                                      # 업무 글자는 그대로
+    assert cv.load_text_scale() == 1.2                                       # 날짜 글자는 가까운 3단계로
+
+
+def test_long_task_names_wrap_two_lines_when_big(env):
+    db, app = env
+    from ui import calendar_view as cv
+    from ui.calendar_view import TaskButton, split_two_lines
+    from PyQt5.QtCore import QEvent
+    from PyQt5.QtGui import QFontMetrics
+    wid = db.get_first_window_id()
+    ds = date.today().isoformat()
+    db.add_task(wid, '방과후 강사 계약서 품의 및 예산 확인', ds)
+    cal = _cal(app)
+
+    def btn():
+        app.sendPostedEvents(None, QEvent.DeferredDelete)
+        app.processEvents()
+        return next(b for b in cal.findChildren(TaskButton) if b.full_text.startswith('방과후') and not b.isHidden())
+    assert btn().lines == 1                                                  # 기본 크기: 한 줄 (…)
+    cal.set_task_scale(1.35)
+    b = btn()
+    assert b.lines == 2 and b.height() == cv.chip_height(2)                  # 크게: 두 줄
+    b.grab()
+    fm = QFontMetrics(b.font())
+    cal.set_task_scale(1.0)
+    assert btn().lines == 1
+    first, rest = split_two_lines('방과후 강사 계약서 품의', fm, fm.horizontalAdvance('방과후 강사 '))
+    assert first == '방과후 강사' and rest == '계약서 품의'                    # 띄어쓰기에서 끊음
+    cal.close()

@@ -67,7 +67,9 @@ def chip_kind(task, today=None) -> str:
 
 TEXT_SCALE_KEY = 'calendar_text_scale'     # 달력 「날짜 · 요일 글자」 크기 (업무창과 따로)
 TASK_SCALE_KEY = 'calendar_task_scale'     # 달력 「업무 글자」 크기 (없으면 위 값을 이어받음)
-TEXT_SIZES = (('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2), ('더더 크게', 1.35), ('아주 크게', 1.5))
+TEXT_SIZES = (('기본', 1.0), ('크게', 1.1), ('더 크게', 1.2), ('더더 크게', 1.35), ('아주 크게', 1.5))   # 업무 글자
+OTHER_SIZES = (('기본', 1.0), ('크게', 1.2), ('아주 크게', 1.5))                                        # 날짜 · 요일 글자
+WRAP_FROM = 1.2                             # 업무 글자가 이 배율 이상이면 칸 안 업무 이름을 두 줄까지
 _TEXT_SCALE = [1.0]                         # 날짜 숫자 · 요일 · +N개 더 · 패널 날짜 제목 등
 _TASK_SCALE = [1.0]                         # 칸 안 업무 알약 · 패널 할 일 줄
 
@@ -80,10 +82,16 @@ def _valid_scale(v):
     return v if any(abs(v - x) < 0.01 for _, x in TEXT_SIZES) else None
 
 
+def _snap_other(v):
+    """날짜 · 요일 글자는 3단계: 예전 5단계 값(1.1 · 1.35)은 가장 가까운 단계로."""
+    return min((x for _, x in OTHER_SIZES), key=lambda x: (round(abs(x - v), 3), x))   # 가운데면 작은 쪽
+
+
 def load_text_scale() -> float:
     try:
         from db import get_setting
-        return _valid_scale(get_setting(TEXT_SCALE_KEY, '1.0')) or 1.0
+        v = _valid_scale(get_setting(TEXT_SCALE_KEY, '1.0'))
+        return _snap_other(v) if v else 1.0
     except Exception:
         return 1.0
 
@@ -91,7 +99,10 @@ def load_text_scale() -> float:
 def load_task_scale() -> float:
     try:
         from db import get_setting
-        return _valid_scale(get_setting(TASK_SCALE_KEY, '')) or load_text_scale()
+        v = _valid_scale(get_setting(TASK_SCALE_KEY, ''))
+        if v:
+            return v
+        return _valid_scale(get_setting(TEXT_SCALE_KEY, '1.0')) or 1.0   # 예전 하나짜리 크기를 그대로
     except Exception:
         return 1.0
 
@@ -149,12 +160,33 @@ def _primary_button(text):
     return b
 
 
+def chip_height(lines=1):
+    fm = QFontMetrics(_tf(10, QFont.Medium))
+    return fm.height() * (2 if lines == 2 else 1) + 8
+
+
+def split_two_lines(text, fm, width):
+    """두 줄로 나눌 첫 줄 · 나머지. 띄어쓰기에서 끊을 수 있으면 거기서, 아니면 글자 단위로."""
+    if fm.horizontalAdvance(text) <= width:
+        return text, ''
+    cut = 1
+    for i in range(1, len(text) + 1):
+        if fm.horizontalAdvance(text[:i]) > width:
+            break
+        cut = i
+    sp = text.rfind(' ', 0, cut + 1)
+    if sp > 0 and sp >= cut // 2:
+        return text[:sp], text[sp + 1:]
+    return text[:cut], text[cut:]
+
+
 class TaskButton(QPushButton):
     """칸 안의 할 일 한 줄: 옅은 회색 알약 + 왼쪽 작은 점 (중요는 주황 점)."""
 
     def __init__(self, task_id, task_text, strikethrough=False, priority=False, past=False, parent=None, kind=None,
-                 faded=False):
+                 faded=False, lines=1):
         super().__init__(parent)
+        self.lines = 2 if lines == 2 else 1  # 업무 글자를 크게 하면 이름이 두 줄까지 (잘리지 않게)
         self.faded = faded                 # 다른 달 칸: 색을 옅게 직접 그림 (반투명 효과는 글자를 흐리게 해서 안 씀)
         self.kind = kind or ('done' if (past or strikethrough) else ('star' if priority else 'norm'))
         self.task_id = task_id
@@ -167,7 +199,7 @@ class TaskButton(QPushButton):
         f = _tf(10, QFont.Medium)                       # 작은 칸 글씨도 또렷하게 (9pt 보통 → 10pt 중간)
         f.setStrikeOut(strikethrough)
         self.setFont(f)
-        self.setFixedHeight(QFontMetrics(f).height() + 8)
+        self.setFixedHeight(chip_height(self.lines))
         self.setToolTip(f'{task_text}\n(지운 업무 · 지난 기록)' if past else task_text)
         self._hover = False
 
@@ -219,14 +251,22 @@ class TaskButton(QPushButton):
         p.setPen(fade(fg))
         fm = QFontMetrics(f)
         text_rect = self.rect().adjusted(18, 0, -6, 0)
-        p.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter,
-                   fm.elidedText(self.full_text, Qt.ElideRight, max(10, text_rect.width())))
+        tw = max(10, text_rect.width())
+        if self.lines == 2:
+            first, rest = split_two_lines(self.full_text, fm, tw)
+            lh = fm.height()
+            top = (self.height() - 2 * lh) // 2
+            p.drawText(QRectF(text_rect.left(), top, tw, lh), Qt.AlignLeft | Qt.AlignVCenter, first)
+            p.drawText(QRectF(text_rect.left(), top + lh, tw, lh), Qt.AlignLeft | Qt.AlignVCenter,
+                       fm.elidedText(rest, Qt.ElideRight, tw))
+        else:
+            p.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter, fm.elidedText(self.full_text, Qt.ElideRight, tw))
         p.end()
 
 
 class TaskIndicatorRow(QWidget):
     """할 일 알약 한 줄 (예전 이름 유지)."""
-    def __init__(self, task, parent=None, faded=False):
+    def __init__(self, task, parent=None, faded=False, lines=1):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -238,6 +278,7 @@ class TaskIndicatorRow(QWidget):
             past=task.get('_source') == 'history',
             kind=chip_kind(task),
             faded=faded,
+            lines=lines,
         )
         layout.addWidget(self._btn, 1)
 
@@ -346,38 +387,48 @@ class DayCellWidget(QFrame):
         lbl.mousePressEvent = lambda e: self.overflow_clicked.emit(self.date_str)
         return lbl
 
-    def _capacity(self):
-        """지금 칸 높이에 들어가는 알약 수 (최소 1, 최대 MAX_VISIBLE)."""
-        chip_h = QFontMetrics(_tf(10, QFont.Medium)).height() + 8
-        top = self.day_label.sizeHint().height() + 6 + 6 + 3      # 날짜 + 위아래 여백 + 간격
-        avail = self.height() - top
-        return max(1, min(self.MAX_VISIBLE, (avail + 3) // (chip_h + 3)))
-
-    def _relayout(self):
-        """할 일을 칸 높이에 맞춰 다시 배치: 다 안 들어가면 마지막 자리에 '+N개 더'."""
-        self._clear_widgets()
+    def _plan(self):
+        """지금 칸 크기에 넣을 업무와 각 줄 수 [(task, lines), ...]. 다 안 들어가면 마지막에 '+N개 더' 자리를 남긴다.
+        업무 글자가 WRAP_FROM 이상이면 한 줄에 안 들어가는 이름은 두 줄로."""
         tasks = getattr(self, '_tasks', [])
         if not tasks:
+            return []
+        fm = QFontMetrics(_tf(10, QFont.Medium))
+        wrap = _TASK_SCALE[0] >= WRAP_FROM - 1e-6
+        text_w = max(10, self.width() - 14 - 24)                 # 칸 여백 · 점 자리 빼고
+        avail = self.height() - (self.day_label.sizeHint().height() + 6 + 6 + 3)
+        more_h = QFontMetrics(_cf(8.5)).height() + 6
+        plan, used = [], 0
+        for i, t in enumerate(tasks):
+            lines = 2 if (wrap and fm.horizontalAdvance(t.get('name', '')) > text_w) else 1
+            h = chip_height(lines) + 3
+            last = i == len(tasks) - 1
+            need = used + h + (0 if last else more_h)
+            if len(plan) >= self.MAX_VISIBLE or (need > avail and plan):
+                break
+            if need > avail and lines == 2 and used + chip_height(1) + 3 + (0 if last else more_h) <= avail:
+                lines, h = 1, chip_height(1) + 3                  # 두 줄은 안 들어가면 한 줄로라도
+            plan.append((t, lines))
+            used += h
+        return plan
+
+    def _relayout(self):
+        """할 일을 칸 크기에 맞춰 다시 배치: 다 안 들어가면 마지막 자리에 '+N개 더'."""
+        self._clear_widgets()
+        tasks = getattr(self, '_tasks', [])
+        plan = self._plan()
+        self._shown_plan = [(t.get('id'), n) for t, n in plan]
+        if not tasks:
             return
-        cap = self._capacity()
-        if len(tasks) <= cap:
-            shown = tasks
-        else:   # '+N개 더' 글줄은 알약보다 낮으니 그만큼 알약을 더 넣는다
-            chip_h = QFontMetrics(_tf(10, QFont.Medium)).height() + 8
-            more_h = QFontMetrics(_cf(8.5)).height() + 3
-            avail = self.height() - (self.day_label.sizeHint().height() + 15)
-            n = max(0, min(self.MAX_VISIBLE, (avail - more_h) // (chip_h + 3)))
-            shown = tasks[:n]
-        for task in shown:
-            row = TaskIndicatorRow(task, faded=self._other)   # 다른 달 칸은 옅은 색 (선명도는 그대로)
+        for task, lines in plan:
+            row = TaskIndicatorRow(task, faded=self._other, lines=lines)   # 다른 달 칸은 옅은 색 (선명도는 그대로)
             row.button().clicked.connect(lambda checked: self.clicked.emit(self.date_str))
             self.task_layout.addWidget(row)
-        rest = len(tasks) - len(shown)
+        rest = len(tasks) - len(plan)
         if rest:
             self._hidden_count = rest
             self._overflow_label = self._make_overflow_label(rest)
             self.task_layout.addWidget(self._overflow_label, 0, Qt.AlignLeft)
-        self._shown_cap = cap
 
     def add_task(self, task):
         self._tasks = getattr(self, '_tasks', []) + [task]
@@ -385,8 +436,9 @@ class DayCellWidget(QFrame):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if getattr(self, '_tasks', None) and self._capacity() != getattr(self, '_shown_cap', None):
-            self._relayout()
+        if getattr(self, '_tasks', None) and \
+                [(t.get('id'), n) for t, n in self._plan()] != getattr(self, '_shown_plan', None):
+            self._relayout()                             # 넣을 업무 · 줄 수가 바뀔 때만 다시 만든다
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1153,7 +1205,7 @@ class NativeCalendarDialog(QDialog):
                           checked=abs(_TASK_SCALE[0] - val) < 0.01)
         menu.addSeparator()
         ms.add_header(menu, '날짜 · 요일 글자')
-        for label, val in TEXT_SIZES:
+        for label, val in OTHER_SIZES:
             ms.add_action(menu, label, lambda v=val: self.set_text_scale(v),
                           checked=abs(_TEXT_SCALE[0] - val) < 0.01)
         menu.exec_(self.btn_size.mapToGlobal(self.btn_size.rect().bottomLeft()))
@@ -1172,7 +1224,7 @@ class NativeCalendarDialog(QDialog):
 
     def set_text_scale(self, scale):
         """날짜 · 요일 글자(날짜 숫자 · 요일 · +N개 더 · 패널 날짜 제목 등) 크기를 바꾸고 기억한다 (머리줄은 그대로)."""
-        if _valid_scale(scale) is None:
+        if not any(abs(scale - x) < 0.01 for _, x in OTHER_SIZES):
             return
         _TEXT_SCALE[0] = scale
         try:
