@@ -907,7 +907,7 @@ class _PinButton(QPushButton):
 
 
 class _HeaderBar(QWidget):
-    """달력 머리줄: 왼쪽(연도 · 오늘 · 업무 수) | 가운데(‹ 11월 ›, 창 가운데에 딱) | 오른쪽(📌 고정)."""
+    """달력 머리줄: 왼쪽(연도 · 업무 수) | 가운데(‹ 11월 ›, 창 가운데에 딱) | 오른쪽([오늘] · 📌 고정)."""
 
     def __init__(self, left: QWidget, center: QWidget, right: QWidget, parent=None):
         super().__init__(parent)
@@ -968,7 +968,7 @@ class NativeCalendarDialog(QDialog):
         mv.setContentsMargins(px(26), px(18), px(22), px(18))
         mv.setSpacing(px(10))
 
-        # 왼쪽: 2026 [오늘] 업무 10 · 지남 1
+        # 왼쪽: 2026 업무 10 · 지남 1
         left = QWidget()
         lh = QHBoxLayout(left)
         lh.setContentsMargins(0, 0, 0, 0)
@@ -977,9 +977,6 @@ class NativeCalendarDialog(QDialog):
         self._year_label.setFont(_ui_font(18, QFont.Bold))
         self._year_label.setStyleSheet(f"color: {CR.TEXT2}; background: transparent;")
         lh.addWidget(self._year_label)
-        self.btn_today = _round_button('오늘', '이번 달 · 오늘로')
-        self.btn_today.clicked.connect(self._go_today)
-        lh.addWidget(self.btn_today)
         self._info_label = QLabel()
         self._info_label.setTextFormat(Qt.RichText)
         self._info_label.setFont(_ui_font(10, QFont.Medium))
@@ -1004,10 +1001,20 @@ class NativeCalendarDialog(QDialog):
         ch.addWidget(self._month_title)
         ch.addWidget(self.btn_next)
 
-        # 오른쪽: 📌 고정 ▾
+        # 오른쪽: [오늘] 📌 고정 ▾
         right = QWidget()
         rh = QHBoxLayout(right)
         rh.setContentsMargins(0, 0, 0, 0)
+        rh.setSpacing(px(8))
+        self.btn_today = _round_button('오늘', '이번 달 · 오늘로')
+        h = px(34)
+        self.btn_today.setStyleSheet(                       # 크림 바탕 (달력 색에 맞춤)
+            f"QPushButton {{ background: #FFF1D6; border: 1px solid #EAD7AE; border-radius: {h // 2}px;"
+            f" padding: 0 {px(14)}px; color: {CR.TEXT2}; }}"
+            f"QPushButton:hover {{ background: #FFE9BF; }}"
+            f"QPushButton:pressed {{ background: #F8DFAE; }}")
+        self.btn_today.clicked.connect(self._go_today)
+        rh.addWidget(self.btn_today)
         self.btn_pin = _PinButton()
         self.btn_pin.setCursor(Qt.PointingHandCursor)
         self.btn_pin.setFixedHeight(px(34))
