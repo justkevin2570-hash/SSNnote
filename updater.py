@@ -13,7 +13,7 @@
   - 두 번 연속 설치에 실패하면 자동 설치를 멈추고 한 번만 알린다.
 
 자동 업데이트를 끄면(메뉴 → 설정 → 자동 업데이트) 예전처럼 새 버전 알림만 한 번 띄운다.
-메뉴 → 도움말 → 업데이트 확인: [지금 업데이트] 한 번이면 내려받아 설치하고 다시 켜진다.
+메뉴 → 도움말 → 업데이트 확인: [업데이트] 한 번이면 내려받아 설치하고 다시 켜진다.
 """
 
 import hashlib
@@ -469,13 +469,13 @@ def show_update_notification(version: str, changelog: str = '', parent=None):
 
 
 def show_update_dialog(info: dict, parent=None):
-    """메뉴에서 확인: [지금 업데이트] 한 번이면 받아서 설치하고 다시 켜진다."""
+    """메뉴에서 확인: [업데이트] 한 번이면 받아서 설치하고 다시 켜진다."""
     msg = QMessageBox(parent)
     msg.setWindowTitle(UPDATE_TITLE)
     msg.setText(f"현재 버전: {APP_VERSION}\n최신 버전: {info['version']}\n\n"
                 '지금 업데이트할까요? 잠깐 꺼졌다가 다시 켜져요.')
     msg.setDetailedText(info.get('changelog') or '업데이트 내역 없음')
-    b_now = msg.addButton('지금 업데이트', QMessageBox.AcceptRole)
+    b_now = msg.addButton('업데이트', QMessageBox.AcceptRole)
     msg.addButton('나중에', QMessageBox.RejectRole)
     msg.setDefaultButton(b_now)
     _korean_buttons(msg)
