@@ -40,10 +40,10 @@ class CR:
     PIN_BG, PIN_LINE, PIN_TEXT = '#EEF2FF', '#C7D2FE', '#4F46E5'
     # 업무 알약: (바탕, 글자, 점)
     CHIP = {
-        'norm': ('#F7F1E4', '#37352F', '#A8A08F'),
-        'soon': ('#FFF1E6', '#B4540A', '#F76B15'),
-        'over': ('#FDECEC', '#C5221F', '#E5484D'),
-        'star': ('#FEF6D8', '#8A6100', '#E9A23B'),
+        'norm': ('#F7F1E4', '#2B2A27', '#A8A08F'),
+        'soon': ('#FFF1E6', '#8F3A04', '#F76B15'),
+        'over': ('#FDECEC', '#A11A17', '#E5484D'),
+        'star': ('#FEF6D8', '#6B4700', '#E9A23B'),
         'done': (None, '#B0AFAB', '#D6D5D2'),
     }
 
@@ -142,7 +142,7 @@ class TaskButton(QPushButton):
         self._past = past                  # 업무 목록에서 지운 업무 (지난 기록) → 회색
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setCursor(Qt.PointingHandCursor)
-        f = _cf(9)
+        f = _cf(10, QFont.Medium)                       # 작은 칸 글씨도 또렷하게 (9pt 보통 → 10pt 중간)
         f.setStrikeOut(strikethrough)
         self.setFont(f)
         self.setFixedHeight(QFontMetrics(f).height() + 8)
@@ -326,7 +326,7 @@ class DayCellWidget(QFrame):
 
     def _capacity(self):
         """지금 칸 높이에 들어가는 알약 수 (최소 1, 최대 MAX_VISIBLE)."""
-        chip_h = QFontMetrics(_cf(9)).height() + 8
+        chip_h = QFontMetrics(_cf(10, QFont.Medium)).height() + 8
         top = self.day_label.sizeHint().height() + 6 + 6 + 3      # 날짜 + 위아래 여백 + 간격
         avail = self.height() - top
         return max(1, min(self.MAX_VISIBLE, (avail + 3) // (chip_h + 3)))
@@ -341,7 +341,7 @@ class DayCellWidget(QFrame):
         if len(tasks) <= cap:
             shown = tasks
         else:   # '+N개 더' 글줄은 알약보다 낮으니 그만큼 알약을 더 넣는다
-            chip_h = QFontMetrics(_cf(9)).height() + 8
+            chip_h = QFontMetrics(_cf(10, QFont.Medium)).height() + 8
             more_h = QFontMetrics(_cf(8.5)).height() + 3
             avail = self.height() - (self.day_label.sizeHint().height() + 15)
             n = max(0, min(self.MAX_VISIBLE, (avail - more_h) // (chip_h + 3)))
