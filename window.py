@@ -125,7 +125,8 @@ class MemoWindow(QMainWindow):
         self._merge_btn          = None   # MergeButton 위젯 참조
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # 투명 바탕(WA_TranslucentBackground)은 쓰지 않는다: 모서리가 각진 창이라 필요 없고,
+        # 투명 창에서는 Windows가 ClearType을 꺼서 글자가 흐려진다 (펼친 목록이 검게 나오던 원인이기도)
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.setMinimumWidth(self._min_width())
         self._build_ui()
@@ -1785,7 +1786,6 @@ class MemoWindow(QMainWindow):
         if self.pin_active:
             flags |= Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
-        self.setAttribute(Qt.WA_TranslucentBackground)
         self.show()
         self.raise_()
         self.activateWindow()
