@@ -85,10 +85,10 @@ def test_pin_modes_saved_and_flags(env):
     from PyQt5.QtCore import Qt
     from ui import calendar_view as cv
     cal = _cal(app)
-    assert cal._pin == 'none' and '고정' in cal.btn_pin.text()
+    assert cal._pin == 'none' and cal.btn_pin.label == '고정'
     cal._apply_pin('top')
     assert cal.windowFlags() & Qt.WindowStaysOnTopHint and db.get_setting(cv.PIN_KEY) == 'top'
-    assert cal.isVisible() and '항상 위에' in cal.btn_pin.text()
+    assert cal.isVisible() and cal.btn_pin.label == '항상 위에'
     cal._apply_pin('desktop')
     assert cal.windowFlags() & Qt.WindowStaysOnBottomHint and cal._lock_frame
     assert not cal.btn_win_min.isVisible()                               # 바탕화면 위젯은 내리기 없음

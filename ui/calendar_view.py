@@ -854,6 +854,58 @@ def _window_button(icon, tip, danger=False):
     return b
 
 
+class _PinButton(QPushButton):
+    """📌 고정 ▾ 단추. 핀 · 꺾쇠는 이모지 글자 대신 벡터 아이콘을 직접 그려 화면 배율에서도 또렷하게.
+    고정 중이면 꽉 찬 보라 핀 · 보라 글자."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.label = '고정'
+        self.on = False
+        self.setFont(_ui_font(10, QFont.DemiBold))
+
+    def set_state(self, label, on):
+        self.label, self.on = label, on
+        self.updateGeometry()
+        self.update()
+
+    def _icon_px(self):
+        return px(15)
+
+    def sizeHint(self):
+        fm = QFontMetrics(self.font())
+        ic = self._icon_px()
+        return QSize(px(14) + ic + px(6) + fm.horizontalAdvance(self.label) + px(6) + px(10) + px(14), px(34))
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def paintEvent(self, e):
+        super().paintEvent(e)                            # 바탕 · 테두리 (스타일시트)
+        import qtawesome as qta
+        from PyQt5.QtGui import QPainter, QColor
+        from PyQt5.QtCore import QRect
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.TextAntialiasing)
+        color = CR.PIN_TEXT if self.on else CR.TEXT2
+        ic = self._icon_px()
+        x = px(14)
+        cy = self.height() // 2
+        qta.icon('ph.push-pin-fill' if self.on else 'ph.push-pin-bold', color=color).paint(
+            p, QRect(x, cy - ic // 2, ic, ic))
+        x += ic + px(6)
+        p.setFont(self.font())
+        p.setPen(QColor(color))
+        fm = QFontMetrics(self.font())
+        tw = fm.horizontalAdvance(self.label)
+        p.drawText(QRect(x, 0, tw + 2, self.height()), Qt.AlignVCenter | Qt.AlignLeft, self.label)
+        x += tw + px(6)
+        cs = px(10)
+        qta.icon('ph.caret-down-bold', color=color).paint(p, QRect(x, cy - cs // 2, cs, cs))
+        p.end()
+
+
 class _HeaderBar(QWidget):
     """달력 머리줄: 왼쪽(연도 · 오늘 · 업무 수) | 가운데(‹ 11월 ›, 창 가운데에 딱) | 오른쪽(📌 고정)."""
 
@@ -956,8 +1008,7 @@ class NativeCalendarDialog(QDialog):
         right = QWidget()
         rh = QHBoxLayout(right)
         rh.setContentsMargins(0, 0, 0, 0)
-        self.btn_pin = QPushButton()
-        self.btn_pin.setFont(_ui_font(10, QFont.DemiBold))
+        self.btn_pin = _PinButton()
         self.btn_pin.setCursor(Qt.PointingHandCursor)
         self.btn_pin.setFixedHeight(px(34))
         self.btn_pin.setToolTip('달력 고정: 고정 안 함 · 항상 위에 · 바탕화면에 붙이기')
@@ -1000,7 +1051,8 @@ class NativeCalendarDialog(QDialog):
 
     def _update_pin_button(self):
         on = self._pin != 'none'
-        self.btn_pin.setText(f'📌  {PIN_LABEL[self._pin]}  ▾')
+        self.btn_pin.set_state(PIN_LABEL[self._pin], on)
+        self.btn_pin.setAccessibleName(f'고정: {PIN_LABEL[self._pin]}')
         h = px(34)
         if on:
             qss = (f"QPushButton {{ background: {CR.PIN_BG}; border: 1px solid {CR.PIN_LINE}; border-radius: {h // 2}px;"
@@ -1051,6 +1103,13 @@ class NativeCalendarDialog(QDialog):
         self._update_pin_button()
         if mode == 'desktop':
             self._send_to_bottom()
+        for w in (self._open_windows or []):              # 아래 줄 [달력] 단추의 보라 핀도 바로
+            f = getattr(w, '_refresh_bottom_active', None)
+            if f is not None:
+                try:
+                    f()
+                except RuntimeError:
+                    pass
 
     def _send_to_bottom(self):
         import sys

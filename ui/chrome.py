@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLabel, QApplication,
     QFrame, QGraphicsOpacityEffect
 )
-from PyQt5.QtCore import Qt, QTimer, QPoint, QSize, QPropertyAnimation, QEasingCurve, QRectF
+from PyQt5.QtCore import Qt, QEvent, QTimer, QPoint, QSize, QPropertyAnimation, QEasingCurve, QRectF
 from PyQt5.QtGui import QFont, QColor, QPainter, QPixmap, QCursor, QIcon, QPainterPath, QPen
 import qtawesome as qta
 from .common import _base_path, BREAKAWAY_DIST, SNAP_RESIST, SNAP_THRESHOLD, TITLE_BAR_HEIGHT, TITLE_COLOR, px
@@ -1075,3 +1075,47 @@ def _get_snap_guide_overlay():
     if _snap_guide_overlay is None:
         _snap_guide_overlay = SnapGuideOverlay()
     return _snap_guide_overlay
+
+
+class PinBadge(QWidget):
+    """아래 줄 [달력] 단추 오른쪽 위의 작은 보라 핀 (달력을 고정했을 때).
+    그림 파일이 아니라 벡터 아이콘을 그릴 때마다 그려서 화면 배율(125% · 150% · 200%)에서도 또렷하다."""
+
+    COLOR = '#7C3AED'
+
+    def __init__(self, button):
+        super().__init__(button)
+        from .common import px
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._s = px(17)
+        self.setFixedSize(self._s, self._s)
+        self.setToolTip('달력 고정 중')
+        button.installEventFilter(self)
+        self.hide()
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Resize:
+            self._place()
+        return False
+
+    def _place(self):
+        b = self.parentWidget()
+        if b is not None:
+            self.move(b.width() - self._s - 3, 2)
+
+    def showEvent(self, e):
+        self._place()
+        super().showEvent(e)
+
+    def paintEvent(self, _):
+        import qtawesome as qta
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.75, 0.75, -0.75, -0.75)
+        p.setPen(QPen(QColor('#FFFFFF'), 1.2))           # 흰 테두리로 단추 바탕과 떼어 보이게
+        p.setBrush(QColor(self.COLOR))
+        p.drawEllipse(r)
+        m = self._s * 0.18
+        qta.icon('ph.push-pin-fill', color='#FFFFFF').paint(p, r.adjusted(m, m, -m, -m).toRect())
+        p.end()
+

@@ -52,9 +52,24 @@ class _ChildWindowWatcher(QObject):
             pass
 
     def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Show, QEvent.Hide, QEvent.Close, QEvent.WindowStateChange):
+            QTimer.singleShot(0, self._refresh_buttons)          # 아래 줄 단추 눌린 모양을 바로
         if event.type() in (QEvent.Hide, QEvent.Close, QEvent.WindowStateChange):
             QTimer.singleShot(0, lambda o=obj: self._maybe_return(o))
         return False
+
+    def _refresh_buttons(self):
+        try:
+            wins = list(getattr(self._memo, '_open_windows', None) or []) or [self._memo]
+        except RuntimeError:
+            return
+        for w in wins:
+            f = getattr(w, '_refresh_bottom_active', None)
+            if f is not None:
+                try:
+                    f()
+                except RuntimeError:
+                    pass
 
     def _maybe_return(self, win):
         try:
@@ -382,6 +397,7 @@ class MemoWindow(QMainWindow):
             }}
             QPushButton:hover {{ background: {tc("rgba(255,255,255,0.75)")}; border-color: {tc("rgba(0,0,0,0.14)")}; }}
             QPushButton:pressed {{ background: {tc("rgba(0,0,0,0.06)")}; }}
+            QPushButton[active="true"] {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.18)")}; }}
         """
         _btn_font = QFont('Pretendard GOV', 11)
         BOTTOM_BTN_H = px(35)        # 아래 줄 버튼 높이 (네 버튼 모두 같게) — 예전 글자 버튼(32)보다 4 크게
@@ -428,6 +444,12 @@ class MemoWindow(QMainWindow):
             QPushButton[active="true"] {{ background: {tc("rgba(0,0,0,0.12)")}; border-color: {tc("rgba(0,0,0,0.18)")}; }}
         """)
         self._apply_bottom_order()
+        # 공문 · 예산 · 달력 창이 열려 있으면 그 단추도 AI처럼 눌린 모양, 달력을 고정하면 작은 보라 핀
+        from ui.chrome import PinBadge
+        self._cal_pin_badge = PinBadge(self._bottom_btns['calendar'])
+        self._bottom_state_timer = QTimer(self)                 # 다른 길(빠른 찾기 · AI 등)로 열고 닫아도 맞게
+        self._bottom_state_timer.timeout.connect(self._refresh_bottom_active)
+        self._bottom_state_timer.start(1000)
 
         # 기존 capture 메서드 호환용 더미 위젯 (숨김)
         self.lbl_capture_result = QLabel('')
@@ -1577,6 +1599,36 @@ class MemoWindow(QMainWindow):
         for i, key in enumerate(order):
             lay.addWidget(self._bottom_btns[key], 1)
         self._refresh_bottom_tips(order)
+
+    def _refresh_bottom_active(self):
+        """아래 줄 공문 · 예산 · 달력 단추: 그 창이 열려 있으면(내려 둔 것 말고) 눌린 모양. 달력이 고정이면 보라 핀."""
+        try:
+            for key in ('doc', 'budget', 'calendar'):
+                b = self._bottom_btns.get(key)
+                if b is None:
+                    continue
+                bw = self._bottom_window(key)
+                if key == 'calendar' and bw is None:      # 다른 업무창에서 연 달력도 (달력은 앱에 하나)
+                    for w in (self._open_windows or []):
+                        bw = getattr(w, '_calendar_dlg', None) if w is not self else None
+                        if bw is not None:
+                            break
+                try:
+                    is_open = bw is not None and bw.isVisible() and not bw.isMinimized()
+                except RuntimeError:
+                    bw, is_open = None, False
+                if bool(b.property('active')) != is_open:
+                    b.setProperty('active', is_open)
+                    b.style().unpolish(b)
+                    b.style().polish(b)
+                    b.update()
+                if key == 'calendar':
+                    pinned = is_open and getattr(bw, '_pin', 'none') in ('top', 'desktop')
+                    badge = getattr(self, '_cal_pin_badge', None)
+                    if badge is not None and badge.isVisible() != pinned:
+                        badge.setVisible(pinned)
+        except RuntimeError:          # 닫혀서 정리된 창
+            pass
 
     def _refresh_bottom_tips(self, order=None):
         from ui.bottom_bar import load_order
