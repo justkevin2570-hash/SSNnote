@@ -130,8 +130,10 @@ def _primary_button(text):
 class TaskButton(QPushButton):
     """칸 안의 할 일 한 줄: 옅은 회색 알약 + 왼쪽 작은 점 (중요는 주황 점)."""
 
-    def __init__(self, task_id, task_text, strikethrough=False, priority=False, past=False, parent=None, kind=None):
+    def __init__(self, task_id, task_text, strikethrough=False, priority=False, past=False, parent=None, kind=None,
+                 faded=False):
         super().__init__(parent)
+        self.faded = faded                 # 다른 달 칸: 색을 옅게 직접 그림 (반투명 효과는 글자를 흐리게 해서 안 씀)
         self.kind = kind or ('done' if (past or strikethrough) else ('star' if priority else 'norm'))
         self.task_id = task_id
         self.full_text = task_text
@@ -163,9 +165,17 @@ class TaskButton(QPushButton):
         p.setRenderHint(QPainter.Antialiasing)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         bg, fg, dot = CR.CHIP[self.kind]
+
+        def fade(col):                     # 다른 달: 흰 바탕 쪽으로 섞어 옅게 (글자는 그대로 선명)
+            c = QColor(col)
+            if self.faded:
+                k = 0.5
+                c = QColor(int(c.red() + (255 - c.red()) * k), int(c.green() + (255 - c.green()) * k),
+                           int(c.blue() + (255 - c.blue()) * k))
+            return c
         p.setPen(Qt.NoPen)
         if bg:
-            c = QColor(bg)
+            c = fade(bg)
             if self._hover:
                 c = c.darker(104)
             p.setBrush(c)
@@ -173,7 +183,7 @@ class TaskButton(QPushButton):
         elif self._hover:
             p.setBrush(QColor(CR.HOVER))
             p.drawRoundedRect(r, 6, 6)
-        p.setBrush(QColor(dot))
+        p.setBrush(fade(dot))
         cy, cx = r.center().y(), 9.0
         if self.kind == 'star':                          # ★ 중요: 작은 마름모
             p.drawPolygon(QPolygonF([QPointF(cx, cy - 4), QPointF(cx + 4, cy), QPointF(cx, cy + 4), QPointF(cx - 4, cy)]))
@@ -184,7 +194,7 @@ class TaskButton(QPushButton):
             f.setWeight(QFont.DemiBold)
         f.setStrikeOut(self.kind == 'done')
         p.setFont(f)
-        p.setPen(QColor(fg))
+        p.setPen(fade(fg))
         fm = QFontMetrics(f)
         text_rect = self.rect().adjusted(18, 0, -6, 0)
         p.drawText(text_rect, Qt.AlignLeft | Qt.AlignVCenter,
@@ -194,7 +204,7 @@ class TaskButton(QPushButton):
 
 class TaskIndicatorRow(QWidget):
     """할 일 알약 한 줄 (예전 이름 유지)."""
-    def __init__(self, task, parent=None):
+    def __init__(self, task, parent=None, faded=False):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -205,6 +215,7 @@ class TaskIndicatorRow(QWidget):
             priority=bool(task.get('priority', 0)),
             past=task.get('_source') == 'history',
             kind=chip_kind(task),
+            faded=faded,
         )
         layout.addWidget(self._btn, 1)
 
@@ -336,13 +347,8 @@ class DayCellWidget(QFrame):
             n = max(0, min(self.MAX_VISIBLE, (avail - more_h) // (chip_h + 3)))
             shown = tasks[:n]
         for task in shown:
-            row = TaskIndicatorRow(task)
+            row = TaskIndicatorRow(task, faded=self._other)   # 다른 달 칸은 옅은 색 (선명도는 그대로)
             row.button().clicked.connect(lambda checked: self.clicked.emit(self.date_str))
-            if self._other:                              # 다른 달 칸은 흐리게
-                from PyQt5.QtWidgets import QGraphicsOpacityEffect
-                eff = QGraphicsOpacityEffect(row)
-                eff.setOpacity(0.55)
-                row.setGraphicsEffect(eff)
             self.task_layout.addWidget(row)
         rest = len(tasks) - len(shown)
         if rest:
