@@ -125,14 +125,32 @@ def test_full_tour(win, monkeypatch):
     assert t.done == [True, True, False]                            # 앞서 누른 E도 이제 인정
     onboarding.notify('palette')
     _finish_step(t)
-    # 6 AI: 이미 연결돼 있어도 저절로 넘어가지 않음 — [AI] 대화창을 열어 봐야
+    # 6 AI: 먼저 장점 카드 7장 → (연결된 PC) 대화창 열기 → 「…」 → 설정 → AI 연결 → 안내 끝까지
     import ai_client
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'claude_code')
-    assert t._key() == 'ai'
+    assert t._key() == 'ai' and t._ai_page == 0
+    t._check()
+    assert t._burst is None and t._target().isEmpty()
+    for _ in range(len(onboarding.AI_PAGES)):
+        t.btn_action.click()
+    assert t._ai_page is None
     t._check()
     assert t._burst is None and not t.done[0] and 'Alt+4' in t.quests()[0]
     assert t._target() == t._rect(w.btn_ai_bottom)
     monkeypatch.setattr(t, '_bottom_open', lambda k: k == 'ai')
+    t._check()
+    assert t.done == [True, False, False] and t._target() == t._rect(w.title_bar.btn_menu)
+    from ui.ai_settings_window import AiSettingsWindow
+    dlg = AiSettingsWindow(w)
+    dlg.show()
+    _pump(app)
+    assert dlg.guide is not None
+    t._check()
+    assert t.done == [True, True, False] and t._line == onboarding.AI_LINES['guide']
+    for _ in range(6):
+        dlg.guide.btn_next.click()                                   # 마지막 [다 봤어요] → 창이 닫힘
+    _pump(app)
+    assert not dlg.isVisible()
     _finish_step(t)
     # 6 메뉴 → 클리어
     assert t._key() == 'menu'
@@ -169,8 +187,19 @@ def test_skip_step_and_ai_later(win, monkeypatch):
         t.btn_skip.click()
     assert t._key() == 'ai'
     t._layout_buttons()
-    assert not t.btn_action.isHidden() and t.btn_later.text() == '다음에 할게요' and t.btn_skip.isHidden()
-    assert t._notes() == [onboarding.AI_NOTE] and len(t._info()) == 4
+    assert t.btn_action.text() == '다음' and t.btn_later.isHidden() and t.btn_skip.isHidden()   # 장점 카드 1장
+    t.btn_action.click()
+    assert t._ai_page == 1 and t.btn_later.text() == '이전' and not t.btn_later.isHidden()
+    t.btn_later.click()                                               # [이전]
+    assert t._ai_page == 0 and t._key() == 'ai'
+    for _ in range(len(onboarding.AI_PAGES) - 1):
+        t.btn_action.click()
+    assert t.btn_action.text() == '연결하러 가기'
+    t.btn_action.click()
+    assert t._ai_page is None and t.btn_action.isHidden()
+    assert t.btn_later.text() == '다음에 할게요' and t.btn_skip.isHidden()
+    assert t._notes() == [onboarding.AI_NOTE] and t._info() == []
+    assert t.quests() == [onboarding.AI_QUESTS['settings'], onboarding.AI_QUESTS['guide']]
     t.btn_later.click()
     assert t._key() == 'menu'
 
@@ -369,13 +398,30 @@ def test_ai_step_not_connected_open_window_counts(win, monkeypatch):
     import ai_client
     from ui import onboarding
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
-    import ui.ai_settings_window as asw
-    monkeypatch.setattr(asw, 'open_ai_settings', lambda *a, **k: None)
+    from ui.ai_settings_window import AiSettingsWindow
     t = _tour_with_task(w, app)
     t.show_step(onboarding.STEPS.index('ai'))
     t._check()
-    assert t._burst is None and len(t._info()) == 4
-    t.btn_action.click()                                             # [AI 연결하기] → 연결 창만 열어도 ✓
+    assert t._burst is None and t.done == [False, False]
+    dlg = AiSettingsWindow(w)                                         # 장점 카드 중에 바로 열어도 됨
+    dlg.show()
+    _pump(app)
+    assert t._ai_page is None and dlg.guide is not None and dlg.guide.page == 0
+    assert dlg.guide.ring.isVisible() and not dlg.guide.ring.target.isEmpty()     # 창이 뜨는 도중에 붙여도 테두리가 보임
+    t._check()
+    assert t.done == [True, False] and t._burst is None
+    dlg.close()                                                       # 끝까지 안 보고 닫으면 아직
+    _pump(app)
+    t._check()
+    assert t.done == [True, False] and t._burst is None
+    dlg = AiSettingsWindow(w)
+    dlg.show()
+    _pump(app)
+    for _ in range(5):
+        dlg.guide.btn_next.click()
+    assert dlg.guide.btn_next.text() == '다 봤어요'
+    dlg.close()                                                       # 마지막 장까지 봤으면 [닫기]로 닫아도 ✓
+    _pump(app)
     t._check()
     assert t._burst is not None
 
@@ -396,3 +442,55 @@ def test_tour_cycles_no_crash(win):
             w.grab()
         t.finish(mark=False)
         _pump(app)
+
+
+def test_ai_settings_guide_pages_and_rings(win, monkeypatch):
+    """AI 연결 창 안내 띠: ①~⑥ 장마다 강조할 칸이 있고, 튜토리얼이 아닐 땐 띠가 없다."""
+    w, app = win
+    import ai_client
+    from ui import ai_settings_window as asw
+    monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
+    plain = asw.AiSettingsWindow(w)
+    plain.show()
+    _pump(app)
+    assert plain.guide is None
+    plain.close()
+    dlg = asw.AiSettingsWindow(w)
+    g = dlg.start_guide()
+    dlg.show()
+    _pump(app)
+    assert not g.btn_prev.isEnabled()
+    for i in range(len(asw.GUIDE)):
+        g.go(i)
+        _pump(app)
+        assert g.count.text() == f'{i + 1} / {len(asw.GUIDE)}'
+        assert not g.ring.target.isEmpty(), asw.GUIDE[i][2]
+        assert dlg.rect().contains(g.ring.target.center())
+        assert g.text.height() >= g.text.heightForWidth(g.text.width()) - 1   # 설명이 잘리지 않음
+        dlg.grab()
+    assert g.seen_all and g.btn_next.text() == '다 봤어요'
+    g.btn_prev.click()
+    assert g.page == len(asw.GUIDE) - 2
+    dlg.close()
+
+
+def test_ai_benefit_pages_paint(win, monkeypatch):
+    """장점 카드 7장을 모두 그려도 오류 없음 · 장마다 유주 말이 바뀜."""
+    w, app = win
+    import ai_client
+    from ui import onboarding
+    monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'none')
+    t = _tour_with_task(w, app)
+    t.show_step(onboarding.STEPS.index('ai'))
+    seen = set()
+    for i in range(len(onboarding.AI_PAGES)):
+        assert t._ai_page == i and t._line == onboarding.AI_PAGES[i]['say']
+        seen.add(t._line)
+        for _ in range(2):
+            t._tick()
+        t.update(); t.panel.update()
+        _pump(app)
+        w.grab(); t.panel.grab()
+        assert t._card_height() > 0
+        t.btn_action.click()
+    assert len(seen) == len(onboarding.AI_PAGES) and t._ai_page is None

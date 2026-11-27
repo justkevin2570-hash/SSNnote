@@ -34,14 +34,39 @@ def notify(event: str):
             t.on_event(event)
         except RuntimeError:
             _ACTIVE.remove(t)
-AI_BENEFITS = ('📝  제목만 쓰면 공문 초안을 써 줘요 (내 공문 모양대로)',
-               '📸  캡처한 공문의 제목 · 번호를 정확하게 읽어요',
-               '📊  예산 화면을 캡처하면 항목별로 정리해 줘요',
-               '💬  「이번 주 마감 뭐야?」 물어보면 알려 줘요')
+# AI 단계 맨 앞 「AI로 할 수 있는 일」 카드 (한 장씩 [다음]) — ai_actions.py에 있는 기능만
+AI_PAGES = (
+    {'yuju': 5, 'say': '하나씩 소개해 줄게요! 먼저 말로 업무 넣기!', 'icon': '📝', 'title': '말로 업무 넣기',
+     'desc': '말하듯 쓰면 마감일 · 시간 · 반복까지 알아서 넣어요.',
+     'ask': '다음 주 수요일 3시 학년 회의 넣어 줘', 'res': ('＋ 학년 회의  ·  수요일 15:00',)},
+    {'yuju': 3, 'say': '이미 넣은 업무도 말로 고쳐요.', 'icon': '✏️', 'title': '말로 업무 고치기',
+     'desc': '마감 바꾸기 · 완료 표시 · 중요 표시를 여러 개 한 번에 해요.',
+     'ask': '체험학습 마감 금요일로, 회의는 완료해 줘', 'res': ('체험학습 계획서  →  금요일', '✓ 학년 회의 완료')},
+    {'yuju': 2, 'say': '헷갈릴 땐 그냥 물어봐요!', 'icon': '💬', 'title': '물어보기',
+     'desc': '내 업무 목록을 보고 바로 답해요.',
+     'ask': '이번 주 마감 뭐야?', 'res': ('이번 주 마감은 2개예요.', '· 체험학습 계획서 (금)  · 방과후 정산 (토)')},
+    {'yuju': 4, 'say': '공문 쓰기가 제일 편해져요.', 'icon': '📄', 'title': '공문 초안',
+     'desc': '제목만 쓰면 내 공문 모양대로 초안을 써 줘요.',
+     'ask': '겨울방학 방과후학교 운영 계획', 'res': ('1. 관련: …', '2. 위와 관련하여 … 운영하고자 합니다.')},
+    {'yuju': 1, 'say': '공문을 캡처만 해도 돼요!', 'icon': '📸', 'title': '공문 캡처',
+     'desc': 'Ctrl+Shift+X로 캡처하면 제목 · 문서번호를 정확하게 읽어 업무로 넣어요.',
+     'ask': '', 'res': ('제목  학교폭력 실태조사 안내', '번호  교육지원과-12345')},
+    {'yuju': 6, 'say': '예산도 맡겨 주세요.', 'icon': '📊', 'title': '예산 정리',
+     'desc': '예산 화면을 캡처하면 항목별로 정리해요. 쓴 돈은 말로 더해요.',
+     'ask': '간식비 3만 원 썼어', 'res': ('간식비  집행 +30,000원', '잔액  120,000원')},
+    {'yuju': 5, 'say': '걱정 마세요, 안전하게 써요!', 'icon': '🛡️', 'title': '안심하고 쓰기',
+     'desc': '', 'ask': '',
+     'res': ('✔  바꾸기 전에 꼭 확인 칸을 띄워요', '↩  바꾼 건 한 번 되돌릴 수 있어요',
+             '🔒  개인정보 보호 모드면 이름 · 번호를 가리고 보내요', '💳  구독 연동이면 추가 요금이 없어요')},
+)
 AI_NOTE = '구독(Claude · ChatGPT)이 있으면 1분이면 돼요. 없어도 앱은 그대로 쓸 수 있어요.'
-AI_WHERE = ('💬  AI 버튼 · Alt+4 — 업무를 묻고 시키기 (「이번 주 마감 뭐야?」)',
-            '📝  공문 작성 — 제목만 쓰면 초안을 써 줘요',
-            '📸  공문 캡처 — 제목 · 번호를 자동으로 읽어요')
+AI_CHAT_NOTE = '💬  AI 대화창은 AI 버튼이나 Alt+4로 열고 닫아요'
+AI_QUESTS = {'chat': 'AI 버튼을 누르거나 Alt+4로 열기',
+             'settings': '「…」 → 설정 → AI 연결 열기',
+             'guide': '연결 창 안내 ①~⑥ 끝까지 보기'}
+AI_LINES = {'chat': 'AI 버튼을 누르거나 Alt+4를 눌러 대화창을 열어 봐요!',
+            'settings': '오른쪽 위 「…」 → 설정 → AI 연결을 눌러 봐요!',
+            'guide': '창 위쪽 안내를 [다음]으로 하나씩 봐요!'}
 ADD_NOTES = ('⌨  Tab 다음 칸 · Shift+Tab 앞 칸 · ↑↓ 값 바꾸기',
              '📅  마감일 칸을 누르면 달력이 떠요 — 날짜를 눌러도 돼요',
              '↩  마감일이 없으면 바로 Enter, 잘못 넣은 날짜는 Esc로 지우기')
@@ -284,7 +309,10 @@ class TourOverlay(QWidget):
         self._bottom_seen_open = False
         self._menu_seen = False
         self._cal_used = False          # 1단계: 마감일 칸 달력으로 날짜를 골랐는지
-        self._ai_opened = False         # AI 단계: 연결 창을 열어 봤는지
+        self._ai_opened = False         # AI 단계: 「…」 → 설정 → AI 연결 창을 열어 봤는지
+        self._ai_page = None            # AI 단계: 「AI로 할 수 있는 일」 카드 몇 번째 장 (None = 카드 다 봄)
+        self._ai_guided = False         # AI 단계: 연결 창 안내 ①~⑥을 끝까지 봤는지
+        self._ai_chat_seen = False      # AI 단계(연결된 PC): AI 대화창을 열어 봤는지
         self._drag_over = False         # 파일 단계: 파일을 끌고 놓는 칸 위에 올라왔는지
         self._confetti = []
         self._outside = False           # 카드를 업무창 바깥 옆 창에 그리는지
@@ -299,7 +327,7 @@ class TourOverlay(QWidget):
         self.btn_skip.clicked.connect(self.skip_step)
         self.btn_quit.clicked.connect(lambda: self.finish())
         self.btn_action.clicked.connect(self._on_action)
-        self.btn_later.clicked.connect(self.skip_step)
+        self.btn_later.clicked.connect(self._on_later)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -387,8 +415,15 @@ class TourOverlay(QWidget):
         if key == 'bottom':                              # 첫 번째(Alt+1) 단추만
             k, _label = self._bottom_first()
             return self._rect(w._bottom_btns.get(k, w.btn_ai_bottom))
-        if key == 'ai' and self._ai_connected():
-            return self._rect(w.btn_ai_bottom)
+        if key == 'ai':
+            if self._ai_page is not None:
+                return QRect()                           # 장점 카드를 보는 동안은 구멍 없음
+            q = self._ai_now()
+            if q == 'chat':
+                return self._rect(w.btn_ai_bottom)
+            if q == 'settings':
+                return self._rect(w.title_bar.btn_menu)
+            return QRect()
         if key == 'menu':
             return self._rect(w.title_bar.btn_menu)
         return QRect()
@@ -409,8 +444,19 @@ class TourOverlay(QWidget):
             return ['Ctrl+Shift+X 눌러 캡처 화면 띄우기',
                     '다른 창을 누른 뒤 Ctrl+Shift+E로 불러오기', 'Ctrl+K 눌러 빠른 찾기 열기']
         if key == 'ai':
-            return ['AI 버튼을 누르거나 Alt+4로 열기'] if self._ai_connected() else ['[AI 연결하기]로 연결 창 열어 보기']
+            return [AI_QUESTS[q] for q in self._ai_quest_keys()]
         return ['「…」 눌러 메뉴 열어 보기']
+
+    def _ai_quest_keys(self):
+        """AI 단계 퀘스트: (연결된 PC만) 대화창 열기 → 「…」 → 설정 → AI 연결 → 안내 끝까지."""
+        return (('chat',) if self._ai_connected() else ()) + ('settings', 'guide')
+
+    def _ai_now(self):
+        """AI 단계에서 지금 할 퀘스트 이름 (다 했으면 '')."""
+        for k, ok in zip(self._ai_quest_keys(), self.done):
+            if not ok:
+                return k
+        return ''
 
     def _ai_connected(self):
         try:
@@ -421,8 +467,6 @@ class TourOverlay(QWidget):
 
     def _info(self):
         """카드 위쪽(퀘스트 앞) 설명 줄."""
-        if self._key() == 'ai':
-            return list(AI_WHERE) if self._ai_connected() else list(AI_BENEFITS)
         return []
 
     def _notes(self):
@@ -434,8 +478,8 @@ class TourOverlay(QWidget):
             return list(ROW_NOTES)
         if key == 'file':
             return list(FILE_NOTES)
-        if key == 'ai' and not self._ai_connected():
-            return [AI_NOTE]
+        if key == 'ai':
+            return [AI_CHAT_NOTE] if self._ai_connected() else [AI_NOTE]
         return []
 
     def _lines(self):
@@ -455,9 +499,9 @@ class TourOverlay(QWidget):
                     '다른 창을 누른 뒤 Ctrl+Shift+E! 어디서든 제가 바로 나와요.',
                     'Ctrl+K를 누르면 기능 이름으로 바로 찾아 줘요.']
         if key == 'ai':
-            if self._ai_connected():
-                return ['벌써 AI가 연결돼 있네요! 어디서 쓰는지 볼까요?']
-            return ['AI를 연결하면 이런 걸 해 줘요!']
+            if self._ai_page is not None:
+                return [AI_PAGES[self._ai_page]['say']]
+            return [AI_LINES[q] for q in self._ai_quest_keys()]
         return ['마지막! 「…」을 눌러 메뉴를 열어 봐요.']
 
     def _set_line(self, text):
@@ -493,6 +537,9 @@ class TourOverlay(QWidget):
         self._menu_seen = False
         self._cal_used = False
         self._ai_opened = False
+        self._ai_guided = False
+        self._ai_chat_seen = False
+        self._ai_page = 0 if key == 'ai' else None
         self._drag_over = False
         self._events = set()
         self._panel_on_top(key == 'bottom')          # Alt+1로 연 창에 카드가 가려지지 않게
@@ -501,7 +548,7 @@ class TourOverlay(QWidget):
             self._attach_base = len(getattr(row, '_attachments', []) or []) if row else 0
         if key == 'add':
             self.win.input_name.setFocus()
-        self._set_yuju(YUJU[key])
+        self._set_yuju(AI_PAGES[0]['yuju'] if key == 'ai' else YUJU[key])
         self._line = None
         self._update_line()
         self._layout_buttons()
@@ -603,11 +650,20 @@ class TourOverlay(QWidget):
             if d[1] and 'palette' in ev:
                 d[2] = True
         elif key == 'ai':
-            if self._ai_connected():
-                if self._ai_opened or self._bottom_open('ai'):    # 연결된 PC: [AI] 대화창을 열어 봐야 ✓
-                    d[0] = True
-            elif self._ai_opened:                                # 연결 안 된 PC: 연결 창을 열어 보기만 해도 ✓
-                d[0] = True
+            if self._ai_page is not None:                        # 장점 카드는 [다음]으로 넘겨야
+                return
+            if self._bottom_open('ai'):
+                self._ai_chat_seen = True
+            got = {'chat': self._ai_chat_seen, 'settings': self._ai_opened, 'guide': self._ai_guided}
+            keys = self._ai_quest_keys()
+            if len(d) != len(keys):                              # 그사이 AI를 연결하거나 껐으면 퀘스트 수가 바뀜
+                self.done = d = [False] * len(keys)
+            for i, q in enumerate(keys):
+                if got[q]:
+                    d[i] = True
+            if self._ai_opened and not self._ai_guided and self._ai_window_open():
+                self._set_line(AI_LINES['guide'])
+                return
         elif key == 'menu':
             if self._menu_seen:
                 d[0] = True
@@ -714,13 +770,35 @@ class TourOverlay(QWidget):
         if self.clear:
             self.finish()
             return
-        if self._key() == 'ai':
-            self._ai_opened = True
-            try:
-                from .ai_settings_window import open_ai_settings
-                open_ai_settings(self.win)
-            except Exception:
-                pass
+        if self._key() == 'ai' and self._ai_page is not None:     # 장점 카드 [다음]
+            self._ai_go(self._ai_page + 1)
+
+    def _on_later(self):
+        if not self.clear and self._key() == 'ai' and self._ai_page is not None:   # 장점 카드 [이전]
+            self._ai_go(self._ai_page - 1)
+        else:
+            self.skip_step()
+
+    def _ai_go(self, page):
+        """장점 카드 넘기기. 마지막 장 다음이면 퀘스트(「…」 → 설정 → AI 연결)로."""
+        if page < 0:
+            return
+        if page >= len(AI_PAGES):
+            self._ai_page = None
+            self._set_yuju(YUJU['ai'])
+        else:
+            self._ai_page = page
+            self._set_yuju(AI_PAGES[page]['yuju'])
+        self._update_line()
+        self._layout_buttons()
+        self._tick()
+
+    def _ai_window_open(self):
+        try:
+            from .ai_settings_window import AiSettingsWindow
+            return any(isinstance(w, AiSettingsWindow) and w.isVisible() for w in QApplication.topLevelWidgets())
+        except Exception:
+            return False
 
     def finish(self, mark=True):
         if mark:
@@ -759,6 +837,20 @@ class TourOverlay(QWidget):
         except (RuntimeError, AttributeError):
             pass
 
+    def _on_ai_window(self, obj, shown):
+        """AI 단계에서 「AI 연결」 창이 열리면 안내 띠를 붙이고, 닫힐 때 ①~⑥을 끝까지 봤는지 본다."""
+        from .ai_settings_window import AiSettingsWindow
+        if not isinstance(obj, AiSettingsWindow):
+            return
+        if shown:
+            self._ai_page = None                         # 장점 카드를 건너뛰고 바로 열어도 됨
+            self._ai_opened = True
+            if obj.guide is None:
+                obj.start_guide()
+            self._layout_buttons()
+        elif obj.guide is not None and obj.guide.seen_all:
+            self._ai_guided = True
+
     # ── 배치 ──────────────────────────────────────────────────
     def _big(self):
         return self.clear or self.intro
@@ -769,6 +861,8 @@ class TourOverlay(QWidget):
             return px(268)
         if self.clear:
             return px(372)
+        if self._key() == 'ai' and self._ai_page is not None:
+            return self._benefit_height()
         h = px(78) + len(self.done) * px(28) + px(34)
         info, notes = self._info(), self._notes()
         if info:
@@ -789,13 +883,24 @@ class TourOverlay(QWidget):
             self.btn_action.adjustSize()
             return
         ai = (not self.clear) and self._key() == 'ai'
+        if ai and self._ai_page is not None:             # 장점 카드: [이전] [다음] (마지막 장은 다음 할 일로)
+            last = self._ai_page >= len(AI_PAGES) - 1
+            self.btn_skip.hide()
+            self.btn_quit.show()
+            self.btn_action.show()
+            self.btn_later.setVisible(self._ai_page > 0)
+            self.btn_action.setText(('직접 써 보기' if self._ai_connected() else '연결하러 가기') if last else '다음')
+            self.btn_later.setText('이전')
+            for b in (self.btn_skip, self.btn_quit, self.btn_action, self.btn_later):
+                b.adjustSize()
+            return
         ai_needed = ai and not self._ai_connected()
         later = ai_needed or ((not self.clear) and self._key() == 'file')
         self.btn_skip.setVisible(not self.clear and not later)
         self.btn_quit.setVisible(not self.clear)
-        self.btn_action.setVisible(self.clear or ai_needed)
+        self.btn_action.setVisible(self.clear)
         self.btn_later.setVisible(later)
-        self.btn_action.setText('시작하기' if self.clear else 'AI 연결하기')
+        self.btn_action.setText('시작하기')
         self.btn_later.setText('다음에 할게요')
         for b in (self.btn_skip, self.btn_quit, self.btn_action, self.btn_later):
             b.adjustSize()
@@ -1017,6 +1122,10 @@ class TourOverlay(QWidget):
         if self.clear:
             self._paint_clear(p, c, base)
             return
+        if self._key() == 'ai' and self._ai_page is not None:
+            self._paint_benefit(p, c, base)
+            self._paint_yuju(p, c, base)
+            return
         m = px(16)
         # 진행 막대
         p.setFont(_font(base, 8, True))
@@ -1103,6 +1212,97 @@ class TourOverlay(QWidget):
         self._paint_yuju(p, c, base)
         if self._burst is not None:
             self._paint_burst(p, c, base)
+
+    # ── AI 장점 카드 ──────────────────────────────────────────
+    def _benefit_metrics(self, base, width):
+        """카드 안 글 자리 계산 → (설명 높이, 예시 상자 높이)."""
+        from PyQt5.QtGui import QFontMetrics
+        px = self.px
+        pg = AI_PAGES[self._ai_page]
+        dh = 0
+        if pg['desc']:
+            fm = QFontMetrics(_font(base, 9.5))
+            dh = fm.boundingRect(QRect(0, 0, int(width), 10000), Qt.TextWordWrap, pg['desc']).height() + px(8)
+        bh = px(10) + (px(34) if pg['ask'] else 0) + len(pg['res']) * px(22) + px(8)
+        return dh, bh
+
+    def _benefit_height(self):
+        from .common import pr_font
+        px = self.px
+        width = (self._card.width() if self._card.width() > 0 else px(400)) - 2 * px(16)
+        dh, bh = self._benefit_metrics(pr_font(10), width)
+        return px(64) + px(28) + dh + bh + px(14) + px(46)
+
+    def _paint_benefit(self, p, c, base):
+        """「AI로 할 수 있는 일」 한 장: 진행 막대 · 제목 · 점 · 장점 이름 · 설명 · 예시(나 → AI)."""
+        px = self.px
+        m = px(16)
+        pg = AI_PAGES[self._ai_page]
+        p.setFont(_font(base, 8, True))
+        p.setPen(_C_LAV)
+        p.drawText(QRectF(c.left() + m, c.top() + px(10), px(90), px(16)), Qt.AlignLeft | Qt.AlignVCenter,
+                   f'STEP {self.step + 1} / {len(STEPS)}')
+        sx = c.left() + px(98)
+        sw = (c.right() - m - sx - 5 * px(4)) / len(STEPS)
+        for i in range(len(STEPS)):
+            r = QRectF(sx + i * (sw + px(4)), c.top() + px(15), sw, px(6))
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor('#818CF8') if i < self.step else (_C_GOLD if i == self.step else QColor(255, 255, 255, 40)))
+            p.drawRoundedRect(r, 3, 3)
+        p.setFont(_font(base, 13, True))
+        p.setPen(QColor('white'))
+        p.drawText(QRectF(c.left() + m, c.top() + px(30), c.width() - 2 * m, px(26)), Qt.AlignLeft | Qt.AlignVCenter,
+                   'AI로 할 수 있는 일')
+        n = len(AI_PAGES)                                # 몇 번째 장인지 점으로
+        gap = px(9)
+        for i in range(n):
+            ctr = QPointF(c.right() - m - (n - 1 - i) * gap - px(3), c.top() + px(43))
+            p.setPen(Qt.NoPen)
+            p.setBrush(_C_GOLD if i == self._ai_page else QColor(255, 255, 255, 70))
+            rr = px(3) if i == self._ai_page else px(2)
+            p.drawEllipse(ctr, rr, rr)
+        y = c.top() + px(64)
+        p.setFont(_font(base, 11.5, True))
+        p.setPen(_C_GOLD)
+        p.drawText(QRectF(c.left() + m, y, c.width() - 2 * m, px(24)), Qt.AlignLeft | Qt.AlignVCenter,
+                   f"{pg['icon']}  {pg['title']}")
+        y += px(28)
+        dh, bh = self._benefit_metrics(base, c.width() - 2 * m)
+        if pg['desc']:
+            p.setFont(_font(base, 9.5))
+            p.setPen(QColor('#E0E7FF'))
+            p.drawText(QRectF(c.left() + m, y, c.width() - 2 * m, dh), Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap,
+                       pg['desc'])
+            y += dh
+        box = QRectF(c.left() + m, y, c.width() - 2 * m, bh)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(255, 255, 255, 22))
+        p.drawRoundedRect(box, 10, 10)
+        yy = box.top() + px(10)
+        lab_w = px(26) if pg['ask'] else 0
+        if pg['ask']:
+            f = _font(base, 9.5)
+            f.setWeight(QFont.Medium)
+            p.setFont(f)
+            fm = p.fontMetrics()
+            tw = min(fm.horizontalAdvance(pg['ask']) + px(22), box.width() - lab_w - px(16))
+            br = QRectF(box.right() - px(10) - tw, yy, tw, px(26))
+            p.setBrush(QColor('#EEF2FF'))
+            p.drawRoundedRect(br, br.height() / 2, br.height() / 2)
+            p.setPen(QColor('#312E81'))
+            p.drawText(br, Qt.AlignCenter, fm.elidedText(pg['ask'], Qt.ElideRight, int(tw - px(18))))
+            p.setFont(_font(base, 7.5, True))
+            p.setPen(_C_LAV)
+            p.drawText(QRectF(box.left() + px(10), yy, lab_w, px(26)), Qt.AlignLeft | Qt.AlignVCenter, '나')
+            yy += px(34)
+            p.drawText(QRectF(box.left() + px(10), yy, lab_w, px(20)), Qt.AlignLeft | Qt.AlignVCenter, 'AI')
+        for i, line in enumerate(pg['res']):
+            first = i == 0 and bool(pg['ask'])
+            p.setFont(_font(base, 9.5, first))
+            p.setPen(QColor('white') if first else QColor('#E0E7FF'))
+            r = QRectF(box.left() + px(10) + lab_w, yy, box.width() - px(20) - lab_w, px(20))
+            p.drawText(r, Qt.AlignLeft | Qt.AlignVCenter, p.fontMetrics().elidedText(line, Qt.ElideRight, int(r.width())))
+            yy += px(22)
 
     def _paint_yuju(self, p, c, base):
         px = self.px
@@ -1226,6 +1426,9 @@ class TourOverlay(QWidget):
         elif t == QEvent.Show and isinstance(obj, QMenu) and not self.clear:
             if self._key() in ('row', 'menu'):
                 self._menu_seen = True
+        elif t in (QEvent.Show, QEvent.Hide) and not self.clear and not self.intro and self._key() == 'ai' \
+                and isinstance(obj, QWidget) and obj.isWindow():
+            self._on_ai_window(obj, t == QEvent.Show)
         elif t in (QEvent.DragEnter, QEvent.DragMove, QEvent.DragLeave, QEvent.Drop) and not self.clear:
             if self._key() == 'file':
                 try:
