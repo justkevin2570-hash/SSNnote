@@ -111,3 +111,38 @@ def test_startup_setting(env):
     assert cv.startup_enabled()
     cv.set_startup(False)
     assert not cv.startup_enabled()
+
+
+def test_text_size_menu_scales_cells_and_panel(env):
+    db, app = env
+    from ui import calendar_view as cv
+    from ui.calendar_view import TaskButton
+    wid = db.get_first_window_id()
+    db.add_task(wid, '글자 크기 확인', date.today().isoformat())
+    cal = _cal(app)
+    assert cal.btn_size.isVisible()
+    assert cal.btn_size.geometry().left() > cal.btn_pin.geometry().left()   # 📌 고정 오른쪽
+    def chip_pt():
+        from PyQt5.QtCore import QEvent
+        app.sendPostedEvents(None, QEvent.DeferredDelete)
+        b = next(b for b in cal.findChildren(TaskButton) if b.full_text == '글자 크기 확인')
+        return b.font().pointSizeF()
+    base_chip, base_date = chip_pt(), cal._panel._date_label.font().pointSizeF()
+    base_dow = cal._dow_labels[0].font().pointSizeF()
+    month_pt = cal._month_title.font().pointSizeF()
+    cal.set_text_scale(1.5)
+    app.processEvents()
+    assert abs(chip_pt() - base_chip * 1.5) < 0.6
+    assert cal._panel._date_label.font().pointSizeF() > base_date
+    assert cal._dow_labels[0].font().pointSizeF() > base_dow
+    assert cal._month_title.font().pointSizeF() == month_pt                  # 머리줄은 그대로
+    assert db.get_setting(cv.TEXT_SCALE_KEY) == '1.5'
+    cal.close()
+    cal2 = _cal(app)                                                          # 다음에 열어도 그대로
+    assert abs(cv._TEXT_SCALE[0] - 1.5) < 0.01
+    cal2.set_text_scale(9.9)                                                  # 없는 크기는 무시
+    assert abs(cv._TEXT_SCALE[0] - 1.5) < 0.01
+    for v in (1.1, 1.2, 1.35, 1.0):                                           # 여러 번 바꿔도 오류 없음
+        cal2.set_text_scale(v)
+        app.processEvents()
+    cal2.close()
