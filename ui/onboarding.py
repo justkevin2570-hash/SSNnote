@@ -39,7 +39,7 @@ AI_BENEFITS = ('📝  제목만 쓰면 공문 초안을 써 줘요 (내 공문 �
                '📊  예산 화면을 캡처하면 항목별로 정리해 줘요',
                '💬  「이번 주 마감 뭐야?」 물어보면 알려 줘요')
 AI_NOTE = '구독(Claude · ChatGPT)이 있으면 1분이면 돼요. 없어도 앱은 그대로 쓸 수 있어요.'
-AI_WHERE = ('💬  아래 줄 [AI] — 업무를 묻고 시키기 (「이번 주 마감 뭐야?」)',
+AI_WHERE = ('💬  AI 버튼 · Alt+4 — 업무를 묻고 시키기 (「이번 주 마감 뭐야?」)',
             '📝  공문 작성 — 제목만 쓰면 초안을 써 줘요',
             '📸  공문 캡처 — 제목 · 번호를 자동으로 읽어요')
 ADD_NOTES = ('⌨  Tab 다음 칸 · Shift+Tab 앞 칸 · ↑↓ 값 바꾸기',
@@ -409,7 +409,7 @@ class TourOverlay(QWidget):
             return ['Ctrl+Shift+X 눌러 캡처 화면 띄우기',
                     '다른 창을 누른 뒤 Ctrl+Shift+E로 불러오기', 'Ctrl+K 눌러 빠른 찾기 열기']
         if key == 'ai':
-            return ['아래 줄 [AI] 눌러 대화창 열어 보기'] if self._ai_connected() else ['[AI 연결하기]로 연결 창 열어 보기']
+            return ['AI 버튼을 누르거나 Alt+4로 열기'] if self._ai_connected() else ['[AI 연결하기]로 연결 창 열어 보기']
         return ['「…」 눌러 메뉴 열어 보기']
 
     def _ai_connected(self):

@@ -130,7 +130,7 @@ def test_full_tour(win, monkeypatch):
     monkeypatch.setattr(ai_client, 'load_ai_mode', lambda: 'claude_code')
     assert t._key() == 'ai'
     t._check()
-    assert t._burst is None and not t.done[0] and '[AI]' in t.quests()[0]
+    assert t._burst is None and not t.done[0] and 'Alt+4' in t.quests()[0]
     assert t._target() == t._rect(w.btn_ai_bottom)
     monkeypatch.setattr(t, '_bottom_open', lambda k: k == 'ai')
     _finish_step(t)
