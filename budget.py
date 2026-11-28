@@ -1402,8 +1402,9 @@ class BudgetWindow(QMainWindow):
         of = QLabel('/ 예산')
         of.setObjectName('StatOf')
         line.addWidget(self.stat['remaining'], 0, Qt.AlignBottom)
+        self.stat['budget'].hide()                    # 값만 들고 있고, 화면에는 「/ 예산 29,500,000원」 한 덩어리로
+        self.lbl_of = of
         line.addWidget(of, 0, Qt.AlignBottom)
-        line.addWidget(self.stat['budget'], 0, Qt.AlignBottom)
         line.addStretch(1)
         box.addWidget(cap)
         box.addLayout(line)
@@ -2497,6 +2498,7 @@ class BudgetWindow(QMainWindow):
         rem = budget - spent
         pct = _pct(spent, budget)
         self.stat['budget'].setText(_won(budget))
+        self.lbl_of.setText(f'/ 예산 {_won(budget)}')
         self.stat['spent'].setText(_won(spent))
         self.stat['remaining'].setText(_won(rem))
         self.stat['remaining'].setStyleSheet(f'color: {_bal_color(rem)};')
