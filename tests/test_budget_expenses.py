@@ -130,9 +130,9 @@ def test_header_has_manage_button_and_no_add_button(win):
     w, db, budget, app = win
     _open_one_item(w, db)
     assert not hasattr(w, 'btn_add_item')
-    assert w.btn_manage.text() == '세부항목 관리' and w.btn_manage.isEnabled()
+    assert w.btn_manage.isHidden()                                    # 머리줄은 [가져오기] [⋯]만
     texts = [a.text() for a in w._more_menu().actions()]
-    assert not any('세부항목 관리' in t for t in texts)                 # ⋯에서는 빠짐 (중복 제거)
+    assert texts[0] == '세부항목 관리…'                                 # ⋯ 맨 위로 옮김
     assert any('원가통계비목 목록' in t for t in texts) and any('전체 지우기' in t for t in texts)
 
 
@@ -464,5 +464,5 @@ def test_edit_dialog_labels(win):
             'budget': 1000, 'spent': 500, 'completed': 0}
     dlg = budget._SpendDialog(item, [], w, expense={'id': 3, 'amount': 500, 'purpose': '버스', 'spent_on': '2026-11-01'})
     texts = [lb.text() for lb in dlg.findChildren(QLabel)]
-    assert '사용 금액' in texts and '사용 내역' in texts and '날짜' in texts and '쓴 곳 · 날짜' not in texts
+    assert '사용 금액' in texts and '쓴 곳' in texts and '날짜' in texts and '쓴 곳 · 날짜' not in texts
     dlg.close()

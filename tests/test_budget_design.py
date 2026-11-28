@@ -27,13 +27,15 @@ def win(tmp_path, monkeypatch):
     budget.apply_text_size('base')
 
 
-def test_default_is_base_and_menu_offers_both(win):
+def test_default_is_base_and_no_design_menu(win):
+    """디자인은 하나로: ⋯에 「디자인」 메뉴가 없고, 예전에 사무형을 고른 PC도 기본으로 열림."""
     w, db, budget = win
     assert w.design == 'base' and not budget.C.OFFICE
-    menu = next(a.menu() for a in w._more_menu().actions() if a.text() == '디자인')
-    acts = [a for a in menu.actions()]
-    assert [a.text().split()[0] for a in acts] == ['기본', '사무형']
-    assert acts[0].isChecked() and not acts[1].isChecked()
+    assert not any(a.text() == '디자인' for a in w._more_menu().actions())
+    db.set_setting(budget.DESIGN_KEY, 'office')
+    w2 = budget.BudgetWindow()
+    assert w2.design == 'base' and not budget.C.OFFICE and db.get_setting(budget.DESIGN_KEY) == 'base'
+    w2.close()
 
 
 def _flush():
@@ -118,5 +120,5 @@ def test_nav_total_and_group_have_no_bar(win):
     assert refs['ALL'].bar.isHidden() and refs['ALL'].lbl_pct.isHidden()
     assert refs[('G', gid)].bar.isHidden() and refs[('G', gid)].lbl_pct.isHidden()
     other = next(k for k in refs if isinstance(k, int))
-    assert not refs[other].bar.isHidden() and not refs[other].lbl_pct.isHidden()
-    assert '잔액' in refs['ALL'].lbl_meta.text() and '잔액' in refs[('G', gid)].lbl_meta.text()
+    assert refs[other].bar.isHidden() and refs[other].lbl_pct.isHidden()        # 목록에는 남은 돈만
+    assert all('남은 돈' in refs[k].lbl_meta.text() for k in ('ALL', ('G', gid), other))

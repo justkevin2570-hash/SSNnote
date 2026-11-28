@@ -43,14 +43,15 @@ def test_import_modes(win):
 
 
 def test_columns_name_first_no_spent_and_total_row(win):
-    """표 순서: 산출내역(+비목 꼬리표) · 예산현액 · 잔액 · 집행률 (집행액 칸 없음). 세부항목 맨 아래 합계 줄."""
+    """표 순서: 산출내역(+비목 꼬리표) · 예산 · 남은 돈 · 쓴 비율(+[지출 추가]) (집행액 칸 없음). 맨 아래 합계 줄."""
     w, db, budget, app = win
     w._apply_import(CATS, 'append')
     w.show()
     app.processEvents()
     table = [t for t in w.findChildren(budget._BudgetTable)][0]
     headers = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
-    assert headers[:4] == ['산출내역', '예산현액', '잔액', '집행률'] and '집행액' not in headers
+    assert headers[:4] == ['산출내역', '예산', '남은 돈', '쓴 비율'] and '집행액' not in headers
+    assert table.horizontalHeaderItem(1).toolTip() == '예산현액'                  # 에듀파인 이름은 말풍선에
     item = next(i for i in db.get_budget_items() if i['description'] == '강사 수당')
     db.set_budget_item_spent(item['id'], 700)
     w.refresh()
@@ -144,7 +145,7 @@ def test_row_right_click_menu(win, monkeypatch):
     shown = {}
     monkeypatch.setattr(budget.QMenu, 'exec_', lambda self, *a: shown.setdefault('acts', [a.text() for a in self.actions()]))
     w._row_menu(iid, budget.QPoint(0, 0))
-    assert [x for x in shown['acts'] if x] == ['쓴 돈 추가', '수정', '완료', '삭제']
+    assert [x for x in shown['acts'] if x] == ['지출 추가', '수정', '완료', '삭제']
     monkeypatch.setattr(budget.QMessageBox, 'question', lambda *a, **k: budget.QMessageBox.Yes)
     w._delete_item(iid)
     assert iid not in [i['id'] for i in db.get_budget_items()]
@@ -233,7 +234,7 @@ def test_spend_dialog_needs_amount_and_shows_recent(win, monkeypatch):
     dlg._save()
     assert dlg.result_data is None and warned == ['쓴 금액을 적어 주세요.']
     texts = [l.text() for l in dlg.findChildren(QLabel)]
-    assert '최근 쓴 돈' in texts and 'p5' in texts and 'p3' in texts and 'p2' not in texts   # 최근 3건만
+    assert '최근 지출' in texts and 'p5' in texts and 'p3' in texts and 'p2' not in texts   # 최근 3건만
 
 
 def test_edit_dialog_has_no_spend_fields_and_keeps_spent(win):
@@ -261,6 +262,10 @@ def test_cost_chips_totals_and_filter(win):
     w._apply_import(cats, 'append')
     w.show()
     app.processEvents()
+    assert not w._overview_chips and not w._sec_refs[w.categories[0]['id']]['chips']   # 기본은 숨김
+    w.btn_costs.click()                                          # ▦ 비목별 보기
+    app.processEvents()
+    assert db.get_setting('budget_show_costs') == '1'
     assert '교육운영비' in w._overview_chips                      # '전체'일 때 맨 위 한 줄
     assert w._overview_chips['교육운영비'].isVisible()
     assert w._overview_chips['교육운영비'].text().endswith('60%')   # 900 / 1500 (글자 아이콘 + 집행률)
@@ -557,7 +562,7 @@ def test_group_nav_totals_and_tab(win):
     w._move_to_group(_cat_id(db, 'B'), gid)
     key = ('G', gid)
     assert key in w._nav_refs
-    assert '잔액 1,300원' in w._nav_refs[key].lbl_meta.text()
+    assert '남은 돈' in w._nav_refs[key].lbl_meta.text() and '1,300원' in w._nav_refs[key].lbl_meta.text()
     w._set_tab(key)
     assert set(w._sec_refs) == {_cat_id(db, 'A'), _cat_id(db, 'B')}
     w._fold_group(gid, True)                                   # 접으면 안의 세부항목 줄은 숨김
@@ -634,8 +639,10 @@ def test_budget_view_state_remembered_and_reset(win):
     w, db, budget, app = win
     w._apply_import(CATS, 'replace')
     db.add_budget_item(_cat_id(db, 'A'), '교육운영비', '자료', 300, 0)   # 비목이 둘 이상이어야 비목 칩이 생김
+    db.set_setting('budget_show_costs', '1')
     gid = db.add_budget_group('묶음')
     db.set_budget_category_group(_cat_id(db, 'A'), gid)
+    w._show_costs = True
     w.refresh()
     w._state_ready = True
     w._set_tab(('G', gid))
@@ -755,14 +762,14 @@ def test_row_icon_buttons_spend_and_done_only(win, monkeypatch):
     app.processEvents()
     open_items = [i for i in db.get_budget_items() if not i['completed']]
     cell = w._row_refs[open_items[0]['id']]['desc']
-    assert list(cell.row_buttons) == ['spend', 'done'] and not hasattr(cell, 'btn_copy')
-    assert [cell.row_buttons[k].toolTip() for k in ('spend', 'done')] == ['쓴 돈 추가', '완료']
+    assert list(cell.row_buttons) == ['done'] and not hasattr(cell, 'btn_copy')     # 지출 추가는 줄 끝 단추
+    assert cell.row_buttons['done'].toolTip() == '완료'
     calls = []
     monkeypatch.setattr(w, '_open_spend', lambda iid: calls.append(('spend', iid)))
     monkeypatch.setattr(w, '_toggle_complete', lambda iid: calls.append(('done', iid)))
     w.refresh()
     cell = w._row_refs[open_items[0]['id']]['desc']
-    cell.row_buttons['spend'].click()
+    w._row_refs[open_items[0]['id']]['spend'].click()
     cell.row_buttons['done'].click()
     assert calls == [('spend', open_items[0]['id']), ('done', open_items[0]['id'])]
     done_cell = w._row_refs[first['id']]['desc']
