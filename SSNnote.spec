@@ -78,6 +78,7 @@ a = Analysis(
         'xlrd',
         'openpyxl',
         'openpyxl.workbook',
+        'openpyxl.styles',
         'et_xmlfile',
     ],
     hookspath=[],

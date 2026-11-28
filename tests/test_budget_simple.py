@@ -100,6 +100,8 @@ def test_reimport_keeps_expenses_and_done(win, monkeypatch):
     assert [e['purpose'] for e in db.get_budget_expenses() if e['item_id'] == iid] == ['3월 강사비']
     assert _item(db, '교재')['completed'] and _item(db, '출장')['budget'] == 90
     assert _item(db, '간식')['budget'] == 500                                   # B는 그대로
+    w._apply_import([{'name': 'A', 'items': [new[0]['items'][0]]}], 'update')            # 자료에 없는 항목은 지우지 않음
+    assert _item(db, '교재') and _item(db, '출장')
     dlg = budget._ImportChangesDialog(changes, w)
     assert len(dlg.rows) == 3
     assert budget._ImportChangesDialog([], w).rows == []
@@ -119,7 +121,7 @@ def test_reimport_shows_changes_dialog_before_apply(win, monkeypatch):
     monkeypatch.setattr(budget, '_ImportPreviewDialog', FakePreview)
     monkeypatch.setattr(budget._ImportChangesDialog, 'exec_', lambda self: seen.append(self.rows) or budget.QDialog.Rejected)
     w._import_parsed(CATS, '테스트')
-    assert seen and ('교재', '빠짐', 'gone') in seen[0]
+    assert seen and ('교재', '자료에 없음 · 그대로 둬요', 'gone') in seen[0]
     assert _item(db, '교재')                                                   # 취소하면 그대로
 
 
@@ -145,3 +147,91 @@ def test_ctrl_z_undoes_spend_and_delete(win, monkeypatch):
     assert _item(db, '강사 수당')['spent'] == 200
     w._do_undo()
     assert _item(db, '강사 수당')['spent'] == 250 and [e['purpose'] for e in db.get_budget_expenses()] == ['간식']
+
+
+# ── 2단계: 찾기 · 빠른 보기 · 남은 돈 많은 순 · 엑셀 내보내기 ──────────────
+CATS2 = [{'name': 'A', 'items': [{'cost_type': '운영수당', 'description': '강사 수당', 'budget': 1000, 'spent': 950},
+                                 {'cost_type': '일반수용비', 'description': '교재', 'budget': 500, 'spent': 600},
+                                 {'cost_type': '여비', 'description': '출장 여비', 'budget': 900, 'spent': 0}]},
+         {'name': 'B', 'items': [{'cost_type': '교육운영비', 'description': '간식', 'budget': 500, 'spent': 100}]}]
+
+
+def _visible(w):
+    out = []
+    for cid, refs in w._sec_refs.items():
+        if not refs['card'].isVisible():
+            continue
+        for t in refs['tables']:
+            for i in range(len(t.row_costs)):
+                if not t.isRowHidden(2 * i):
+                    out.append(w._items_by_id[t.row_items[2 * i]]['description'])
+    return sorted(out)
+
+
+def test_search_filters_rows_and_hides_empty_sections(win):
+    w, db, budget, app = win
+    w._apply_import(CATS2, 'append')
+    db.add_budget_expense(next(i['id'] for i in db.get_budget_items() if i['description'] == '간식'), 50, '체육대회 음료', '2026-05-01')
+    w.refresh()
+    w.show()
+    app.processEvents()
+    w._set_tab(w.categories[1]['id'])
+    w.search.setText('여비')                                       # 찾기를 시작하면 전체로
+    app.processEvents()
+    assert w.active_tab == 'ALL' and _visible(w) == ['출장 여비'] and w.lbl_found.text() == '1개'
+    assert not w._sec_refs[w.categories[1]['id']]['card'].isVisible()   # 하나도 안 남은 세부항목은 숨김
+    w.search.setText('체육 대회')                                   # 쓴 곳 · 띄어쓰기 무시
+    assert _visible(w) == ['간식']
+    w.search.setText('없는말')
+    assert _visible(w) == [] and w.lbl_found.text() == '찾는 항목이 없어요'
+    w.search.setFocus()
+    from PyQt5.QtTest import QTest
+    from PyQt5.QtCore import Qt
+    QTest.keyClick(w.search, Qt.Key_Escape)                         # Esc → 지우기
+    assert w.search.text() == '' and len(_visible(w)) == 4 and w.lbl_found.text() == ''
+
+
+def test_quick_views_and_sort(win):
+    w, db, budget, app = win
+    w._apply_import(CATS2, 'append')
+    w.show()
+    app.processEvents()
+    w.quick_btns['warn'].click()
+    assert _visible(w) == ['강사 수당']                              # 95%
+    w.quick_btns['over'].click()                                    # 하나만 고름
+    assert not w.quick_btns['warn'].isChecked() and _visible(w) == ['교재']
+    w.quick_btns['over'].click()
+    assert w._quick is None and len(_visible(w)) == 4
+    w.btn_sort.click()                                              # 남은 돈 많은 순
+    assert db.get_setting('budget_sort_rem') == '1'
+    t = w._sec_refs[w.categories[0]['id']]['tables'][0]
+    order = [w._items_by_id[t.row_items[2 * i]]['description'] for i in range(len(t.row_costs))]
+    assert order == ['출장 여비', '강사 수당', '교재']
+
+
+def test_export_excel(win, tmp_path, monkeypatch):
+    w, db, budget, app = win
+    w._apply_import(CATS2, 'append')
+    iid = next(i['id'] for i in db.get_budget_items() if i['description'] == '간식')
+    db.add_budget_expense(iid, 50, '음료', '2026-05-01')
+    w.refresh()
+    monkeypatch.setattr(budget.QMessageBox, "warning", lambda *a, **k: (_ for _ in ()).throw(AssertionError(a[2])))
+    import sys
+    if not isinstance(sys.modules.get('winreg'), type(sys)):     # 다른 테스트가 가짜 winreg를 넣었으면
+        monkeypatch.delitem(sys.modules, 'winreg', raising=False)  # (openpyxl → mimetypes가 레지스트리를 읽다 멈춤)
+    import mimetypes
+    if getattr(mimetypes, '_winreg', None) is not None:
+        monkeypatch.setattr(mimetypes, '_winreg', None)
+    path = w._export_excel(str(tmp_path / "out.xlsx"))
+    from openpyxl import load_workbook
+    wb = load_workbook(path)
+    ws = wb['예산']
+    rows = [[c.value for c in r] for r in ws.iter_rows()]
+    assert rows[0][:6] == ['세부항목', '원가통계비목', '산출내역', '예산현액', '집행액', '잔액']
+    assert ['A', '운영수당', '강사 수당', 1000, 950, 50] == rows[1][:6]
+    assert rows[4][0] == 'A 합계' and rows[4][3] == 2400 and rows[4][4] == 1550
+    assert rows[-1][0] == '전체 합계' and rows[-1][3] == 2900 and rows[-1][4] == 1700
+    ex = [[c.value for c in r] for r in wb['사용 내역'].iter_rows()]
+    assert ex[1] == ['B', '간식', '2026-05-01', '음료', 50]
+    assert '엑셀로 저장' in w.ask_status.text()
+    assert any('엑셀로 내보내기' in a.text() for a in w._more_menu().actions())

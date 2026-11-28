@@ -33,11 +33,11 @@ def test_import_modes(win):
     w._apply_import(CATS, 'append')
     assert len(db.get_budget_items()) == 2
     new_a = [{'name': 'A', 'items': [{'cost_type': 'x', 'description': '새 내용', 'budget': 9, 'spent': 1}]}]
-    w._apply_import(new_a, 'update')                     # A만 새 내용으로, B는 그대로
+    w._apply_import(new_a, 'update')                     # A에 새 항목 추가 (자료에 없는 강사 수당은 그대로), B는 그대로
     descs = sorted(i['description'] for i in db.get_budget_items())
-    assert descs == ['간식', '새 내용']
+    assert descs == ['간식', '강사 수당', '새 내용']
     w._apply_import(new_a, 'append')
-    assert len(db.get_budget_items()) == 3
+    assert len(db.get_budget_items()) == 4
     w._apply_import(new_a, 'replace')
     assert [c['name'] for c in db.get_budget_categories()] == ['A'] and len(db.get_budget_items()) == 1
 
