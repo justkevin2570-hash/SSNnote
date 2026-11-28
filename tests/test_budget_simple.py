@@ -235,3 +235,43 @@ def test_export_excel(win, tmp_path, monkeypatch):
     assert ex[1] == ['B', '간식', '2026-05-01', '음료', 50]
     assert '엑셀로 저장' in w.ask_status.text()
     assert any('엑셀로 내보내기' in a.text() for a in w._more_menu().actions())
+
+
+# ── 3단계: 남은 돈 정리 ─────────────────────────────────────────
+def test_fiscal_year_end():
+    import budget
+    from datetime import date
+    assert budget.fiscal_year_end(date(2026, 11, 28)) == date(2027, 2, 28)
+    assert budget.fiscal_year_end(date(2028, 1, 10)) == date(2028, 2, 29)     # 윤년
+    assert budget.fiscal_year_end(date(2026, 3, 1)) == date(2027, 2, 28)
+
+
+def test_leftover_dialog_lists_and_acts(win, monkeypatch):
+    w, db, budget, app = win
+    cats = [{'name': 'A', 'items': [{'cost_type': 'x', 'description': '많이 남음', 'budget': 900000, 'spent': 100000},
+                                    {'cost_type': 'x', 'description': '조금 남음', 'budget': 50000, 'spent': 45000},
+                                    {'cost_type': 'x', 'description': '다 씀', 'budget': 1000, 'spent': 1000}]},
+            {'name': 'B', 'items': [{'cost_type': 'x', 'description': '중간', 'budget': 300000, 'spent': 0}]}]
+    w._apply_import(cats, 'append')
+    monkeypatch.setattr(budget._LeftoverDialog, 'exec_', lambda self: 0)
+    dlg = w._open_leftover()
+    names = [dlg.table.item(r, 1).text() for r in range(dlg.table.rowCount())]
+    assert names == ['많이 남음', '중간']                                  # 남은 돈 많은 순, 1만 원 미만은 뺌
+    assert dlg.table.item(0, 0).text() == 'A' and dlg.table.item(0, 3).text() == '800,000'
+    assert dlg.table.item(0, 4).text() == '89%'
+    assert '1,105,000원' in dlg.lbl_sum.text() and '3</b>개' in dlg.lbl_sum.text()
+    dlg.chk_small.setChecked(False)
+    assert dlg.table.rowCount() == 3
+    iid = dlg.rows[1][0]                                                   # 중간
+    dlg._done(iid)
+    assert db.get_budget_items() and next(i for i in db.get_budget_items() if i['id'] == iid)['completed']
+    assert [dlg.table.item(r, 1).text() for r in range(dlg.table.rowCount())] == ['많이 남음', '조금 남음']
+
+    def fake_exec(self):
+        self.result_data = {'amount': 800000, 'purpose': '물품', 'spent_on': '2026-12-01'}
+        return budget.QDialog.Accepted
+    monkeypatch.setattr(budget._SpendDialog, 'exec_', fake_exec)
+    dlg.rows[0][1].click()                                                 # [＋ 지출 추가] → 다 써서 빠짐
+    assert [dlg.table.item(r, 1).text() for r in range(dlg.table.rowCount())] == ['조금 남음']
+    assert '남았어요' in dlg.lbl_days.text()
+    assert w.btn_leftover.text() == '남은 돈 정리'

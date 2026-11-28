@@ -1469,10 +1469,11 @@ class BudgetWindow(QMainWindow):
         # 찾기 칸 (Ctrl+F) · 빠른 보기 [거의 다 씀] [초과] · [남은 돈 많은 순] ……… [비목별 보기]
         self.search = QLineEdit()
         self.search.setObjectName('Search')
-        self.search.setPlaceholderText('찾기 (Ctrl+F) — 산출내역 · 쓴 곳')
+        self.search.setPlaceholderText('찾기 (Ctrl+F)')
+        self.search.setToolTip('산출내역 · 비목 · 쓴 곳으로 찾기 (Esc로 지우기)')
         self.search.setClearButtonEnabled(True)
         self.search.addAction(qta.icon('ph.magnifying-glass', color=C.FAINT), QLineEdit.LeadingPosition)
-        self.search.setFixedWidth(px(_sz(230)))
+        self.search.setFixedWidth(px(_sz(190)))
         self.search.setFixedHeight(_sz(30))
         self.search.setText(self._search)
         self.search.textChanged.connect(self._on_search)
@@ -1504,6 +1505,14 @@ class BudgetWindow(QMainWindow):
         self.btn_sort.toggled.connect(self._set_sort_rem)
         tools.addWidget(self.btn_sort)
         tools.addStretch(1)
+        self.btn_leftover = QPushButton('남은 돈 정리')
+        self.btn_leftover.setObjectName('Toggle')
+        self.btn_leftover.setIcon(qta.icon('ph.wallet', color=C.MUTED))
+        self.btn_leftover.setIconSize(QSize(_isz(13), _isz(13)))
+        self.btn_leftover.setCursor(Qt.PointingHandCursor)
+        self.btn_leftover.setToolTip('아직 다 쓰지 않은 항목을 남은 돈이 많은 순으로 모아 봐요 (학기말 소진 계획)')
+        self.btn_leftover.clicked.connect(lambda: self._open_leftover())
+        tools.addWidget(self.btn_leftover)
         self.btn_costs = QPushButton('비목별 보기')
         self.btn_costs.setObjectName('Toggle')
         self.btn_costs.setCheckable(True)
@@ -2980,6 +2989,18 @@ class BudgetWindow(QMainWindow):
                 set_budget_category_group(c['id'], gid)
         self.active_tab = 'ALL'
         self.refresh(keep_scroll=False)
+
+    # ── 남은 돈 정리 (학기말 소진 계획) ─────────────────────────────
+    def _leftover_items(self, min_rem=0):
+        """완료하지 않았고 남은 돈이 있는 항목 → 남은 돈 많은 순 (합계 제외 세부항목도 포함)."""
+        out = [it for it in self.items if not it['completed'] and it['budget'] - it['spent'] > min_rem]
+        out.sort(key=lambda it: -(it['budget'] - it['spent']))
+        return out
+
+    def _open_leftover(self):
+        dlg = _LeftoverDialog(self)
+        dlg.exec_()
+        return dlg
 
     # ── 엑셀로 내보내기 (정산 · 보고) ───────────────────────────────
     def _export_excel(self, path=None):
@@ -4486,6 +4507,141 @@ class _CategoryManagerDialog(QDialog):
 
 
 # ── 원가통계비목 목록 ──────────────────────────────────────────────
+def fiscal_year_end(today=None):
+    """학교회계연도 끝 날 (3월 1일 ~ 다음 해 2월 말일)."""
+    from datetime import date, timedelta
+    today = today or date.today()
+    year = today.year + 1 if today.month >= 3 else today.year
+    return date(year, 3, 1) - timedelta(days=1)
+
+
+class _LeftoverDialog(QDialog):
+    """「남은 돈 정리」: 다 쓰지 않은 항목을 남은 돈 많은 순으로 — 세부항목 · 산출내역 · 남은 돈 · 남은 비율,
+    줄마다 [＋ 지출 추가] · [완료]. 위에 남은 돈 합계와 회계연도 끝까지 남은 날."""
+    SMALL = 10000
+
+    def __init__(self, win):
+        super().__init__(win)
+        from datetime import date
+        self.win = win
+        self.setWindowTitle('남은 돈 정리')
+        self.setStyleSheet(STYLE)
+        self.setMinimumSize(px(_sz(760)), px(_sz(520)))
+        v = QVBoxLayout(self)
+        v.setContentsMargins(22, 18, 22, 18)
+        v.setSpacing(8)
+        title = QLabel('남은 돈 정리')
+        title.setObjectName('SectionTitle')
+        v.addWidget(title)
+        self.lbl_sum = QLabel()
+        self.lbl_sum.setTextFormat(Qt.RichText)
+        v.addWidget(self.lbl_sum)
+        end = fiscal_year_end()
+        days = (end - date.today()).days
+        self.lbl_days = QLabel(f'회계연도 끝({end.month}월 {end.day}일)까지 <b>{days}일</b> 남았어요')
+        self.lbl_days.setTextFormat(Qt.RichText)
+        self.lbl_days.setObjectName('Muted')
+        v.addWidget(self.lbl_days)
+        opt = QHBoxLayout()
+        self.chk_small = QCheckBox(f'{_fmt(self.SMALL)}원 미만 남은 항목은 빼고 보기')
+        self.chk_small.setChecked(True)
+        self.chk_small.toggled.connect(lambda _: self.reload())
+        opt.addWidget(self.chk_small)
+        opt.addStretch(1)
+        v.addLayout(opt)
+        t = self.table = QTableWidget()
+        cols = ('세부항목', '산출내역', '예산', '남은 돈', '남은 비율', '')
+        t.setColumnCount(len(cols))
+        t.setHorizontalHeaderLabels(list(cols))
+        t.verticalHeader().setVisible(False)
+        t.setShowGrid(False)
+        t.setSelectionMode(QAbstractItemView.NoSelection)
+        t.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        t.setFocusPolicy(Qt.NoFocus)
+        t.setWordWrap(False)
+        hdr = t.horizontalHeader()
+        hdr.setHighlightSections(False)
+        hdr.setSectionsClickable(False)
+        for c in range(len(cols)):
+            hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+            t.horizontalHeaderItem(c).setTextAlignment(
+                (Qt.AlignRight if c in (2, 3, 4) else Qt.AlignLeft) | Qt.AlignVCenter)
+        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+        t.setStyleSheet(f'QTableWidget {{ border: 1px solid {C.BORDER}; border-radius: 10px; }}'
+                        f'QTableWidget::item {{ padding: 0 10px; border-bottom: 1px solid {C.LINE}; }}')
+        v.addWidget(t, 1)
+        self.lbl_empty = QLabel('남은 돈이 있는 항목이 없어요. 모두 잘 썼어요!')
+        self.lbl_empty.setObjectName('Muted')
+        self.lbl_empty.setAlignment(Qt.AlignCenter)
+        v.addWidget(self.lbl_empty)
+        btns = QHBoxLayout()
+        btns.addStretch()
+        close = QPushButton('닫기')
+        close.setObjectName('Primary')
+        close.clicked.connect(self.accept)
+        btns.addWidget(close)
+        v.addLayout(btns)
+        self.reload()
+
+    def reload(self):
+        win = self.win
+        items = win._leftover_items(self.SMALL - 1 if self.chk_small.isChecked() else 0)
+        names = {c['id']: c['name'] for c in win.categories}
+        total = sum(it['budget'] - it['spent'] for it in win._leftover_items())
+        n_all = len(win._leftover_items())
+        self.lbl_sum.setText(f'다 쓰지 않은 돈 <b style="color:{C.ACCENT}">{_fmt(total)}원</b> · 항목 <b>{n_all}</b>개')
+        t = self.table
+        t.setRowCount(len(items))
+        self.rows = []
+        R, L = Qt.AlignRight | Qt.AlignVCenter, Qt.AlignLeft | Qt.AlignVCenter
+        for r, it in enumerate(items):
+            rem = it['budget'] - it['spent']
+            left = 100 - _pct(it['spent'], it['budget']) if it['budget'] else 0
+            vals = ((names.get(it['category_id'], ''), L, C.MUTED), (it['description'], L, C.TEXT),
+                    (_fmt(it['budget']), R, C.BODY), (_fmt(rem), R, C.ACCENT), (f'{left:.0f}%', R, C.BODY))
+            for c, (text, al, color) in enumerate(vals):
+                cell = QTableWidgetItem(text)
+                cell.setTextAlignment(al)
+                cell.setForeground(QColor(color))
+                if c == 3:
+                    f = QFont(t.font())
+                    f.setBold(True)
+                    cell.setFont(f)
+                if c == 1:
+                    cell.setToolTip(f"{it['description']} · {it.get('cost_type') or '일반'}")
+                t.setItem(r, c, cell)
+            box = QWidget()
+            hl = QHBoxLayout(box)
+            hl.setContentsMargins(6, 2, 6, 2)
+            hl.setSpacing(6)
+            sp = _SpendButton()
+            sp.clicked.connect(lambda _, iid=it['id']: self._spend(iid))
+            dn = QPushButton('완료')
+            dn.setObjectName('Chip')
+            dn.setCursor(Qt.PointingHandCursor)
+            dn.setToolTip('더 쓰지 않을 항목이면 완료로 (목록에서 빠져요)')
+            dn.clicked.connect(lambda _, iid=it['id']: self._done(iid))
+            hl.addWidget(sp)
+            hl.addWidget(dn)
+            t.setCellWidget(r, 5, box)
+            t.setRowHeight(r, max(px(_sz(38)), sp.height() + px(10)))
+            self.rows.append((it['id'], sp, dn))
+        if self.rows:                                     # 단추 칸은 단추가 다 보이게 (칸 안쪽 여백까지)
+            box = t.cellWidget(0, 5)
+            t.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
+            t.setColumnWidth(5, box.sizeHint().width() + px(24))
+        t.setVisible(bool(items))
+        self.lbl_empty.setVisible(not items)
+
+    def _spend(self, item_id):
+        self.win._open_spend(item_id)
+        self.reload()
+
+    def _done(self, item_id):
+        self.win._toggle_complete(item_id)
+        self.reload()
+
+
 class _CostTypeDialog(QDialog):
     """캡처를 읽을 때 흐린 글자를 바로잡고, 항목을 입력할 때 고를 수 있는 원가통계비목 목록."""
 
